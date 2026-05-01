@@ -44,7 +44,7 @@ export interface IOcclusionCullingTester {
      * @param id - The unique identifier obtained from the lock() call.
      */
     unlock(id: TUnicalId): void;
-    
+
     /**
      * Adds the object to the queue for occlusion testing.
      * @param id - The unique identifier returned earlier by the lock() method.

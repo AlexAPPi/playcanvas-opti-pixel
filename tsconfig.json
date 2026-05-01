@@ -1,8 +1,8 @@
 {
     "compilerOptions": {
         "target": "es2022",
-        "module": "nodenext",
-        "moduleResolution": "nodenext",
+        "module": "amd",
+        "moduleResolution": "node",
         "lib": [
             "DOM",
             "ES2023",
@@ -13,6 +13,7 @@
         ],
         "rootDir": "src",
         "outDir": "dist",
+        "outFile": "dist/index.js",
         "strict": true,
         "skipLibCheck": true,
         "preserveConstEnums": true,
@@ -25,7 +26,7 @@
         "experimentalDecorators": true,
         "forceConsistentCasingInFileNames": true,
     },
-    "include": ["src/**/*"],
+    "include": ["src"],
     "exclude": [
         "src/**/*.test.*",
         "src/**/*.todo.*",

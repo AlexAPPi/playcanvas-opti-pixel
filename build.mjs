@@ -1,5 +1,6 @@
 import * as esbuild from 'esbuild';
 import { typescriptCheckPlugin } from './plugin-typescript-check.mjs';
+import { engineImportPlugin } from './plugin-engine-import.mjs';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
@@ -18,6 +19,7 @@ esbuild.build({
     external: ['playcanvas'],
     plugins: [
         typescriptCheckPlugin,
+        engineImportPlugin,
     ],
 }).catch(() => process.exit(1));
 
@@ -31,5 +33,6 @@ esbuild.build({
     external: ['playcanvas'],
     plugins: [
         typescriptCheckPlugin,
+        engineImportPlugin
     ],
 }).catch(() => process.exit(1));
