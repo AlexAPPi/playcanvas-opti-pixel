@@ -1,9 +1,9 @@
-import pc from "../../../engine";
-import { IndexManager } from "../../../Extras/IndexManager";
-import { OCCLUSION_OCCLUDED, OCCLUSION_UNKNOWN, OCCLUSION_VISIBLE, type IGPU2CPUReadbackOcclusionCullingTester, type TOcclusionResult } from "../../IOcclusionCullingTester";
-import { OCCLUSION_ALGORITHM_TYPE, OCCLUSION_ALGORITHM_TYPE_CONSERVATIVE } from "../Types";
-import { WebglFrameOcclusionQueries } from "./WebglFrameOcclusionQueries";
-import { WebglOcclusionBoxMesh } from "./WebglOcclusionBoxMesh";
+import pc from "../../../engine.js";
+import { IndexManager } from "../../../Extras/IndexManager.js";
+import { OCCLUSION_OCCLUDED, OCCLUSION_UNKNOWN, OCCLUSION_VISIBLE, type IGPU2CPUReadbackOcclusionCullingTester, type TOcclusionResult } from "../../IOcclusionCullingTester.js";
+import { OCCLUSION_ALGORITHM_TYPE, OCCLUSION_ALGORITHM_TYPE_CONSERVATIVE } from "../Types.js";
+import { WebglFrameOcclusionQueries } from "./WebglFrameOcclusionQueries.js";
+import { WebglOcclusionBoxMesh } from "./WebglOcclusionBoxMesh.js";
 
 export class WebglOcclusionQueriesTester implements IGPU2CPUReadbackOcclusionCullingTester {
 

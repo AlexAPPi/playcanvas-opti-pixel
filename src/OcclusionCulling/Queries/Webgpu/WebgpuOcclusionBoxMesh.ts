@@ -1,6 +1,6 @@
-import pc from "../../../engine";
-import { BoxMesh } from "../BoxMesh";
-import { WebgpuQueryScope } from "./WebgpuQueryScope";
+import pc from "../../../engine.js";
+import { BoxMesh } from "../BoxMesh.js";
+import { WebgpuQueryScope } from "./WebgpuQueryScope.js";
 
 const blendNoWrite = pc.BlendState.NOWRITE;
 const depthTestNoWrite = new pc.DepthState(pc.FUNC_LESSEQUAL, false);

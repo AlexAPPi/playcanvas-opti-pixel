@@ -1,8 +1,8 @@
-import { isGPU2CPUReadbackOcclusionCulling, OCCLUSION_OCCLUDED, OCCLUSION_UNKNOWN, type IOcclusionCullingTester } from "../IOcclusionCullingTester";
-import { WebgpuHierarchicalZBuffer } from "./Webgpu/WebgpuHierarchicalZBuffer";
-import { WebglHierarchicalZBuffer } from "./Webgl/WebglHierarchicalZBuffer";
-import { IHierarchicalZBuffer } from "./IHierarchicalZBuffer";
-import pc from "../../engine";
+import { isGPU2CPUReadbackOcclusionCulling, OCCLUSION_OCCLUDED, OCCLUSION_UNKNOWN, type IOcclusionCullingTester } from "../IOcclusionCullingTester.js";
+import { WebgpuHierarchicalZBuffer } from "./Webgpu/WebgpuHierarchicalZBuffer.js";
+import { WebglHierarchicalZBuffer } from "./Webgl/WebglHierarchicalZBuffer.js";
+import { IHierarchicalZBuffer } from "./IHierarchicalZBuffer.js";
+import pc from "../../engine.js";
 
 export interface IDebugInfo {
     inFrustum: boolean,

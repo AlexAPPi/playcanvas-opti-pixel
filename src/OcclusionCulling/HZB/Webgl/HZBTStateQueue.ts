@@ -1,7 +1,7 @@
-import { IndexManager } from "../../../Extras/IndexManager";
-import { HZBTFState } from "./HZBTFState";
-import { OCCLUSION_UNKNOWN } from "../../IOcclusionCullingTester";
-import pc from "../../../engine";
+import { IndexManager } from "../../../Extras/IndexManager.js";
+import { HZBTFState } from "./HZBTFState.js";
+import { OCCLUSION_UNKNOWN } from "../../IOcclusionCullingTester.js";
+import pc from "../../../engine.js";
 
 /*
 let debugDiv: HTMLDivElement;

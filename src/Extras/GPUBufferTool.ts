@@ -1,4 +1,4 @@
-import pc from "../engine";
+import pc from "../engine.js";
 
 export type TArrayConstructor = Float32ArrayConstructor | Uint32ArrayConstructor | Uint16ArrayConstructor | Uint8ArrayConstructor;
 

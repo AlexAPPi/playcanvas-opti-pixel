@@ -1,9 +1,9 @@
-import { GPUAABBStore } from "../../../Extras/GPUAABBStore";
-import { WebglHierarchicalZBuffer } from "./WebglHierarchicalZBuffer";
-import { IHierarchicalZBufferTester } from "../HierarchicalZBufferDebugger";
-import { HZBTStateQueue } from "./HZBTStateQueue";
-import type { IGPU2CPUReadbackOcclusionCullingTester, TOcclusionResult } from "../../IOcclusionCullingTester";
-import pc from "../../../engine";
+import { GPUAABBStore } from "../../../Extras/GPUAABBStore.js";
+import { WebglHierarchicalZBuffer } from "./WebglHierarchicalZBuffer.js";
+import { IHierarchicalZBufferTester } from "../HierarchicalZBufferDebugger.js";
+import { HZBTStateQueue } from "./HZBTStateQueue.js";
+import type { IGPU2CPUReadbackOcclusionCullingTester, TOcclusionResult } from "../../IOcclusionCullingTester.js";
+import pc from "../../../engine.js";
 
 export class WebglHZBCPUFBTester extends GPUAABBStore implements IHierarchicalZBufferTester, IGPU2CPUReadbackOcclusionCullingTester {
 

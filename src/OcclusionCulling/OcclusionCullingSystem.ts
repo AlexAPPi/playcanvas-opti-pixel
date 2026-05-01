@@ -1,12 +1,12 @@
-import { IHierarchicalZBuffer } from "./HZB/IHierarchicalZBuffer";
-import { WebglHZBCPUFBTester } from "./HZB/Webgl/WebglHZBCPUFBTester";
-import { HierarchicalZBufferDebugger, IHierarchicalZBufferTester } from "./HZB/HierarchicalZBufferDebugger";
-import { WebglHierarchicalZBuffer } from "./HZB/Webgl/WebglHierarchicalZBuffer";
-import { WebgpuHierarchicalZBuffer } from "./HZB/Webgpu/WebgpuHierarchicalZBuffer";
-import { WebglOcclusionQueriesTester } from "./Queries/Webgl/WebglOcclusionQueriesTester";
-import { WebgpuOcclusionQueriesTester } from "./Queries/Webgpu/WebgpuOcclusionQueriesTester";
-import { IGPU2CPUReadbackOcclusionCullingTester, isGPU2CPUReadbackOcclusionCulling } from "./IOcclusionCullingTester";
-import pc from "../engine";
+import { IHierarchicalZBuffer } from "./HZB/IHierarchicalZBuffer.js";
+import { WebglHZBCPUFBTester } from "./HZB/Webgl/WebglHZBCPUFBTester.js";
+import { HierarchicalZBufferDebugger, IHierarchicalZBufferTester } from "./HZB/HierarchicalZBufferDebugger.js";
+import { WebglHierarchicalZBuffer } from "./HZB/Webgl/WebglHierarchicalZBuffer.js";
+import { WebgpuHierarchicalZBuffer } from "./HZB/Webgpu/WebgpuHierarchicalZBuffer.js";
+import { WebglOcclusionQueriesTester } from "./Queries/Webgl/WebglOcclusionQueriesTester.js";
+import { WebgpuOcclusionQueriesTester } from "./Queries/Webgpu/WebgpuOcclusionQueriesTester.js";
+import { IGPU2CPUReadbackOcclusionCullingTester, isGPU2CPUReadbackOcclusionCulling } from "./IOcclusionCullingTester.js";
+import pc from "../engine.js";
 
 export class OcclusionCullingSystem extends pc.EventHandler {
 

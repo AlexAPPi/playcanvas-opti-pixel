@@ -1,5 +1,5 @@
-import pc from "../../../engine";
-import { OCCLUSION_ALGORITHM_TYPE, OCCLUSION_ALGORITHM_TYPE_CONSERVATIVE } from "../Types";
+import pc from "../../../engine.js";
+import { OCCLUSION_ALGORITHM_TYPE, OCCLUSION_ALGORITHM_TYPE_CONSERVATIVE } from "../Types.js";
 
 export class WebglQueryScope {
 

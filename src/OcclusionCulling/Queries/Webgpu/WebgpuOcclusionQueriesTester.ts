@@ -1,7 +1,7 @@
-import pc from "../../../engine";
-import { IndexManager } from "../../../Extras/IndexManager";
-import { IGPU2CPUReadbackOcclusionCullingTester, OCCLUSION_UNKNOWN, TOcclusionResult, TUnicalId } from "../../IOcclusionCullingTester";
-import { WebgpuOcclusionBoxMesh } from "./WebgpuOcclusionBoxMesh";
+import pc from "../../../engine.js";
+import { IndexManager } from "../../../Extras/IndexManager.js";
+import { IGPU2CPUReadbackOcclusionCullingTester, OCCLUSION_UNKNOWN, TOcclusionResult, TUnicalId } from "../../IOcclusionCullingTester.js";
+import { WebgpuOcclusionBoxMesh } from "./WebgpuOcclusionBoxMesh.js";
 
 export class WebgpuOcclusionQueriesTester implements IGPU2CPUReadbackOcclusionCullingTester {
 

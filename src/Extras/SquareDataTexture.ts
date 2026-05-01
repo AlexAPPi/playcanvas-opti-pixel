@@ -1,4 +1,4 @@
-import pc from "../engine";
+import pc from "../engine.js";
 
 export type TChannelSize = 1 | 2 | 4;
 export type TTypedArrayBufferLike = Float32Array<ArrayBufferLike> | Uint32Array<ArrayBufferLike> | Uint16Array<ArrayBufferLike> | Uint8Array<ArrayBufferLike>;

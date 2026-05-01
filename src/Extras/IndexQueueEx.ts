@@ -1,4 +1,4 @@
-import { IndexManager } from "./IndexManager";
+import { IndexManager } from "./IndexManager.js";
 
 export class IndexQueueEx {
 

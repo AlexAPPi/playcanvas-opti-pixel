@@ -1,9 +1,9 @@
-import { BitSet } from "../../../Extras/BitSet";
-import { GPUIndexQueue } from "../../../Extras/GPUIndexQueue";
-import { IndexManager } from "../../../Extras/IndexManager";
-import { OCCLUSION_OCCLUDED, OCCLUSION_UNKNOWN, OCCLUSION_VISIBLE, TOcclusionResult } from "../../IOcclusionCullingTester";
-import { WebglReadbackBuffer } from "../../../Extras/WebglReadbackBuffer";
-import pc from "../../../engine";
+import { BitSet } from "../../../Extras/BitSet.js";
+import { GPUIndexQueue } from "../../../Extras/GPUIndexQueue.js";
+import { IndexManager } from "../../../Extras/IndexManager.js";
+import { OCCLUSION_OCCLUDED, OCCLUSION_UNKNOWN, OCCLUSION_VISIBLE, TOcclusionResult } from "../../IOcclusionCullingTester.js";
+import { WebglReadbackBuffer } from "../../../Extras/WebglReadbackBuffer.js";
+import pc from "../../../engine.js";
 
 export class HZBTFState {
 

@@ -1,6 +1,6 @@
 
-import pc from "../engine";
-import { GPUElementsStore } from "./GPUElementsStore";
+import pc from "../engine.js";
+import { GPUElementsStore } from "./GPUElementsStore.js";
 
 const _data = new Float32Array(16);
 const _aabb = new pc.BoundingBox();

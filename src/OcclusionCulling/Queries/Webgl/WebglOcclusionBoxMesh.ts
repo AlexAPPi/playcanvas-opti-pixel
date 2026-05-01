@@ -1,7 +1,7 @@
-import pc from "../../../engine";
-import { BoxMesh } from "../BoxMesh";
-import { OCCLUSION_ALGORITHM_TYPE_CONSERVATIVE } from "../Types";
-import { WebglQueryScope } from "./WebglQueryScope";
+import pc from "../../../engine.js";
+import { BoxMesh } from "../BoxMesh.js";
+import { OCCLUSION_ALGORITHM_TYPE_CONSERVATIVE } from "../Types.js";
+import { WebglQueryScope } from "./WebglQueryScope.js";
 
 const blendNoWrite = pc.BlendState.NOWRITE;
 const depthTestNoWrite = new pc.DepthState(pc.FUNC_LESSEQUAL, false);

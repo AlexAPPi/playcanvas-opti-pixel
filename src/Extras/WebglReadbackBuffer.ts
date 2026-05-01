@@ -1,4 +1,4 @@
-import pc from "../engine";
+import pc from "../engine.js";
 
 export class WebglReadbackBuffer extends pc.VertexBuffer {
 

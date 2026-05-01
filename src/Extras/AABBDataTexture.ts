@@ -1,5 +1,5 @@
-import pc from "../engine";
-import { SquareDataTexture } from "./SquareDataTexture";
+import pc from "../engine.js";
+import { SquareDataTexture } from "./SquareDataTexture.js";
 
 const _channels = 4;
 const _pixelsPerInstance = 2;

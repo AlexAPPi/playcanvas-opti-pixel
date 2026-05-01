@@ -1,7 +1,7 @@
-import pc from "../../../engine";
-import { OCCLUSION_ALGORITHM_TYPE, OCCLUSION_ALGORITHM_TYPE_CONSERVATIVE } from "../Types";
-import { WebgpuOcclusionBoxMesh } from "./WebgpuOcclusionBoxMesh";
-import { WebgpuQueryScope } from "./WebgpuQueryScope";
+import pc from "../../../engine.js";
+import { OCCLUSION_ALGORITHM_TYPE, OCCLUSION_ALGORITHM_TYPE_CONSERVATIVE } from "../Types.js";
+import { WebgpuOcclusionBoxMesh } from "./WebgpuOcclusionBoxMesh.js";
+import { WebgpuQueryScope } from "./WebgpuQueryScope.js";
 
 // TODO
 

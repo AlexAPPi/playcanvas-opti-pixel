@@ -1,8 +1,8 @@
 
-import pc from "../engine";
-import { GPUBufferTool } from "./GPUBufferTool";
-import { IndexManager } from "./IndexManager";
-import { IndexQueueEx } from "./IndexQueueEx";
+import pc from "../engine.js";
+import { GPUBufferTool } from "./GPUBufferTool.js";
+import { IndexManager } from "./IndexManager.js";
+import { IndexQueueEx } from "./IndexQueueEx.js";
 
 export class GPUIndexQueue {
 

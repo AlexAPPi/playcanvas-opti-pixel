@@ -1,6 +1,6 @@
-import { IHierarchicalZBuffer } from "../IHierarchicalZBuffer";
-import cshader from "./WebgpuHierarchicalZBuffer.wsgl";
-import pc from "../../../engine";
+import { IHierarchicalZBuffer } from "../IHierarchicalZBuffer.js";
+import cshader from "./WebgpuHierarchicalZBuffer.wsgl.js";
+import pc from "../../../engine.js";
 
 export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
 

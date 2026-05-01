@@ -1,4 +1,4 @@
-import pc from "../../engine";
+import pc from "../../engine.js";
 
 export interface IHierarchicalZBuffer {
     readonly buffers?: pc.Texture[] | undefined;

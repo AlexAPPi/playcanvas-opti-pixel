@@ -1,7 +1,7 @@
-import pc from "../../../engine";
-import { OCCLUSION_ALGORITHM_TYPE, OCCLUSION_ALGORITHM_TYPE_CONSERVATIVE } from "../Types";
-import { WebglOcclusionBoxMesh } from "./WebglOcclusionBoxMesh";
-import { WebglQueryScope } from "./WebglQueryScope";
+import pc from "../../../engine.js";
+import { OCCLUSION_ALGORITHM_TYPE, OCCLUSION_ALGORITHM_TYPE_CONSERVATIVE } from "../Types.js";
+import { WebglOcclusionBoxMesh } from "./WebglOcclusionBoxMesh.js";
+import { WebglQueryScope } from "./WebglQueryScope.js";
 
 export class WebglFrameOcclusionQueries<TKey = number> {
 

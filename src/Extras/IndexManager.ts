@@ -1,4 +1,4 @@
-import { BitSet } from "./BitSet";
+import { BitSet } from "./BitSet.js";
 
 export class IndexManager {
 

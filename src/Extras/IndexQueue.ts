@@ -1,5 +1,5 @@
-import { IndexManager } from "./IndexManager";
-import { IndexQueueEx } from "./IndexQueueEx";
+import { IndexManager } from "./IndexManager.js";
+import { IndexQueueEx } from "./IndexQueueEx.js";
 
 export class IndexQueue extends IndexQueueEx {
 

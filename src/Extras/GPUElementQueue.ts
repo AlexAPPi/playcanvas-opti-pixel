@@ -1,7 +1,7 @@
-import pc from "../engine";
-import { GPUElementsStore } from "./GPUElementsStore";
-import { GPUIndexQueue } from "./GPUIndexQueue";
-import { type TChannelSize, type TTypedArray, type TTypedArrayConstructor } from "./SquareDataTexture";
+import pc from "../engine.js";
+import { GPUElementsStore } from "./GPUElementsStore.js";
+import { GPUIndexQueue } from "./GPUIndexQueue.js";
+import { type TChannelSize, type TTypedArray, type TTypedArrayConstructor } from "./SquareDataTexture.js";
 
 export class GPUElementQueue<TTTypedArray extends TTypedArray> extends GPUElementsStore<TTTypedArray> {
 

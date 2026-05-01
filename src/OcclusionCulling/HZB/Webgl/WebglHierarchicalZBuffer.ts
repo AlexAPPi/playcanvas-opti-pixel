@@ -1,7 +1,7 @@
-import { IHierarchicalZBuffer } from "../IHierarchicalZBuffer";
-import vertexCodeVS from "./WebglHierarchicalZBuffer.vert.glsl";
-import fragmentCodePS from "./WebglHierarchicalZBuffer.frag.glsl";
-import pc from "../../../engine";
+import { IHierarchicalZBuffer } from "../IHierarchicalZBuffer.js";
+import vertexCodeVS from "./WebglHierarchicalZBuffer.vert.glsl.js";
+import fragmentCodePS from "./WebglHierarchicalZBuffer.frag.glsl.js";
+import pc from "../../../engine.js";
 
 export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
 

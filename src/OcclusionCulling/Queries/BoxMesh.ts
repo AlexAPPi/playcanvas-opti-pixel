@@ -1,4 +1,4 @@
-import pc from "../../engine";
+import pc from "../../engine.js";
 
 const indices = new Uint16Array([
     0, 2, 1,
