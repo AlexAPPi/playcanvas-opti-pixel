@@ -2,6 +2,18 @@ import pc from "../engine";
 
 export type TUnicalId = number;
 
+export const FRUSTUM_UNKNOWN    = -1;
+export const FRUSTUM_OUTSIDE    = 0;
+export const FRUSTUM_INTERSECTS = 1;
+export const FRUSTUM_CONTAINED  = 2;
+
+export const OCCLUSION_UNKNOWN  = -1;
+export const OCCLUSION_VISIBLE  = 1;
+export const OCCLUSION_OCCLUDED = 0;
+
+export type TOcclusionResult = typeof OCCLUSION_UNKNOWN | typeof OCCLUSION_VISIBLE | typeof OCCLUSION_OCCLUDED;
+export type TFrustumResult = typeof FRUSTUM_UNKNOWN | typeof FRUSTUM_OUTSIDE | typeof FRUSTUM_INTERSECTS | typeof FRUSTUM_CONTAINED;
+
 export function isGPUOcclusionCulling<TProvider = unknown>(x: IOcclusionCullingTester | IGPUOcclusionCullingTester<TProvider> | null | undefined): x is IGPUOcclusionCullingTester<TProvider> {
     return !!x && x.supportGCPUReadback !== undefined;
 }
@@ -9,12 +21,6 @@ export function isGPUOcclusionCulling<TProvider = unknown>(x: IOcclusionCullingT
 export function isGPU2CPUReadbackOcclusionCulling(x: IOcclusionCullingTester | null | undefined): x is IGPU2CPUReadbackOcclusionCullingTester {
     return isGPUOcclusionCulling(x) && x.supportGCPUReadback;
 }
-
-export const OCCLUSION_UNKNOWN  = -1;
-export const OCCLUSION_VISIBLE  = 1;
-export const OCCLUSION_OCCLUDED = 0;
-
-export type TOcclusionResult = typeof OCCLUSION_UNKNOWN | typeof OCCLUSION_VISIBLE | typeof OCCLUSION_OCCLUDED;
 
 /**
  * Interface for working with an occlusion culling testing system.

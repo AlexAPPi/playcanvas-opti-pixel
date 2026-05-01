@@ -5,8 +5,7 @@
   "scripts": {
     "build:types": "tsc -p tsconfig.json",
     "build:esbuild": "node ./build.mjs",
-    "build": "npm run build:types && npm run build:esbuild",
-    "watch": "node ./watch.mjs"
+    "build": "npm run build:types && npm run build:esbuild"
   },
   "author": "Alexandr Shamarin",
   "license": "Apache-2.0",
@@ -18,7 +17,7 @@
     "playcanvas-sync": "^1.1.1",
     "typescript": "^5.1.6"
   },
-  "main": "index.js",
+  "main": "dist/index.cjs.js",
   "module": "dist/index.esm.js",
   "typings": "dist/index.d.ts",
   "description": ""
