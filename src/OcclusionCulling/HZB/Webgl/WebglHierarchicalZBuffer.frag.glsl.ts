@@ -6,11 +6,9 @@ export default `
     uniform int uIncludeSrcExtraColumn;
     uniform int uIncludeSrcExtraRow;
     uniform int uReadLevel;
+    uniform highp sampler2D uDepthMip;
 
     varying vec2 uv0;
-
-    uniform highp sampler2D uScreenDepth;
-    uniform highp sampler2D uDepthMip;
 
     #include "floatAsUintPS"
 
