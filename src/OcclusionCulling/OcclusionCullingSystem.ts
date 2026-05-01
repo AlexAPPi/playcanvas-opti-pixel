@@ -40,6 +40,11 @@ export class OcclusionCullingSystem extends pc.EventHandler {
     public set queriesLayerName(name: string) { this._queriesLayerName = name; }
     public get queriesTester(): IGPU2CPUReadbackOcclusionCullingTester | null { return this._queriesTester; }
 
+    public get capacity() { return this._capacity; }
+    public set capacity(value: number) {
+        this.resize(value);
+    }
+
     constructor(app: pc.AppBase, capacity: number = 5000) {
         super();
         this.app = app;
@@ -56,6 +61,12 @@ export class OcclusionCullingSystem extends pc.EventHandler {
         this._hzbTester?.destroy();
         this._hzbDebugger?.destroy();
         this._queriesTester?.destroy();
+    }
+
+    public resize(value: number) {
+        this._capacity = value;
+        this._hzbTester?.resize(value);
+        this._queriesTester?.resize(value);
     }
 
     private _initHZB() {
