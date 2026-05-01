@@ -1,8 +1,8 @@
 {
     "compilerOptions": {
         "target": "es2022",
-        "module": "amd",
-        "moduleResolution": "node",
+        "module": "nodenext",
+        "moduleResolution": "nodenext",
         "lib": [
             "DOM",
             "ES2023",
@@ -13,7 +13,6 @@
         ],
         "rootDir": "src",
         "outDir": "dist",
-        "outFile": "dist/index.js",
         "strict": true,
         "skipLibCheck": true,
         "preserveConstEnums": true,
