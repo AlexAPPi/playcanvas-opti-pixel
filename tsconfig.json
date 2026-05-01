@@ -1,0 +1,33 @@
+{
+    "compilerOptions": {
+        "target": "es2022",
+        "module": "nodenext",
+        "moduleResolution": "nodenext",
+        "lib": [
+            "DOM",
+            "ES2023",
+        ],
+        "allowJs": true,
+        "types": [
+            "@webgpu/types"
+        ],
+        "rootDir": "src",
+        "outDir": "dist",
+        "strict": true,
+        "skipLibCheck": true,
+        "preserveConstEnums": true,
+        "strictPropertyInitialization": false,
+        "inlineSourceMap": false,
+        "inlineSources": false,
+        "sourceMap": false,
+        "declaration": true,
+        "emitDeclarationOnly": true,
+        "experimentalDecorators": true,
+        "forceConsistentCasingInFileNames": true,
+    },
+    "include": ["src/**/*"],
+    "exclude": [
+        "src/**/*.test.*",
+        "src/**/*.todo.*",
+    ]
+}
