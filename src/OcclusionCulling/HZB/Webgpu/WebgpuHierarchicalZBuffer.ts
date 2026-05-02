@@ -211,7 +211,8 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
 
     public update(camera: pc.Camera) {
 
-        if (!this._device ||
+        if (!this._enabled ||
+            !this._device ||
             !this._device.supportsCompute) {
             return;
         }

@@ -297,6 +297,10 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
 
     public update(camera: pc.Camera) {
 
+        if (!this._enabled) {
+            return;
+        }
+
         const device = this._device;
 
         // TODO: During testing on Android, the construction of
