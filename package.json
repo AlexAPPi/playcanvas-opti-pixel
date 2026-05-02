@@ -1,6 +1,6 @@
 {
   "name": "playcanvas-opti-pixel",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "type": "commonjs",
   "scripts": {
     "build:types": "tsc -p tsconfig.json",
