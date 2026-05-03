@@ -13,6 +13,13 @@ export class AABBDataTexture extends SquareDataTexture<Float32Array> {
         super(device, Float32Array, _channels, _pixelsPerInstance, capacity);
     }
 
+    public get(index: number, boundingBox: pc.BoundingBox) {
+        const dataIndex = index * 8;
+        const aabbData = this.data;
+        boundingBox.center.set(aabbData[dataIndex + 0], aabbData[dataIndex + 1], aabbData[dataIndex + 2]);
+        boundingBox.halfExtents.set(aabbData[dataIndex + 4], aabbData[dataIndex + 5], aabbData[dataIndex + 6]);
+    }
+
     public tryEnqueueAABBUpdate(index: number, boundingBox: pc.BoundingBox, matrix?: pc.Mat4) {
 
         let resultBoundingBox = boundingBox;
@@ -32,7 +39,7 @@ export class AABBDataTexture extends SquareDataTexture<Float32Array> {
             this._data[dataIndex + 0] = center.x;
             differences = true;
         }
-        
+
         if (this._data[dataIndex + 1] !== center.y) {
             this._data[dataIndex + 1] = center.y;
             differences = true;
@@ -47,7 +54,7 @@ export class AABBDataTexture extends SquareDataTexture<Float32Array> {
             this._data[dataIndex + 4] = halfExtents.x;
             differences = true;
         }
-        
+
         if (this._data[dataIndex + 5] !== halfExtents.y) {
             this._data[dataIndex + 5] = halfExtents.y;
             differences = true;

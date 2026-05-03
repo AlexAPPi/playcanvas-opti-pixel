@@ -1,35 +1,11 @@
-import { isGPU2CPUReadbackOcclusionCulling, OCCLUSION_OCCLUDED, OCCLUSION_UNKNOWN, type IOcclusionCullingTester } from "../IOcclusionCullingTester.js";
+// Shaders
+import debugShaderGLSL from "./HierarchicalZBufferDebugger.glsl.js";
+import debugShaderWGSL from "./HierarchicalZBufferDebugger.wgsl.js";
+import pc from "../../engine.js";
+import { isGPU2CPUReadbackOcclusionCullingTester, OCCLUSION_OCCLUDED, OCCLUSION_UNKNOWN } from "../IOcclusionCullingTester.js";
 import { WebgpuHierarchicalZBuffer } from "./Webgpu/WebgpuHierarchicalZBuffer.js";
 import { WebglHierarchicalZBuffer } from "./Webgl/WebglHierarchicalZBuffer.js";
-import { IHierarchicalZBuffer } from "./IHierarchicalZBuffer.js";
-import pc from "../../engine.js";
-
-export interface IDebugInfo {
-    inFrustum: boolean,
-    lod: number,
-    viewSize: pc.Vec2,
-    boundingBox: {
-        center: pc.Vec3,
-        halfExtends: pc.Vec3,
-    },
-    rectangle: {
-        x: number,
-        y: number,
-        width: number,
-        height: number,
-    }
-}
-
-export interface IHierarchicalZBufferTester extends IOcclusionCullingTester {
-
-    readonly dataTexture: pc.Texture;
-
-    hzb: IHierarchicalZBuffer;
-
-    frameUpdate(): void;
-
-    getDebugInfo(index: number): IDebugInfo;
-}
+import { IHierarchicalZBufferTester } from "./IHierarchicalZBufferTester.js";
 
 export class HierarchicalZBufferDebugger {
 
@@ -72,102 +48,29 @@ export class HierarchicalZBufferDebugger {
 
     private _initDeps() {
 
+        const defines =
+            !this.hzb.isColor() ?   '#define READ_DEPTH' :
+             this.hzb.isFloat32() ? '#define DEPTH_IS_FLOAT' :
+                                    '';
+
         this._debugTextureShaderDesc = this._app.scene.immediate.getShaderDesc('HZB_DEBUG_TEXTURE_SHADER',
             `
-                ${!this.hzb.isColor() ?   '#define READ_DEPTH' :
-                   this.hzb.isFloat32() ? '#define DEPTH_IS_FLOAT' : ''}
-
-                #include "floatAsUintPS"
-                #include "gammaPS"
-                varying vec2 uv0;
-
-                uniform vec4 camera_params;
-                uniform float uDepthMipLevel;
-                uniform highp sampler2D uDepthMip;
-
-                float linearizeDepth(float z) {
-                    if (camera_params.w == 0.0) {
-                        return (camera_params.z * camera_params.y) / (camera_params.y + z * (camera_params.z - camera_params.y));
-                    }
-                    return camera_params.z + z * (camera_params.y - camera_params.z);
-                }
-
-                float extractDepthFromData(vec4 data) {
-                    #ifdef (DEPTH_IS_FLOAT || READ_DEPTH)
-                        return data.r;
-                    #else
-                        return uint2float(data);
-                    #endif
-                }
-
-                float getLinearScreenDepth(vec2 uv) {
-                    vec4 depthData = textureLod(uDepthMip, uv, uDepthMipLevel);
-                    float depth = extractDepthFromData(depthData);
-                    return linearizeDepth(depth);
-                }
-
-                void main() {
-                    vec2 mirrorYUV = vec2(uv0.x, 1.0 - uv0.y);
-                    float depth = getLinearScreenDepth(getImageEffectUV(mirrorYUV)) * camera_params.x;
-                    gl_FragColor = vec4(gammaCorrectOutput(vec3(depth)), 1.0);
-                }
+                ${defines}
+                ${debugShaderGLSL}
             `,
             `
-                ${!this.hzb.isColor() ?   '#define READ_DEPTH' :
-                   this.hzb.isFloat32() ? '#define DEPTH_IS_FLOAT' : ''}
-
-                #include "floatAsUintPS"
-                #include "gammaPS"
-                varying uv0: vec2f;
-
-                uniform uDepthMipLevel: f32;
-                uniform camera_params: vec4f;
-
-                var uDepthMip: texture_2d<f32>;
-                var uDepthMipSampler: sampler;
-
-                fn linearizeDepth(z: f32, cameraParams: vec4f) -> f32 {
-                    if (cameraParams.w == 0.0) {
-                        return (cameraParams.z * cameraParams.y) / (cameraParams.y + z * (cameraParams.z - cameraParams.y));
-                    }
-                    return cameraParams.z + z * (cameraParams.y - cameraParams.z);
-                }
-
-                fn extractDepthFromData(data: vec4f) -> f32 {
-                    #ifdef (DEPTH_IS_FLOAT || READ_DEPTH)
-                        return data.r;
-                    #else
-                        return uint2float(data);
-                    #endif
-                }
-
-                fn getLinearScreenDepth(uv: vec2<f32>, depthMipLevel: f32, cameraParams: vec4f) -> f32 {
-                    let depthData = textureSampleLevel(uDepthMip, uDepthMipSampler, uv, depthMipLevel);
-                    let depthSample = extractDepthFromData(depthData);
-                    return linearizeDepth(depthSample, cameraParams);
-                }
-
-                @fragment fn fragmentMain(input: FragmentInput) -> FragmentOutput {
-                    var output: FragmentOutput;
-                    let mirrorYUV = vec2<f32>(input.uv0.x, 1.0 - input.uv0.y);
-                    let depth: f32 = getLinearScreenDepth(getImageEffectUV(mirrorYUV), uniform.uDepthMipLevel, uniform.camera_params) * uniform.camera_params.x;
-                    output.color = vec4f(gammaCorrectOutput(vec3f(depth)), 1.0);
-                    return output;
-                };
+                ${defines}
+                ${debugShaderWGSL}
             `
         );
     }
 
     public debug() {
-
         const m = this.hzb.mipLevels - 1;
         const h = Math.floor(m / 2);
-
         this.debugBuffer(0, 0.75, 0.5, 0.25, 0.25);
         this.debugBuffer(h, 0.75, 0.0, 0.25, 0.25);
         this.debugBuffer(m, 0.75, -0.5, 0.25, 0.25);
-
-        //this._app.drawTexture(-0.25, -0.5, 0.25, 0.25, this._hzbTester.resultTexture, undefined!);
     }
 
     public debugBuffer(i: number, x: number, y: number, width: number, height: number) {
@@ -202,7 +105,7 @@ export class HierarchicalZBufferDebugger {
 
         let occlusionStatus = OCCLUSION_UNKNOWN;
 
-        if (isGPU2CPUReadbackOcclusionCulling(this._hzbTester)) {
+        if (isGPU2CPUReadbackOcclusionCullingTester(this._hzbTester)) {
             occlusionStatus = this._hzbTester.getOcclusionStatus(index);
         }
 

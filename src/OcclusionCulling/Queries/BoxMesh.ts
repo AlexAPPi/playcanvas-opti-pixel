@@ -1,4 +1,8 @@
 import pc from "../../engine.js";
+import vertexGLSL from "./BoxMesh.vert.glsl.js";
+import fragmentGLSL from "./BoxMesh.vert.glsl.js";
+import vertexWGSL from "./BoxMesh.vert.wgsl.js";
+import fragmentWGSL from "./BoxMesh.frag.wgsl.js";
 
 const indices = new Uint16Array([
     0, 2, 1,
@@ -81,41 +85,13 @@ export class BoxMesh<TGraphicsDevice extends pc.GraphicsDevice> {
         this._shader?.destroy();
         this._shader = pc.ShaderUtils.createShader(this._device, {
             uniqueName: "OcclusionCullingBoxShader",
+            vertexGLSL,
+            fragmentGLSL,
+            vertexWGSL,
+            fragmentWGSL,
             attributes: {
                 aPosition: pc.SEMANTIC_POSITION
-            },
-
-            // GLSL
-            vertexGLSL: `
-                attribute vec3 aPosition;
-                uniform mat4 matrix_modelViewProjectionOccCull;
-                void main(void) {
-                    gl_Position = matrix_modelViewProjectionOccCull * vec4(aPosition, 1.0);
-                }
-            `,
-            fragmentGLSL: `
-                void main(void) {
-                    gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);
-                }
-            `,
-
-            // WGSL
-            vertexWGSL: `
-                attribute aPosition: vec3f;
-                uniform matrix_modelViewProjectionOccCull: mat4x4f;
-                @vertex fn vertexMain(input: VertexInput) -> VertexOutput {
-                    var output: VertexOutput;
-                    output.position = uniform.matrix_modelViewProjectionOccCull * vec4f(input.aPosition, 1.0);
-                    return output;
-                }
-            `,
-            fragmentWGSL: `
-                @fragment fn fragmentMain(input : FragmentInput) -> FragmentOutput {
-                    var output: FragmentOutput;
-                    output.color = vec4f(1.0, 1.0, 1.0, 1.0);
-                    return output;
-                }
-            `
+            }
         });
     }
 

@@ -13,7 +13,7 @@ export class HZBTFState {
     public keyStore: BitSet;
 
     public indexQueue: GPUIndexQueue;
-    public outputBuffer: WebglReadbackBuffer;
+    public outputBuffer: WebglReadbackBuffer<Uint32Array<ArrayBuffer>>;
 
     public get lock() { return this._lock; }
     public get count() { return this.indexQueue.count; }
@@ -25,11 +25,16 @@ export class HZBTFState {
     }
 
     public resize() {
+
         this.indexQueue.resize();
         this.data = new Uint32Array(this.indexQueue.capacity);
         this.keyStore = new BitSet(this.indexQueue.capacity);
         this.outputBuffer?.destroy();
-        this.outputBuffer = new WebglReadbackBuffer(this.indexQueue.device as pc.WebglGraphicsDevice, this.indexQueue.capacity);
+
+        const device = this.indexQueue.device as pc.WebglGraphicsDevice;
+        const capacity = this.indexQueue.capacity;
+
+        this.outputBuffer = new WebglReadbackBuffer(device, capacity, 4, Uint32Array);
     }
 
     public destroy() {
@@ -54,14 +59,22 @@ export class HZBTFState {
         return this.indexQueue.enqueue(index, extra);
     }
 
+    public getData(index: number): number {
+        if (!this.keyStore.get(index)) {
+            return -1;
+        }
+        return this.data[index];
+    }
+
     public getOcclusionStatus(index: number): TOcclusionResult {
 
         if (!this.keyStore.get(index)) {
             return OCCLUSION_UNKNOWN;
         }
 
-        // See hzb test shader
-        if (this.data[index] === 1) {
+        // See shader function getFlags
+        const value = (this.data[index] >>> 0) & 0x3;
+        if (value === 1) {
             return OCCLUSION_OCCLUDED;
         }
 

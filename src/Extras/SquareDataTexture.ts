@@ -152,7 +152,8 @@ export class SquareDataTexture<TTTypedArray extends TTypedArray> {
                 addressU: pc.ADDRESS_CLAMP_TO_EDGE,
                 addressV: pc.ADDRESS_CLAMP_TO_EDGE,
                 numLevels: 1,
-                levels: [array as any]
+                levels: [array as any],
+                storage: true
             });
         }
     }
@@ -266,7 +267,7 @@ export class SquareDataTexture<TTTypedArray extends TTypedArray> {
                 if (!alignedData || alignedData.length < requiredBufferSize) {
                     alignedData = new Uint8Array(requiredBufferSize);
                 }
-                
+
                 for (let subRow = 0; subRow < count; subRow++) {
                     const srcStart = (row + subRow) * bytesPerRowUnaligned;
                     const srcEnd = srcStart + bytesPerRowUnaligned;

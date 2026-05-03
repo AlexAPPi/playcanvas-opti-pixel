@@ -25,7 +25,7 @@ export class WebgpuOcclusionBoxMesh extends BoxMesh<pc.WebgpuGraphicsDevice> {
     public makeQuery(encoder: GPURenderPassEncoder, scope: WebgpuQueryScope, first: boolean = true, last: boolean = true) {
 
         this.setMMatrix(scope.box);
-        
+
         const indexBuffer = this.mesh.indexBuffer[0];
         const primitive = this.mesh.primitive[0];
 

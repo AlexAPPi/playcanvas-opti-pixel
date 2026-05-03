@@ -9,10 +9,10 @@ export class GPUIndexQueue {
     protected _device: pc.GraphicsDevice;
     protected _instancing: boolean;
     protected _indexQueue: IndexQueueEx;
-    protected _vertexBuffer: pc.VertexBuffer;
+    protected _buffer: pc.VertexBuffer;
 
     public get device() { return this._device; }
-    public get vertexBuffer() { return this._vertexBuffer; }
+    public get buffer() { return this._buffer; }
     public get size() { return this._indexQueue.size; }
     public get dirty() { return this._indexQueue.dirty; }
     public get count() { return this._indexQueue.count; }
@@ -52,20 +52,23 @@ export class GPUIndexQueue {
     }
 
     protected _recreateKeyBuffer() {
+
+        this._buffer?.destroy();
+
         const dataBuffer = this._indexQueue.indexes.buffer;
-        const bufferFormat = this._getBufferFormat();
         const numVertices = this._indexQueue.capacity;
-        this._vertexBuffer?.destroy();
-        this._vertexBuffer = new pc.VertexBuffer(this._device, bufferFormat, numVertices, {
+        const bufferFormat = this._getBufferFormat();
+        this._buffer = new pc.VertexBuffer(this._device, bufferFormat, numVertices, {
             usage: pc.BUFFER_STREAM,
-            data: dataBuffer
+            data: dataBuffer,
+            storage: true
         });
-        this._vertexBuffer.unlock();
+        this._buffer.unlock();
     }
 
     public destroy() {
-        this._vertexBuffer?.destroy();
-        this._vertexBuffer = null!;
+        this._buffer?.destroy();
+        this._buffer = null!;
     }
 
     public resize() {
@@ -87,7 +90,7 @@ export class GPUIndexQueue {
             this._indexQueue.dirty) {
 
             GPUBufferTool.update(
-                this._vertexBuffer,
+                this._buffer,
                 this._indexQueue.indexes,
                 this._indexQueue.size
             );

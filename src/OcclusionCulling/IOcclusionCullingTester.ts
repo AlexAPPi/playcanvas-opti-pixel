@@ -1,6 +1,9 @@
 import pc from "../engine.js";
 
 export type TUnicalId = number;
+export type TUnicalQueueIndex = number;
+
+export const SOME_ENQUEUE_PROBLEM = -1;
 
 export const FRUSTUM_UNKNOWN    = -1;
 export const FRUSTUM_OUTSIDE    = 0;
@@ -14,12 +17,19 @@ export const OCCLUSION_OCCLUDED = 0;
 export type TOcclusionResult = typeof OCCLUSION_UNKNOWN | typeof OCCLUSION_VISIBLE | typeof OCCLUSION_OCCLUDED;
 export type TFrustumResult = typeof FRUSTUM_UNKNOWN | typeof FRUSTUM_OUTSIDE | typeof FRUSTUM_INTERSECTS | typeof FRUSTUM_CONTAINED;
 
-export function isGPUOcclusionCulling<TProvider = unknown>(x: IOcclusionCullingTester | IGPUOcclusionCullingTester<TProvider> | null | undefined): x is IGPUOcclusionCullingTester<TProvider> {
-    return !!x && x.supportGCPUReadback !== undefined;
+export function isGPUOcclusionCullingTester(x: unknown): x is IOcclusionCullingTester {
+    return !!x && (
+        (x as any)._ocTesterType === 'gpu2cpu_readback_oct'  ||
+        (x as any)._ocTesterType === 'gpu_indirect_draw_oct'
+    );
 }
 
-export function isGPU2CPUReadbackOcclusionCulling(x: IOcclusionCullingTester | null | undefined): x is IGPU2CPUReadbackOcclusionCullingTester {
-    return isGPUOcclusionCulling(x) && x.supportGCPUReadback;
+export function isGPU2CPUReadbackOcclusionCullingTester(x: unknown): x is IGPU2CPUReadbackOcclusionCullingTester {
+    return (x as any)?._ocTesterType === 'gpu2cpu_readback_oct';
+}
+
+export function isGPUIndirectDrawOcclusionCullingTester(x: unknown): x is IGPUIndirectDrawOcclusionCullingTester {
+    return (x as any)?._ocTesterType === 'gpu_indirect_draw_oct';
 }
 
 /**
@@ -29,7 +39,7 @@ export function isGPU2CPUReadbackOcclusionCulling(x: IOcclusionCullingTester | n
  */
 export interface IOcclusionCullingTester {
 
-    readonly supportGCPUReadback: boolean;
+    readonly _ocTesterType: string;
 
     /**
      * Registers a BoundingBox for subsequent occlusion testing.
@@ -44,26 +54,54 @@ export interface IOcclusionCullingTester {
      * @param id - The unique identifier obtained from the lock() call.
      */
     unlock(id: TUnicalId): void;
+}
+
+/**
+ * Base mesh primitive interface
+ */
+export interface IPrimitive {
+    base: number,
+    baseVertex: number,
+    count: number,
+    indexed?: boolean
+}
+
+/**
+ * Interface for working with an occlusion culling testing system.
+ * Allows registering BoundingBox objects, enqueueing them for testing,
+ * and checking if the object is occluded by other scene geometry.
+ */
+export interface IGPUIndirectDrawOcclusionCullingTester extends IOcclusionCullingTester {
+
+    readonly _ocTesterType: 'gpu_indirect_draw_oct';
 
     /**
      * Adds the object to the queue for occlusion testing.
      * @param id - The unique identifier returned earlier by the lock() method.
-     * @param extra - The extra data
-     * @returns A queue index.
+     * @param primitive - The mesh primitive for rendering.
+     * @param slot - The slot value obtained from device.getIndirectDrawSlot.
+     * @param instanceCount - The number of instances to render.
+     * @param extra - The extra data.
+     * @returns A queue index, or -1 if internal verification inconsistencies occur (e.g., the tester is unavailable or waiting for synchronization).
      */
-    enqueue(id: TUnicalId, extra?: number | number[]): void;
+    enqueue(id: TUnicalId, primitive: IPrimitive, slot: number, instanceCount: number, extra?: number | number[]): TUnicalQueueIndex;
+
+    /**
+     * Runs an occlusion check for the specified camera.
+     * @param camera - The camera
+     * @param provider - The some data provider
+     */
+    execute(camera: pc.Camera, updateParams?: boolean): void;
 }
 
-export interface IGPUOcclusionCullingTester<TProvider> extends IOcclusionCullingTester {
-
-    readonly supportGCPUReadback: false;
-    
-    execute(camera: pc.Camera, provider: TProvider): void;
-}
-
+/**
+ * Interface for working with an occlusion culling testing system.
+ * Allows registering BoundingBox objects, enqueueing them for testing,
+ * and checking if the object is occluded by other scene geometry.
+ */
 export interface IGPU2CPUReadbackOcclusionCullingTester extends IOcclusionCullingTester {
 
-    readonly supportGCPUReadback: true;
+    readonly _ocTesterType: 'gpu2cpu_readback_oct';
 
     /**
      * Return the result of the last occlusion test for the specified object.
@@ -72,5 +110,17 @@ export interface IGPU2CPUReadbackOcclusionCullingTester extends IOcclusionCullin
      */
     getOcclusionStatus(id: TUnicalId): TOcclusionResult;
 
+    /**
+     * Adds the object to the queue for occlusion testing.
+     * @param id - The unique identifier returned earlier by the lock() method.
+     * @param extra - The extra data
+     * @returns A queue index or -1 (if internal verification inconsistencies occur, for example, the tester is unavailable or the tester is waiting for synchronization).
+     */
+    enqueue(id: TUnicalId, extra?: number | number[]): TUnicalQueueIndex;
+
+    /**
+     * Runs an occlusion check for the specified camera.
+     * @param camera - The camera
+     */
     execute(camera: pc.Camera): void;
 }

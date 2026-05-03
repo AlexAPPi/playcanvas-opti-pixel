@@ -12,7 +12,11 @@ export class GPUElementsStore<TTTypedArray extends TTypedArray> {
     public get device() { return this._device; }
     public get capacity() { return this._indexManager.capacity; }
     public get instancing() { return this._instancing; }
-    public get dataTexture() { return this._dataStore.texture; }
+    public get texture() { return this._dataStore.texture; }
+    public get indexManager() { return this._indexManager; }
+    public get channels() { return this._dataStore.channels; }
+    public get pixelsPerInstance() { return this._dataStore.pixelsPerInstance; }
+    public get dataStore() { return this._dataStore; }
 
     constructor(device: pc.GraphicsDevice, instancing: boolean, arrayConstructor: TTypedArrayConstructor<TTTypedArray>, channels: TChannelSize, pixelsPerInstance: number, capacity?: number) {
         this._device = device;

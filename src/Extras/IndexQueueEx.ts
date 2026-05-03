@@ -62,13 +62,23 @@ export class IndexQueueEx {
 
                 const extraIndex = indexIndex + i;
                 const extraValue = normalizedExtra ? extra[i - 1] : extra;
-                const oldExtra = this._indexes[extraIndex];
                 const newExtra = extraValue ?? defaultExtra;
 
-                if (oldExtra !== newExtra) {
+                // Update always if dirty
+                if (!this._dirty) {
+
+                    const oldExtra = this._indexes[extraIndex];
+
+                    if (oldExtra === newExtra) {
+
+                        // Skip update if values equal
+                        continue;
+                    }
+
                     this._dirty = true;
-                    this._indexes[extraIndex] = newExtra;
                 }
+
+                this._indexes[extraIndex] = newExtra;
             }
         }
 

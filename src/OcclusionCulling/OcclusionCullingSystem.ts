@@ -1,12 +1,13 @@
+import pc from "../engine.js";
 import { IHierarchicalZBuffer } from "./HZB/IHierarchicalZBuffer.js";
 import { WebglHZBCPUFBTester } from "./HZB/Webgl/WebglHZBCPUFBTester.js";
-import { HierarchicalZBufferDebugger, IHierarchicalZBufferTester } from "./HZB/HierarchicalZBufferDebugger.js";
+import { HierarchicalZBufferDebugger } from "./HZB/HierarchicalZBufferDebugger.js";
 import { WebglHierarchicalZBuffer } from "./HZB/Webgl/WebglHierarchicalZBuffer.js";
 import { WebgpuHierarchicalZBuffer } from "./HZB/Webgpu/WebgpuHierarchicalZBuffer.js";
 import { WebglOcclusionQueriesTester } from "./Queries/Webgl/WebglOcclusionQueriesTester.js";
 import { WebgpuOcclusionQueriesTester } from "./Queries/Webgpu/WebgpuOcclusionQueriesTester.js";
-import { IGPU2CPUReadbackOcclusionCullingTester, isGPU2CPUReadbackOcclusionCulling } from "./IOcclusionCullingTester.js";
-import pc from "../engine.js";
+import { isGPU2CPUReadbackOcclusionCullingTester } from "./IOcclusionCullingTester.js";
+import { WebgpuHZBTester } from "./HZB/Webgpu/WebgpuHZBTester.js";
 
 export class OcclusionCullingSystem extends pc.EventHandler {
 
@@ -19,7 +20,7 @@ export class OcclusionCullingSystem extends pc.EventHandler {
     private _active: boolean = false;
     private _capacity: number = 5000;
     private _hzb: WebglHierarchicalZBuffer | WebgpuHierarchicalZBuffer | null = null;
-    private _hzbTester: WebglHZBCPUFBTester | null = null;
+    private _hzbTester: WebglHZBCPUFBTester | WebgpuHZBTester | null = null;
     private _hzbDebugger: HierarchicalZBufferDebugger | null = null;
     private _queriesTester: WebglOcclusionQueriesTester | WebgpuOcclusionQueriesTester | null = null;
     private _queriesLayerName: string = "";
@@ -30,15 +31,15 @@ export class OcclusionCullingSystem extends pc.EventHandler {
     private _onFrameEndHandle: pc.EventHandle | null = null;
 
     public get hzb(): IHierarchicalZBuffer | null { return this._hzb; }
-    public get hzbTester(): IHierarchicalZBufferTester | null { return this._hzbTester; }
-    public get hzbDebugger(): HierarchicalZBufferDebugger | null { return this._hzbDebugger; }
+    public get hzbTester() { return this._hzbTester; }
+    public get hzbDebugger() { return this._hzbDebugger; }
 
     public get active(): boolean { return this._active; }
     public set active(value: boolean) { this._active = value; }
 
     public get queriesLayerName() { return this._queriesLayerName; }
     public set queriesLayerName(name: string) { this._queriesLayerName = name; }
-    public get queriesTester(): IGPU2CPUReadbackOcclusionCullingTester | null { return this._queriesTester; }
+    public get queriesTester() { return this._queriesTester; }
 
     public get capacity() { return this._capacity; }
     public set capacity(value: number) {
@@ -51,7 +52,6 @@ export class OcclusionCullingSystem extends pc.EventHandler {
         this._capacity = capacity;
         this._initHZB();
         this._initQueries();
-        this._onVisibilityChange = this._onVisibilityChange.bind(this);
         this._onHandles();
     }
 
@@ -77,7 +77,12 @@ export class OcclusionCullingSystem extends pc.EventHandler {
             null;
 
         if (this._hzb) {
-            this._hzbTester = this._hzb instanceof WebglHierarchicalZBuffer ? new WebglHZBCPUFBTester(this._hzb, this._capacity) : null;
+
+            this._hzbTester =
+                this._hzb instanceof WebglHierarchicalZBuffer ? new WebglHZBCPUFBTester(this._hzb, this._capacity) :
+                this._hzb instanceof WebgpuHierarchicalZBuffer ? new WebgpuHZBTester(this._hzb, this._capacity) :
+                null;
+
             this._hzbDebugger = new HierarchicalZBufferDebugger(this.app, this._hzbTester ?? this._hzb);
         }
     }
@@ -87,7 +92,7 @@ export class OcclusionCullingSystem extends pc.EventHandler {
         if (this._hzb) {
             this._hzb?.resize();
 
-            if (this._hzbTester && this._hzb instanceof WebglHierarchicalZBuffer) {
+            if (this._hzbTester) {
                 this._hzbTester.hzb = this._hzb;
             }
 
@@ -100,19 +105,13 @@ export class OcclusionCullingSystem extends pc.EventHandler {
     private _initQueries() {
         this._queriesTester =
             this.app.graphicsDevice.isWebGL2 ? new WebglOcclusionQueriesTester(this.app, this._capacity) :
-            this.app.graphicsDevice.isWebGPU ? null : // TODO: webgpu not support
+            this.app.graphicsDevice.isWebGPU ? null : // TODO: webgpu now not supported
             null;
     }
 
-    private _onVisibilityChange() {
-        this.active = !document.hidden;
-    }
-
     private _onFrameUpdate(ms: number) {
-
+        this._hzbDebugger?.debug();
         if (this.active) {
-
-            this._hzbDebugger?.debug();
             this._hzbTester?.frameUpdate();
             this._queriesTester?.frameUpdate();
         }
@@ -126,7 +125,7 @@ export class OcclusionCullingSystem extends pc.EventHandler {
                 this._hzb.update(this._camera);
             }
 
-            if (isGPU2CPUReadbackOcclusionCulling(this._hzbTester)) {
+            if (isGPU2CPUReadbackOcclusionCullingTester(this._hzbTester)) {
                 this._hzbTester
                     .execute(this._camera)
                     .catch(console.error);
@@ -149,7 +148,6 @@ export class OcclusionCullingSystem extends pc.EventHandler {
     }
 
     private _offHandles() {
-        document.removeEventListener("visibilitychange", this._onVisibilityChange);
         this._onPostRenderLayerHandle?.off();
         this._onCanvasResizeHandle?.off();
         this._onFrameUpdateHandle?.off();
@@ -161,10 +159,7 @@ export class OcclusionCullingSystem extends pc.EventHandler {
     }
 
     private _onHandles() {
-
         this._offHandles();
-
-        document.addEventListener("visibilitychange", this._onVisibilityChange);
         this._onCanvasResizeHandle = this.app.graphicsDevice.on("resizecanvas", this._onResizeCanvas, this);
         this._onFrameUpdateHandle = this.app.on("frameupdate", this._onFrameUpdate, this);
         this._onFrameEndHandle = this.app.on("frameend", this._onFrameEnd, this);

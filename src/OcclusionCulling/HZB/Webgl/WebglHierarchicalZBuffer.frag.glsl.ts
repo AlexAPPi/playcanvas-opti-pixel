@@ -72,7 +72,7 @@ export default `
             float er1 = getDepth(previousLevelBaseTexelCoord, p12);
             maxDepth = max(maxDepth, max(er0, er1));
         }
-   
+
         return maxDepth;
     }
 

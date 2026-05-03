@@ -7,7 +7,7 @@ import { WebglOcclusionBoxMesh } from "./WebglOcclusionBoxMesh.js";
 
 export class WebglOcclusionQueriesTester implements IGPU2CPUReadbackOcclusionCullingTester {
 
-    public readonly supportGCPUReadback = true;
+    readonly _ocTesterType = "gpu2cpu_readback_oct";
 
     private _app: pc.AppBase;
     private _device: pc.WebglGraphicsDevice;
@@ -107,7 +107,13 @@ export class WebglOcclusionQueriesTester implements IGPU2CPUReadbackOcclusionCul
         const index = this._indexManager.reserve();
         const box = this._store[index] ?? new pc.BoundingBox();
 
-        box.setFromTransformedAabb(boundingBox, matrix ?? pc.Mat4.IDENTITY);
+        if (matrix) {
+            box.setFromTransformedAabb(boundingBox, matrix);
+        }
+        else {
+            box.center.copy(boundingBox.center);
+            box.halfExtents.copy(boundingBox.halfExtents);
+        }
 
         this._store[index] = box;
         return index;
@@ -120,7 +126,7 @@ export class WebglOcclusionQueriesTester implements IGPU2CPUReadbackOcclusionCul
     public enqueue(index: number, algoritm: OCCLUSION_ALGORITHM_TYPE) {
         // Create new tmp frame for queue if not exists
         this._tmpFrame ??= new WebglFrameOcclusionQueries(this._device.gl, this._app.frame, this._mesh);
-        this._tmpFrame.add(index, this._store[index], algoritm ?? this._algorithmType);
+        return this._tmpFrame.add(index, this._store[index], algoritm ?? this._algorithmType);
     }
 
     public getOcclusionStatus(index: number): TOcclusionResult {

@@ -8,7 +8,7 @@ export class GPUElementQueue<TTTypedArray extends TTypedArray> extends GPUElemen
     protected _indexQueue: GPUIndexQueue;
 
     public get count() { return this._indexQueue.count; }
-    public get vertexBuffer() { return this._indexQueue.vertexBuffer; }
+    public get vertexBuffer() { return this._indexQueue.buffer; }
 
     constructor(device: pc.GraphicsDevice, instancing: boolean, arrayConstructor: TTypedArrayConstructor<TTTypedArray>, channels: TChannelSize, pixelsPerInstance: number, indexExtraSize: number = 0, capacity?: number) {
         super(device, instancing, arrayConstructor, channels, pixelsPerInstance, capacity);

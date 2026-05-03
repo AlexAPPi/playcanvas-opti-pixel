@@ -1,5 +1,5 @@
 import { IHierarchicalZBuffer } from "../IHierarchicalZBuffer.js";
-import cshader from "./WebgpuHierarchicalZBuffer.wsgl.js";
+import cshader from "./WebgpuHierarchicalZBuffer.wgsl.js";
 import pc from "../../../engine.js";
 
 export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
@@ -96,8 +96,9 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         ]);
 
         const cdefines = new Map<string, string>();
-        cdefines.set('{WORKGROUP_SIZE_X}', this._workgroupSizeX.toString());
-        cdefines.set('{WORKGROUP_SIZE_Y}', this._workgroupSizeY.toString());
+        cdefines.set('{WORKGROUP_SIZE_X}', this._workgroupSizeX.toFixed(0));
+        cdefines.set('{WORKGROUP_SIZE_Y}', this._workgroupSizeY.toFixed(0));
+        cdefines.set('{DEPTH_STORAGE_FORMAT}', this.isFloat32() ? 'r32float' : 'rgba8unorm');
 
         if (this.isFloat32()) {
             cdefines.set('DEPTH_IS_FLOAT', '');
@@ -185,10 +186,15 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
     }
 
     public isFloat32() {
+        // TODO: on mobile r32float
+        // render not supported used rgba8unorm
+        // for supported all platforms
         return false;
     }
 
     public isColor() {
+        // Mip maps for depth texture
+        // not support on webgpu platform
         return true;
     }
 

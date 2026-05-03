@@ -23,7 +23,7 @@
         "declaration": true,
         "emitDeclarationOnly": true,
         "experimentalDecorators": true,
-        "forceConsistentCasingInFileNames": true,
+        "forceConsistentCasingInFileNames": false,
     },
     "include": ["src"],
     "exclude": [

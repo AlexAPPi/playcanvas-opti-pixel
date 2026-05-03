@@ -5,7 +5,7 @@ import { WebgpuOcclusionBoxMesh } from "./WebgpuOcclusionBoxMesh.js";
 
 export class WebgpuOcclusionQueriesTester implements IGPU2CPUReadbackOcclusionCullingTester {
 
-    public readonly supportGCPUReadback = true;
+    readonly _ocTesterType = 'gpu2cpu_readback_oct';
 
     private _app: pc.AppBase;
     private _device: pc.WebgpuGraphicsDevice;
@@ -37,7 +37,8 @@ export class WebgpuOcclusionQueriesTester implements IGPU2CPUReadbackOcclusionCu
     public execute(camera: pc.Camera): void {
     }
 
-    public enqueue(id: TUnicalId, extra?: number | number[]): void {
+    public enqueue(id: TUnicalId, extra?: number | number[]): number {
+        return -1;
     }
 
     public resize(capacity: number) {

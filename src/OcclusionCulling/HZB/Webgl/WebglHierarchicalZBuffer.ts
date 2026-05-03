@@ -23,6 +23,13 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
     private _globalMipHeight: number;
     private _globalMipLevels: number;
 
+    /**
+     * Maximum pixel size of the hzb texture.
+     * - High-detail mip levels (mip 0,1) render outside mipmaps
+     * - Android: solves driver bandwidth issues with shader mipmap rendering
+     * - WebGL2: ping-pong textures bypass mipmap generation limits
+     * - Shader: max(texture1, texture2) ensures reliable depth data
+     */
     private _maxSize: number;
     private _width: number;
     private _heigth: number;
@@ -53,7 +60,13 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         this.resize();
     }
 
-    constructor(device: pc.WebglGraphicsDevice, maxSize: number = 128) {
+    /**
+     * Create Webgl hierarchical z buffer
+     * 
+     * @param device - The device
+     * @param maxSize - The parameter sets the maximum pixel size of the hzb with mipmaps.
+     */
+    constructor(device: pc.WebglGraphicsDevice, maxSize: number = 256) {
         this._enabled = true;
         this._device = device;
         this._maxSize = maxSize;
@@ -170,18 +183,6 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
 
         for (let mip = 0; mip < this._globalMipLevels; mip++) {
 
-            const rpsShader = this._shader;
-            const rps = new pc.RenderPassShaderQuad(this._device);
-
-            if (depthByColor) {
-                rps.blendState = pc.BlendState.NOBLEND;
-                rps.depthState = pc.DepthState.NODEPTH;
-            }
-            else {
-                rps.blendState = pc.BlendState.NOWRITE;
-                rps.depthState = pc.DepthState.WRITEDEPTH;
-            }
-
             let rt: pc.RenderTarget;
             let buffer: pc.Texture;
 
@@ -247,6 +248,18 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
                 }
 
                 rt = new pc.RenderTarget(optsRt);
+            }
+
+            const rpsShader = this._shader;
+            const rps = new pc.RenderPassShaderQuad(this._device);
+
+            if (depthByColor) {
+                rps.blendState = pc.BlendState.NOBLEND;
+                rps.depthState = pc.DepthState.NODEPTH;
+            }
+            else {
+                rps.blendState = pc.BlendState.NOWRITE;
+                rps.depthState = pc.DepthState.WRITEDEPTH;
             }
 
             rps.shader = rpsShader;

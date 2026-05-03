@@ -9,11 +9,17 @@ import { IndexQueue } from "./Extras/IndexQueue.js";
 import { IndexQueueEx } from "./Extras/IndexQueueEx.js";
 import { NumberQueue } from "./Extras/NumberQueue.js";
 import { Random } from "./Extras/Random.js";
+import { ReadbackQueue } from "./Extras/ReadbackQueue.js";
 import { SquareDataTexture } from "./Extras/SquareDataTexture.js";
-import { ObjStore2D } from "./Extras/Store2D.js";
 import { WebglReadbackBuffer } from "./Extras/WebglReadbackBuffer.js";
-import { IHierarchicalZBufferTester } from "./OcclusionCulling/HZB/HierarchicalZBufferDebugger.js";
-import { FRUSTUM_CONTAINED, FRUSTUM_INTERSECTS, FRUSTUM_OUTSIDE, FRUSTUM_UNKNOWN, IGPU2CPUReadbackOcclusionCullingTester, IGPUOcclusionCullingTester, IOcclusionCullingTester, isGPU2CPUReadbackOcclusionCulling, isGPUOcclusionCulling, OCCLUSION_OCCLUDED, OCCLUSION_UNKNOWN, OCCLUSION_VISIBLE } from "./OcclusionCulling/IOcclusionCullingTester.js";
+import { HierarchicalZBufferDebugger } from "./OcclusionCulling/HZB/HierarchicalZBufferDebugger.js";
+import { IHierarchicalZBufferTester } from "./OcclusionCulling/HZB/IHierarchicalZBufferTester.js";
+import { WebgpuHZBTester } from "./OcclusionCulling/HZB/Webgpu/WebgpuHZBTester.js";
+import { FRUSTUM_CONTAINED, FRUSTUM_INTERSECTS, FRUSTUM_OUTSIDE, FRUSTUM_UNKNOWN,
+    IGPU2CPUReadbackOcclusionCullingTester, IGPUIndirectDrawOcclusionCullingTester, IOcclusionCullingTester,
+    isGPU2CPUReadbackOcclusionCullingTester, isGPUIndirectDrawOcclusionCullingTester, isGPUOcclusionCullingTester,
+    OCCLUSION_OCCLUDED, OCCLUSION_UNKNOWN, OCCLUSION_VISIBLE
+} from "./OcclusionCulling/IOcclusionCullingTester.js";
 import { OcclusionCullingSystem } from "./OcclusionCulling/OcclusionCullingSystem.js";
 import { BoxMesh } from "./OcclusionCulling/Queries/BoxMesh.js";
 import { OCCLUSION_ALGORITHM_TYPE_ACCURATE, OCCLUSION_ALGORITHM_TYPE_CONSERVATIVE } from "./OcclusionCulling/Queries/Types.js";
@@ -34,8 +40,8 @@ export {
     IndexQueueEx,
     NumberQueue,
     Random,
+    ReadbackQueue,
     SquareDataTexture,
-    ObjStore2D,
     WebglReadbackBuffer,
 
     BoxMesh,
@@ -44,8 +50,9 @@ export {
     WebglOcclusionBoxMesh,
     WebglOcclusionQueriesTester,
     WebglQueryScope,
-    isGPUOcclusionCulling,
-    isGPU2CPUReadbackOcclusionCulling,
+    isGPUOcclusionCullingTester,
+    isGPU2CPUReadbackOcclusionCullingTester,
+    isGPUIndirectDrawOcclusionCullingTester,
 
     FRUSTUM_UNKNOWN,
     FRUSTUM_OUTSIDE,
@@ -58,12 +65,14 @@ export {
     OCCLUSION_ALGORITHM_TYPE_CONSERVATIVE,
     OCCLUSION_ALGORITHM_TYPE_ACCURATE,
 
-    OcclusionCullingSystem
+    OcclusionCullingSystem,
+    WebgpuHZBTester,
+    HierarchicalZBufferDebugger
 };
 
 export type {
     IOcclusionCullingTester,
     IHierarchicalZBufferTester,
-    IGPUOcclusionCullingTester,
-    IGPU2CPUReadbackOcclusionCullingTester
+    IGPU2CPUReadbackOcclusionCullingTester,
+    IGPUIndirectDrawOcclusionCullingTester
 };

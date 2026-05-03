@@ -73,16 +73,16 @@ export class WebglFrameOcclusionQueries<TKey = number> {
     public get(key: TKey) {
         return this._map.get(key);
     }
-    
+
     public add(key: TKey, box: pc.BoundingBox, algorithmType: OCCLUSION_ALGORITHM_TYPE = OCCLUSION_ALGORITHM_TYPE_CONSERVATIVE) {
 
         if (this._processing) {
-            return false;
+            return -1;
         }
 
         const newScope = new WebglQueryScope(box, algorithmType);
         this._map.set(key, newScope);
-        return true;
+        return key;
     }
 
     public execute(camera: pc.Camera) {

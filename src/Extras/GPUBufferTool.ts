@@ -4,7 +4,7 @@ export type TArrayConstructor = Float32ArrayConstructor | Uint32ArrayConstructor
 
 export class GPUBufferTool {
 
-    public static update(vertexBuffer: pc.VertexBuffer | null, data: Uint32Array | Uint16Array | Uint8Array, length: number): void {
+    public static update(vertexBuffer: pc.VertexBuffer | pc.StorageBuffer | null, data: Uint32Array | Uint16Array | Uint8Array, length: number): void {
 
         // TODO: playcanvas buffer always 4 byte safe
 
