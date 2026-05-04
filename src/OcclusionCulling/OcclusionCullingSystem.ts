@@ -8,6 +8,7 @@ import { WebglOcclusionQueriesTester } from "./Queries/Webgl/WebglOcclusionQueri
 import { WebgpuOcclusionQueriesTester } from "./Queries/Webgpu/WebgpuOcclusionQueriesTester.js";
 import { isGPU2CPUReadbackOcclusionCullingTester } from "./IOcclusionCullingTester.js";
 import { WebgpuHZBTester } from "./HZB/Webgpu/WebgpuHZBTester.js";
+import { QueriesDebugger } from "./Queries/QueriesDebugger.js";
 
 export class OcclusionCullingSystem extends pc.EventHandler {
 
@@ -22,8 +23,10 @@ export class OcclusionCullingSystem extends pc.EventHandler {
     private _hzb: WebglHierarchicalZBuffer | WebgpuHierarchicalZBuffer | null = null;
     private _hzbTester: WebglHZBCPUFBTester | WebgpuHZBTester | null = null;
     private _hzbDebugger: HierarchicalZBufferDebugger | null = null;
-    private _queriesTester: WebglOcclusionQueriesTester | WebgpuOcclusionQueriesTester | null = null;
+
     private _queriesLayerName: string = "";
+    private _queriesTester: WebglOcclusionQueriesTester | WebgpuOcclusionQueriesTester | null = null;
+    private _queriesDebugger: QueriesDebugger | null = null;
 
     private _onPostRenderLayerHandle: pc.EventHandle | null = null;
     private _onCanvasResizeHandle: pc.EventHandle | null = null;
@@ -40,6 +43,7 @@ export class OcclusionCullingSystem extends pc.EventHandler {
     public get queriesLayerName() { return this._queriesLayerName; }
     public set queriesLayerName(name: string) { this._queriesLayerName = name; }
     public get queriesTester() { return this._queriesTester; }
+    public get queriesDebugger() { return this._queriesDebugger; }
 
     public get capacity() { return this._capacity; }
     public set capacity(value: number) {
@@ -107,6 +111,10 @@ export class OcclusionCullingSystem extends pc.EventHandler {
             this.app.graphicsDevice.isWebGL2 ? new WebglOcclusionQueriesTester(this.app, this._capacity) :
             this.app.graphicsDevice.isWebGPU ? null : // TODO: webgpu now not supported
             null;
+        
+        if (this._queriesTester) {
+            this._queriesDebugger = new QueriesDebugger(this.app, this._queriesTester);
+        }
     }
 
     private _onFrameUpdate(ms: number) {

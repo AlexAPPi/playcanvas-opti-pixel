@@ -14,16 +14,16 @@ export function getDebugInfo(
 ): IDebugInfo {
 
     const bbCenter = boundingBox.center;
-    const bbHalfExtends = boundingBox.halfExtents;
+    const bbhalfExtents = boundingBox.halfExtents;
 
-    _boundingBox[0].set(bbCenter.x +  bbHalfExtends.x, bbCenter.y +  bbHalfExtends.y, bbCenter.z +  bbHalfExtends.z, 1.0);
-    _boundingBox[1].set(bbCenter.x + -bbHalfExtends.x, bbCenter.y +  bbHalfExtends.y, bbCenter.z +  bbHalfExtends.z, 1.0);
-    _boundingBox[2].set(bbCenter.x +  bbHalfExtends.x, bbCenter.y + -bbHalfExtends.y, bbCenter.z +  bbHalfExtends.z, 1.0);
-    _boundingBox[3].set(bbCenter.x + -bbHalfExtends.x, bbCenter.y + -bbHalfExtends.y, bbCenter.z +  bbHalfExtends.z, 1.0);
-    _boundingBox[4].set(bbCenter.x +  bbHalfExtends.x, bbCenter.y +  bbHalfExtends.y, bbCenter.z + -bbHalfExtends.z, 1.0);
-    _boundingBox[5].set(bbCenter.x + -bbHalfExtends.x, bbCenter.y +  bbHalfExtends.y, bbCenter.z + -bbHalfExtends.z, 1.0);
-    _boundingBox[6].set(bbCenter.x +  bbHalfExtends.x, bbCenter.y + -bbHalfExtends.y, bbCenter.z + -bbHalfExtends.z, 1.0);
-    _boundingBox[7].set(bbCenter.x + -bbHalfExtends.x, bbCenter.y + -bbHalfExtends.y, bbCenter.z + -bbHalfExtends.z, 1.0);
+    _boundingBox[0].set(bbCenter.x +  bbhalfExtents.x, bbCenter.y +  bbhalfExtents.y, bbCenter.z +  bbhalfExtents.z, 1.0);
+    _boundingBox[1].set(bbCenter.x + -bbhalfExtents.x, bbCenter.y +  bbhalfExtents.y, bbCenter.z +  bbhalfExtents.z, 1.0);
+    _boundingBox[2].set(bbCenter.x +  bbhalfExtents.x, bbCenter.y + -bbhalfExtents.y, bbCenter.z +  bbhalfExtents.z, 1.0);
+    _boundingBox[3].set(bbCenter.x + -bbhalfExtents.x, bbCenter.y + -bbhalfExtents.y, bbCenter.z +  bbhalfExtents.z, 1.0);
+    _boundingBox[4].set(bbCenter.x +  bbhalfExtents.x, bbCenter.y +  bbhalfExtents.y, bbCenter.z + -bbhalfExtents.z, 1.0);
+    _boundingBox[5].set(bbCenter.x + -bbhalfExtents.x, bbCenter.y +  bbhalfExtents.y, bbCenter.z + -bbhalfExtents.z, 1.0);
+    _boundingBox[6].set(bbCenter.x +  bbhalfExtents.x, bbCenter.y + -bbhalfExtents.y, bbCenter.z + -bbhalfExtents.z, 1.0);
+    _boundingBox[7].set(bbCenter.x + -bbhalfExtents.x, bbCenter.y + -bbhalfExtents.y, bbCenter.z + -bbhalfExtents.z, 1.0);
 
     let minCoordX = 1e6;
     let minCoordY = 1e6;
@@ -97,7 +97,7 @@ export function getDebugInfo(
         viewSize,
         boundingBox: {
             center: bbCenter,
-            halfExtends: bbHalfExtends,
+            halfExtents: bbhalfExtents,
         },
         rectangle: {
             x: (minCoord.x + extent.x / 2) * 2 - 1,
