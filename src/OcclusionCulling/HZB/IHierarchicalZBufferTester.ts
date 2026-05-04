@@ -8,7 +8,7 @@ export interface IDebugInfo {
     viewSize: pc.Vec2,
     boundingBox: {
         center: pc.Vec3,
-        halfExtends: pc.Vec3,
+        halfExtents: pc.Vec3,
     },
     rectangle: {
         x: number,

@@ -1,6 +1,6 @@
 import pc from "../../../engine.js";
 import { IndexManager } from "../../../Extras/IndexManager.js";
-import { OCCLUSION_OCCLUDED, OCCLUSION_UNKNOWN, OCCLUSION_VISIBLE, type IGPU2CPUReadbackOcclusionCullingTester, type TOcclusionResult } from "../../IOcclusionCullingTester.js";
+import { OCCLUSION_OCCLUDED, OCCLUSION_UNKNOWN, OCCLUSION_VISIBLE, TUnicalId, type IGPU2CPUReadbackOcclusionCullingTester, type TOcclusionResult } from "../../IOcclusionCullingTester.js";
 import { OCCLUSION_ALGORITHM_TYPE, OCCLUSION_ALGORITHM_TYPE_CONSERVATIVE } from "../Types.js";
 import { WebglFrameOcclusionQueries } from "./WebglFrameOcclusionQueries.js";
 import { WebglOcclusionBoxMesh } from "./WebglOcclusionBoxMesh.js";
@@ -102,7 +102,7 @@ export class WebglOcclusionQueriesTester implements IGPU2CPUReadbackOcclusionCul
         this._queue.length = 0;
     }
 
-    public lock(boundingBox: pc.BoundingBox, matrix?: pc.Mat4): number {
+    public lock(boundingBox: pc.BoundingBox, matrix?: pc.Mat4): TUnicalId {
 
         const index = this._indexManager.reserve();
         const box = this._store[index] ?? new pc.BoundingBox();
@@ -119,17 +119,17 @@ export class WebglOcclusionQueriesTester implements IGPU2CPUReadbackOcclusionCul
         return index;
     }
 
-    public unlock(index: number): void {
+    public unlock(index: TUnicalId): void {
         this._indexManager.free(index);
     }
 
-    public enqueue(index: number, algoritm: OCCLUSION_ALGORITHM_TYPE) {
+    public enqueue(index: TUnicalId, algoritm: OCCLUSION_ALGORITHM_TYPE) {
         // Create new tmp frame for queue if not exists
         this._tmpFrame ??= new WebglFrameOcclusionQueries(this._device.gl, this._app.frame, this._mesh);
         return this._tmpFrame.add(index, this._store[index], algoritm ?? this._algorithmType);
     }
 
-    public getOcclusionStatus(index: number): TOcclusionResult {
+    public getOcclusionStatus(index: TUnicalId): TOcclusionResult {
 
         const scope = this._finishFrame?.get(index);
 
@@ -142,5 +142,9 @@ export class WebglOcclusionQueriesTester implements IGPU2CPUReadbackOcclusionCul
         }
 
         return OCCLUSION_OCCLUDED;
+    }
+
+    public getBoundingBox(index: TUnicalId) {
+        return this._store[index];
     }
 }

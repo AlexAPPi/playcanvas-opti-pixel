@@ -13,7 +13,7 @@ export default `
     }
 
     uint getFlags(
-        uint index, vec3 boxCenterWorld, vec3 boxHalfExtends, mat4 viewProjection,
+        uint index, vec3 boxCenterWorld, vec3 boxHalfExtents, mat4 viewProjection,
         float instanceDepth, float hzbDepth, int cullStatus
     ) {
         // Here we can wrap the output flag and return some other data,

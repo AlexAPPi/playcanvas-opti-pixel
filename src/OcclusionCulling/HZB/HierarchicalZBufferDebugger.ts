@@ -10,16 +10,16 @@ import { IHierarchicalZBufferTester } from "./IHierarchicalZBufferTester.js";
 export class HierarchicalZBufferDebugger {
 
     private _app: pc.AppBase;
-    private _hzbTester: IHierarchicalZBufferTester | undefined;
+    private _tester: IHierarchicalZBufferTester | undefined;
     private _hzb: WebglHierarchicalZBuffer | WebgpuHierarchicalZBuffer | undefined;
     private _debugAABBTexture: pc.Texture;
     private _debugTextureShaderDesc: any;
 
-    public get hzb() { return (this._hzbTester?.hzb ?? this._hzb)!; }
+    public get hzb() { return (this._tester?.hzb ?? this._hzb)!; }
     public set hzbOrTester(v: WebglHierarchicalZBuffer | WebgpuHierarchicalZBuffer | IHierarchicalZBufferTester) {
         const initByHZB = (v instanceof WebglHierarchicalZBuffer || v instanceof WebgpuHierarchicalZBuffer);
         this._hzb = initByHZB ? v : undefined;
-        this._hzbTester = initByHZB ? undefined : v;
+        this._tester = initByHZB ? undefined : v;
         this._initDeps();
     }
 
@@ -95,18 +95,18 @@ export class HierarchicalZBufferDebugger {
 
     public debugItem(index: number, box: boolean = true, rect: boolean = true, mipLevel: boolean = true) {
 
-        if (!this._hzbTester) {
+        if (!this._tester) {
             return;
         }
 
-        const info = this._hzbTester.getDebugInfo(index);
+        const info = this._tester.getDebugInfo(index);
         const rectangle = info.rectangle;
         const boundingBox = info.boundingBox;
 
         let occlusionStatus = OCCLUSION_UNKNOWN;
 
-        if (isGPU2CPUReadbackOcclusionCullingTester(this._hzbTester)) {
-            occlusionStatus = this._hzbTester.getOcclusionStatus(index);
+        if (isGPU2CPUReadbackOcclusionCullingTester(this._tester)) {
+            occlusionStatus = this._tester.getOcclusionStatus(index);
         }
 
         if (mipLevel) {
@@ -115,8 +115,8 @@ export class HierarchicalZBufferDebugger {
 
         if (info.inFrustum) {
 
-            _minPoint.copy(boundingBox.center).sub(boundingBox.halfExtends);
-            _maxPoint.copy(boundingBox.center).add(boundingBox.halfExtends);
+            _minPoint.copy(boundingBox.center).sub(boundingBox.halfExtents);
+            _maxPoint.copy(boundingBox.center).add(boundingBox.halfExtents);
 
             if (box) {
                 this._app.drawWireAlignedBox(_minPoint, _maxPoint, occlusionStatus === OCCLUSION_OCCLUDED ? pc.Color.RED : pc.Color.GREEN, false);

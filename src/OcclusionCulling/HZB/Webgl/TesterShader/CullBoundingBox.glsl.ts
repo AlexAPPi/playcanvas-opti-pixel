@@ -2,21 +2,21 @@ export default `
 
     #include "getRectDepthVS"
 
-    int cullBoundingBox(vec3 boxCenterWorld, vec3 boxHalfExtends, mat4 viewProjection, vec2 screenSize, vec2 hzbSize, out float instanceDepth, out float hzbDepth) {
+    int cullBoundingBox(vec3 boxCenterWorld, vec3 boxHalfExtents, mat4 viewProjection, vec2 screenSize, vec2 hzbSize, out float instanceDepth, out float hzbDepth) {
 
         instanceDepth = 1e6;
         hzbDepth = -1e6;
 
         vec4 boundingBox[8];
 
-        boundingBox[0] = viewProjection * vec4(boxCenterWorld + vec3( boxHalfExtends.x, boxHalfExtends.y, boxHalfExtends.z), 1.0);
-        boundingBox[1] = viewProjection * vec4(boxCenterWorld + vec3(-boxHalfExtends.x, boxHalfExtends.y, boxHalfExtends.z), 1.0);
-        boundingBox[2] = viewProjection * vec4(boxCenterWorld + vec3( boxHalfExtends.x,-boxHalfExtends.y, boxHalfExtends.z), 1.0);
-        boundingBox[3] = viewProjection * vec4(boxCenterWorld + vec3(-boxHalfExtends.x,-boxHalfExtends.y, boxHalfExtends.z), 1.0);
-        boundingBox[4] = viewProjection * vec4(boxCenterWorld + vec3( boxHalfExtends.x, boxHalfExtends.y,-boxHalfExtends.z), 1.0);
-        boundingBox[5] = viewProjection * vec4(boxCenterWorld + vec3(-boxHalfExtends.x, boxHalfExtends.y,-boxHalfExtends.z), 1.0);
-        boundingBox[6] = viewProjection * vec4(boxCenterWorld + vec3( boxHalfExtends.x,-boxHalfExtends.y,-boxHalfExtends.z), 1.0);
-        boundingBox[7] = viewProjection * vec4(boxCenterWorld + vec3(-boxHalfExtends.x,-boxHalfExtends.y,-boxHalfExtends.z), 1.0);
+        boundingBox[0] = vec4(boxCenterWorld + vec3( boxHalfExtents.x, boxHalfExtents.y, boxHalfExtents.z), 1.0);
+        boundingBox[1] = vec4(boxCenterWorld + vec3(-boxHalfExtents.x, boxHalfExtents.y, boxHalfExtents.z), 1.0);
+        boundingBox[2] = vec4(boxCenterWorld + vec3( boxHalfExtents.x,-boxHalfExtents.y, boxHalfExtents.z), 1.0);
+        boundingBox[3] = vec4(boxCenterWorld + vec3(-boxHalfExtents.x,-boxHalfExtents.y, boxHalfExtents.z), 1.0);
+        boundingBox[4] = vec4(boxCenterWorld + vec3( boxHalfExtents.x, boxHalfExtents.y,-boxHalfExtents.z), 1.0);
+        boundingBox[5] = vec4(boxCenterWorld + vec3(-boxHalfExtents.x, boxHalfExtents.y,-boxHalfExtents.z), 1.0);
+        boundingBox[6] = vec4(boxCenterWorld + vec3( boxHalfExtents.x,-boxHalfExtents.y,-boxHalfExtents.z), 1.0);
+        boundingBox[7] = vec4(boxCenterWorld + vec3(-boxHalfExtents.x,-boxHalfExtents.y,-boxHalfExtents.z), 1.0);
 
         #if CHECK_FRUSTUM
         int outXPos = 0;
@@ -32,7 +32,7 @@ export default `
 
         for (int i = 0; i < 8; i++) {
 
-            vec4 current = boundingBox[i];
+            vec4 current = viewProjection * boundingBox[i];
 
             #if CHECK_FRUSTUM
             if (current.x >  current.w) outXPos++;
