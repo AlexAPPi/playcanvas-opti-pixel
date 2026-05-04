@@ -1,6 +1,6 @@
 import pc from "../../engine.js";
 import vertexGLSL from "./BoxMesh.vert.glsl.js";
-import fragmentGLSL from "./BoxMesh.vert.glsl.js";
+import fragmentGLSL from "./BoxMesh.frag.glsl.js";
 import vertexWGSL from "./BoxMesh.vert.wgsl.js";
 import fragmentWGSL from "./BoxMesh.frag.wgsl.js";
 
