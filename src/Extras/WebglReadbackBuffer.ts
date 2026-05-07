@@ -30,6 +30,9 @@ export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer> = Ui
         this._lengthFactor = itemByteSize / byte;
         this._itemByteSize = itemByteSize;
         this.storageData = data;
+
+        this.device.on("destroy", this.destroy, this);
+        this.device.on("contextlost", this.abortRead, this);
     }
 
     public abortRead() {
@@ -41,10 +44,16 @@ export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer> = Ui
         super.destroy();
     }
 
-    private async _clientWaitAsync(currentVersion: number, flags: number, interval: number): Promise<boolean> {
+    private _clientWaitAsync(currentVersion: number, flags: number, interval: number): Promise<boolean> {
 
         const gl = this.device.gl;
-        const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)!;
+        const tmpSync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+
+        if (!tmpSync) {
+            return Promise.reject(new Error("webgl fenceSync failed"));
+        }
+
+        const sync = tmpSync;
         const self = this;
 
         gl.flush();
@@ -53,7 +62,7 @@ export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer> = Ui
 
             let timeoutId: number | undefined;
 
-            function dispose() {
+            function disposeTest() {
 
                 if (timeoutId) {
                     clearTimeout(timeoutId);
@@ -71,32 +80,30 @@ export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer> = Ui
                 // READ-usage buffer was written,
                 // then fenced, but written again before being read back.
                 // This discarded the shadow copy that was created to accelerate readback."
-                //*
                 if (currentVersion !== self._version) {
-                    dispose();
+                    disposeTest();
                     resolve(false);
-                    return;
                 }
-                //*/
+                else {
 
-                const res = gl.clientWaitSync(sync, flags, 0);
+                    const res = gl.clientWaitSync(sync, flags, 0);
 
-                if (res === gl.TIMEOUT_EXPIRED) {
                     // check again in a while
-                    timeoutId = setTimeout(test, interval);
-                    return;
-                }
-
-                dispose();
-
-                if (res === gl.WAIT_FAILED) {
-                    reject(new Error("webgl clientWaitSync sync failed"));
-                } else {
-                    resolve(true);
+                    if (res === gl.TIMEOUT_EXPIRED) {
+                        timeoutId = setTimeout(test, interval);
+                    }
+                    else {
+                        disposeTest();
+                        if (res === gl.WAIT_FAILED) {
+                            reject(new Error("webgl clientWaitSync sync failed"));
+                        }
+                        else {
+                            resolve(true);
+                        }
+                    }
                 }
             }
 
-            // timeoutId = setTimeout(test, 0);
             test();
         });
     }

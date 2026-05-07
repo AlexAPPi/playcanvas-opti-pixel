@@ -2,9 +2,8 @@ export default `
 
     #include "getRectDepthCS"
 
-    fn cullBoundingBox(boundingBox: BoundingBox, viewProjection: mat4x4<f32>, screenSize: vec2<f32>, hzbSize: vec2<f32>) -> i32 {
-
-        var boundingBoxCorners = array<vec4<f32>, 8>(
+    fn getBoundingBoxCorners(boundingBox: BoundingBox) -> array<vec4<f32>, 8> {
+        return array<vec4<f32>, 8>(
             vec4<f32>(boundingBox.center + vec3<f32>( boundingBox.halfExtents.x, boundingBox.halfExtents.y, boundingBox.halfExtents.z), 1.0),
             vec4<f32>(boundingBox.center + vec3<f32>(-boundingBox.halfExtents.x, boundingBox.halfExtents.y, boundingBox.halfExtents.z), 1.0),
             vec4<f32>(boundingBox.center + vec3<f32>( boundingBox.halfExtents.x,-boundingBox.halfExtents.y, boundingBox.halfExtents.z), 1.0),
@@ -14,6 +13,11 @@ export default `
             vec4<f32>(boundingBox.center + vec3<f32>( boundingBox.halfExtents.x,-boundingBox.halfExtents.y,-boundingBox.halfExtents.z), 1.0),
             vec4<f32>(boundingBox.center + vec3<f32>(-boundingBox.halfExtents.x,-boundingBox.halfExtents.y,-boundingBox.halfExtents.z), 1.0)
         );
+    }
+
+    fn cullBoundingBox(boundingBox: BoundingBox) -> i32 {
+
+        var boundingBoxCorners = getBoundingBoxCorners(boundingBox);
 
         var outXPos: i32 = 0;
         var outXNeg: i32 = 0;
@@ -28,7 +32,7 @@ export default `
 
         for (var i: i32 = 0; i < 8; i = i + 1) {
 
-            let bbc = viewProjection * boundingBoxCorners[i];
+            let bbc = uniforms.viewProjection * boundingBoxCorners[i];
 
             outXPos = outXPos + select(0, 1, bbc.x >  bbc.w);
             outXNeg = outXNeg + select(0, 1, bbc.x < -bbc.w);
@@ -61,10 +65,11 @@ export default `
             return 2;
         }
 
-        let clampedMinCoord: vec2<f32> = clamp(minCoord * 0.5 + 0.5, vec2<f32>(0.0), vec2<f32>(1.0));
-        let clampedMaxCoord: vec2<f32> = clamp(maxCoord * 0.5 + 0.5, vec2<f32>(0.0), vec2<f32>(1.0));
+        // Convert minCoord and maxCoord from ndc [-1, 1] to texture [0, 1]
+        minCoord = minCoord * 0.5 + 0.5;
+        maxCoord = maxCoord * 0.5 + 0.5;
 
-        let hzbInstanceDepth = getRectDepth(clampedMinCoord, clampedMaxCoord, screenSize, hzbSize);
+        let hzbInstanceDepth = getRectDepth(minCoord, maxCoord);
 
         return select(1, 0, instanceDepth > hzbInstanceDepth);
     }

@@ -45,9 +45,11 @@ export interface IOcclusionCullingTester {
      * Registers a BoundingBox for subsequent occlusion testing.
      * @param boundingBox - The bounds of the object in local or world coordinates.
      * @param matrix - Optional transformation matrix (if a local BoundingBox is used).
+     * @param extra1 - Optional extra data 1.
+     * @param extra2 - Optional extra data 2.
      * @returns A unique identifier for the registered object.
      */
-    lock(boundingBox: pc.BoundingBox, matrix?: pc.Mat4): TUnicalId;
+    lock(boundingBox: pc.BoundingBox, matrix?: pc.Mat4, extra1?: number, extra2?: number): TUnicalId;
 
     /**
      * Releases a previously registered identifier and removes associated data.

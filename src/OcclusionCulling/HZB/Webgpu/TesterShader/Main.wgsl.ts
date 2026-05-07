@@ -16,9 +16,9 @@ export default `
     }
 
     #include "indirectCoreCS"
-    #include "getIndirectMetaCS"
     #include "getBoundingBoxCS"
     #include "cullBoundingBoxCS"
+    #include "getIndirectMetaDataCS"
 
     @group(0) @binding(0) var<uniform> uniforms: Uniforms;
     @group(0) @binding(1) var hzb: texture_2d<f32>;
@@ -38,7 +38,7 @@ export default `
             let queueItem    = indirectDrawQueueBuffer[index];
             let indirectMeta = getIndirectMetaData(queueItem.index);
             let boundingBox  = getBoundingBox(queueItem.index);
-            let cullResult   = cullBoundingBox(boundingBox, uniforms.viewProjection, uniforms.screenSize, uniforms.hzbSize);
+            let cullResult   = cullBoundingBox(boundingBox);
 
             let instanceCount = select(queueItem.instanceCount, 0u, cullResult == 0);
 

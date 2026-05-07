@@ -1,4 +1,4 @@
-import getIndirectMetaCS from "./TesterShader/GetIndirectMeta.wgsl.js";
+import getIndirectMetaDataCS from "./TesterShader/GetIndirectMetaData.wgsl.js";
 import cullBoundingBoxCS from "./TesterShader/CullBoundingBox.wgsl.js";
 import getBoundingBoxCS from "./TesterShader/GetBoundingBox.wgsl.js";
 import getRectDepthCS from "./TesterShader/GetRectDepth.wgsl.js";
@@ -8,7 +8,7 @@ import pc from "../../../engine.js";
 import { AABBDataTexture } from "../../../Extras/AABBDataTexture.js";
 import { GPUIndexQueue } from "../../../Extras/GPUIndexQueue.js";
 import { IndexManager } from "../../../Extras/IndexManager.js";
-import { MetaDataTexture } from "../../../Extras/MetaDataTexture.js";
+import { IndirectMetaDataTexture } from "../../../Extras/IndirectMetaDataTexture.js";
 import { IGPUIndirectDrawOcclusionCullingTester, IPrimitive, TUnicalId, TUnicalQueueIndex } from "../../IOcclusionCullingTester";
 import { IHierarchicalZBufferTester } from "../IHierarchicalZBufferTester";
 import { getDebugInfo } from "../TesterDebugInfo.js";
@@ -23,7 +23,7 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
 
     private _indexManager: IndexManager;
     private _aabbStore: AABBDataTexture;
-    private _metaStore: MetaDataTexture;
+    private _metaStore: IndirectMetaDataTexture;
     private _indirect: GPUIndexQueue;
     private _hzb: WebgpuHierarchicalZBuffer;
     private _computeShader: pc.Shader;
@@ -43,7 +43,7 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
         this._hzb = hzb;
         this._indexManager = new IndexManager(capacity, true);
         this._aabbStore = new AABBDataTexture(hzb.device, capacity);
-        this._metaStore = new MetaDataTexture(hzb.device, capacity);
+        this._metaStore = new IndirectMetaDataTexture(hzb.device, capacity);
 
         // extra must be 2 + (slot, instanceCount, ...)
         this._indirect = new GPUIndexQueue(hzb.device, this._indexManager, false, Math.max(2, extraSize));
@@ -66,9 +66,9 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
         this._indirect.resize();
     }
 
-    public lock(boundingBox: pc.BoundingBox, matrix?: pc.Mat4): TUnicalId {
+    public lock(boundingBox: pc.BoundingBox, matrix?: pc.Mat4, extra1: number = 0, extra2: number = 0): TUnicalId {
         const index = this._indexManager.reserve();
-        this._aabbStore.enqueueAABBUpdate(index, boundingBox, matrix);
+        this._aabbStore.enqueueAABBUpdate(index, boundingBox, matrix, extra1, extra2);
         return index;
     }
 
@@ -106,7 +106,7 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
         cincludes.set("getRectDepthCS", getRectDepthCS);
         cincludes.set("getBoundingBoxCS", getBoundingBoxCS);
         cincludes.set("cullBoundingBoxCS", cullBoundingBoxCS);
-        cincludes.set("getIndirectMetaCS", getIndirectMetaCS);
+        cincludes.set("getIndirectMetaDataCS", getIndirectMetaDataCS);
 
         if (customDefines) {
             for (const def of customDefines) {

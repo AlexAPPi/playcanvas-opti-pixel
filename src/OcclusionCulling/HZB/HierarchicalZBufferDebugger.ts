@@ -15,6 +15,8 @@ export class HierarchicalZBufferDebugger {
     private _debugAABBTexture: pc.Texture;
     private _debugTextureShaderDesc: any;
 
+    public enabled: boolean = true;
+
     public get hzb() { return (this._tester?.hzb ?? this._hzb)!; }
     public set hzbOrTester(v: WebglHierarchicalZBuffer | WebgpuHierarchicalZBuffer | IHierarchicalZBufferTester) {
         const initByHZB = (v instanceof WebglHierarchicalZBuffer || v instanceof WebgpuHierarchicalZBuffer);
@@ -66,11 +68,13 @@ export class HierarchicalZBufferDebugger {
     }
 
     public debug() {
-        const m = this.hzb.mipLevels - 1;
-        const h = Math.floor(m / 2);
-        this.debugBuffer(0, 0.75, 0.5, 0.25, 0.25);
-        this.debugBuffer(h, 0.75, 0.0, 0.25, 0.25);
-        this.debugBuffer(m, 0.75, -0.5, 0.25, 0.25);
+        if (this.enabled) {
+            const m = this.hzb.mipLevels - 1;
+            const h = Math.floor(m / 2);
+            this.debugBuffer(0, 0.75, 0.5, 0.25, 0.25);
+            this.debugBuffer(h, 0.75, 0.0, 0.25, 0.25);
+            this.debugBuffer(m, 0.75, -0.5, 0.25, 0.25);
+        }
     }
 
     public debugBuffer(i: number, x: number, y: number, width: number, height: number) {

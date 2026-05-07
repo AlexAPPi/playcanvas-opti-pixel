@@ -18,17 +18,25 @@ export default `
 
         float instanceDepth;
         float hzbDepth;
+        vec2 minCoord;
+        vec2 maxCoord;
 
+        vec2 boundingBoxExtra;
         vec3 boundingBoxCenter;
         vec3 boundingBoxHalfExtents;
 
-        getBoundingBox(aBoundingBoxIndex, boundingBoxCenter, boundingBoxHalfExtents);
+        getBoundingBox(aBoundingBoxIndex, boundingBoxCenter, boundingBoxHalfExtents, boundingBoxExtra);
 
-        int cullStatus = cullBoundingBox(boundingBoxCenter, boundingBoxHalfExtents, uMatrixViewProjection, uScreenSize, uHZBSize, instanceDepth, hzbDepth);
+        int cullStatus = cullBoundingBox(
+            boundingBoxCenter, boundingBoxHalfExtents,
+            instanceDepth, hzbDepth,
+            minCoord, maxCoord
+        );
 
         out_flags = getFlags(
-            aBoundingBoxIndex, boundingBoxCenter, boundingBoxHalfExtents, uMatrixViewProjection, 
-            instanceDepth, hzbDepth, cullStatus
+            aBoundingBoxIndex, boundingBoxCenter, boundingBoxHalfExtents, boundingBoxExtra,
+            instanceDepth, hzbDepth, cullStatus,
+            minCoord, maxCoord
         );
     }
 `;

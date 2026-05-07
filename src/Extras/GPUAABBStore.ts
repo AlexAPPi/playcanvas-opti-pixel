@@ -1,5 +1,6 @@
 
 import pc from "../engine.js";
+import { TUnicalId } from "../OcclusionCulling/IOcclusionCullingTester.js";
 import { GPUElementsStore } from "./GPUElementsStore.js";
 
 const _channels = 4;
@@ -21,7 +22,7 @@ export class GPUAABBStore extends GPUElementsStore<Float32Array> {
         boundingBox.halfExtents.set(aabbData[dataIndex + 4], aabbData[dataIndex + 5], aabbData[dataIndex + 6]);
     }
 
-    public lock(boundingBox: pc.BoundingBox, matrix?: pc.Mat4) {
+    public lock(boundingBox: pc.BoundingBox, matrix?: pc.Mat4, extra1: number = 0, extra2: number = 0): TUnicalId {
 
         let resultBoundingBox = boundingBox;
 
@@ -33,11 +34,11 @@ export class GPUAABBStore extends GPUElementsStore<Float32Array> {
         _data[0] = resultBoundingBox.center.x;
         _data[1] = resultBoundingBox.center.y;
         _data[2] = resultBoundingBox.center.z;
-        //_data[3] = 0;
+        _data[3] = extra1;
         _data[4] = resultBoundingBox.halfExtents.x;
         _data[5] = resultBoundingBox.halfExtents.y;
         _data[6] = resultBoundingBox.halfExtents.z;
-        //_data[7] = 0;
+        _data[7] = extra2;
 
         return this.lockSegment(_data);
     }

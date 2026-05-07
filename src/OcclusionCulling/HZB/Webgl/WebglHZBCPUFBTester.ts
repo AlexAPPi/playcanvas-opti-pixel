@@ -7,12 +7,13 @@ import getFlagsVS from "./TesterShader/GetFlags.glsl.js";
 import mainVS from "./TesterShader/Main.glsl.js";
 import pc from "../../../engine.js";
 import { HZBTStateQueue } from "./HZBTStateQueue.js";
-import { GPUAABBStore } from "../../../Extras/GPUAABBStore.js";
 import { WebglHierarchicalZBuffer } from "./WebglHierarchicalZBuffer.js";
 import { getDebugInfo } from "../TesterDebugInfo.js";
 import type { IHierarchicalZBufferTester } from "../IHierarchicalZBufferTester.js";
 import type { IGPU2CPUReadbackOcclusionCullingTester, TOcclusionResult, TUnicalId } from "../../IOcclusionCullingTester.js";
 import { executeTransformFeedbackShader } from "../../../Extras/TransformFeedbackHelpers.js";
+import { IndexManager } from "../../../Extras/IndexManager.js";
+import { AABBDataTexture } from "../../../Extras/AABBDataTexture.js";
 
 export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPUReadbackOcclusionCullingTester {
 
@@ -28,7 +29,8 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
     private _pixelsSizePerInstanceScope: pc.ScopeId;
     private _matrixViewProjectionScope: pc.ScopeId;
     private _queue: HZBTStateQueue;
-    private _aabbStore: GPUAABBStore;
+    private _indexManager: IndexManager;
+    private _aabbStore: AABBDataTexture;
     private _modelViewProjection = new pc.Mat4();
 
     public get hzb() { return this._hzb; }
@@ -40,32 +42,33 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
 
     constructor(hzb: WebglHierarchicalZBuffer, capacity: number = 512) {
         this._hzb = hzb;
-        this._aabbStore = new GPUAABBStore(hzb.device, capacity);
-        this._queue = new HZBTStateQueue(hzb.device, this._aabbStore.indexManager);
+        this._indexManager = new IndexManager(capacity, true);
+        this._aabbStore = new AABBDataTexture(hzb.device, capacity);
+        this._queue = new HZBTStateQueue(hzb.device, this._indexManager);
         this._updateScopes();
         this._updateShader();
     }
 
-    public lock(boundingBox: pc.BoundingBox, matrix?: pc.Mat4): TUnicalId {
-        return this._aabbStore.lock(boundingBox, matrix);
+    public lock(boundingBox: pc.BoundingBox, matrix?: pc.Mat4, extra1: number = 0, extra2: number = 0): TUnicalId {
+        const index = this._indexManager.reserve();
+        this._aabbStore.enqueueAABBUpdate(index, boundingBox, matrix, extra1, extra2);
+        return index;
     }
 
     public unlock(id: TUnicalId): void {
-        this._aabbStore.unlock(id);
+        this._indexManager.free(id);
     }
 
     private _clearScopes() {
     }
 
     private _updateScopes() {
-
         this._clearScopes();
         this._hzbSizeScope = this._hzb.device.scope.resolve("uHZBSize");
         this._screenSizeScope = this._hzb.device.scope.resolve("uScreenSize");
         this._dataTextureScope = this._hzb.device.scope.resolve("uDataTexture");
         this._pixelsSizePerInstanceScope = this._hzb.device.scope.resolve("uPixelsSizePerInstance");
         this._matrixViewProjectionScope = this._hzb.device.scope.resolve("uMatrixViewProjection");
-
         this._hzbScope1 = this._hzb.device.scope.resolve("uHZB1");
         this._hzbScope2 = this._hzb.device.scope.resolve("uHZB2");
     }
@@ -105,7 +108,7 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
 
         if (customIncludes) {
             for (const inc of customIncludes) {
-                vertexDefines.set(inc[0], inc[1]);
+                vertexIncludes.set(inc[0], inc[1]);
             }
         }
 
@@ -141,6 +144,7 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
     }
 
     public resize(count: number): void {
+        this._indexManager.resize(count);
         this._aabbStore.resize(count);
         this._queue.resize();
     }

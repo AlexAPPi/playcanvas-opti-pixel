@@ -4,7 +4,7 @@ const _channels = 4;
 const _pixelsPerInstance = 1;
 const _data = new Uint32Array(4);
 
-export class MetaDataTexture extends SquareDataTexture<Uint32Array> {
+export class IndirectMetaDataTexture extends SquareDataTexture<Uint32Array> {
 
     public constructor(device: pc.GraphicsDevice, capacity: number = 512) {
         super(device, Uint32Array, _channels, _pixelsPerInstance, capacity);

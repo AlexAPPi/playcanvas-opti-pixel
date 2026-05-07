@@ -2,7 +2,8 @@ export default `
 
     struct BoundingBox {
         center: vec3<f32>,
-        halfExtents: vec3<f32>
+        halfExtents: vec3<f32>,
+        extra: vec2<f32>
     }
 
     fn getBoundingBox(itemIndex: u32) -> BoundingBox {
@@ -15,8 +16,12 @@ export default `
 
         var box: BoundingBox;
 
-        box.center      = textureLoad(boundingBoxes, vec2<i32>(u + 0, v), 0).xyz;
-        box.halfExtents = textureLoad(boundingBoxes, vec2<i32>(u + 1, v), 0).xyz;
+        let data1 = textureLoad(boundingBoxes, vec2<i32>(u    , v), 0);
+        let data2 = textureLoad(boundingBoxes, vec2<i32>(u + 1, v), 0);
+
+        box.center      = data1.xyz;
+        box.halfExtents = data2.xyz;
+        box.extra       = vec2<f32>(data1.w, data2.w);
 
         return box;
     }

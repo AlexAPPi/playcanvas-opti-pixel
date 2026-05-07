@@ -119,13 +119,11 @@ export class OcclusionCullingSystem extends pc.EventHandler {
 
     private _onFrameUpdate(ms: number) {
         this._hzbDebugger?.debug();
-        if (this.active) {
-            this._hzbTester?.frameUpdate();
-            this._queriesTester?.frameUpdate();
-        }
+        this._hzbTester?.frameUpdate();
+        this._queriesTester?.frameUpdate();
     }
 
-    private _onFrameEnd() {
+    private _internalOnFrameEnd() {
 
         if (this.active && this._camera) {
 
@@ -139,6 +137,25 @@ export class OcclusionCullingSystem extends pc.EventHandler {
                     .catch(console.error);
             }
         }
+    }
+
+    private _onFrameEnd() {
+
+        // Let's release the rendering of the current frame
+        // and try to fit the hzb generation between frames
+        queueMicrotask(() => {
+
+            let start = performance.now();
+
+            this._internalOnFrameEnd();
+
+            let end = performance.now();
+
+            createDebug(this.app.graphicsDevice).innerHTML =
+            `
+                <span>Time: ${(end - start).toFixed(2)} ms</span>
+            `;
+        });
     }
 
     private _onResizeCanvas() {
@@ -173,4 +190,23 @@ export class OcclusionCullingSystem extends pc.EventHandler {
         this._onFrameEndHandle = this.app.on("frameend", this._onFrameEnd, this);
         this._onPostRenderLayerHandle = this.app.scene.on(pc.EVENT_POSTRENDER_LAYER, this._onPostRenderLayer, this);
     }
+}
+
+
+let debugDiv: HTMLDivElement;
+
+function createDebug(device: pc.GraphicsDevice) {
+    if (!debugDiv) {
+        debugDiv = document.createElement('div');
+        debugDiv.style.position = 'absolute';
+        debugDiv.style.top = '48px';
+        debugDiv.style.left = '10px';
+        debugDiv.style.color = 'white';
+        debugDiv.style.fontSize = '12px';
+        debugDiv.style.pointerEvents = 'none';
+        debugDiv.style.display = 'flex';
+        debugDiv.style.flexDirection = 'column';
+        device.canvas.parentNode!.appendChild(debugDiv);
+    }
+    return debugDiv;
 }

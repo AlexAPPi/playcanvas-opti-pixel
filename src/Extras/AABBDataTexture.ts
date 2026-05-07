@@ -72,7 +72,7 @@ export class AABBDataTexture extends SquareDataTexture<Float32Array> {
         return differences;
     }
 
-    public enqueueAABBUpdate(index: number, boundingBox: pc.BoundingBox, matrix?: pc.Mat4) {
+    public enqueueAABBUpdate(index: number, boundingBox: pc.BoundingBox, matrix?: pc.Mat4, extra1: number = 0, extra2: number = 0) {
 
         let resultBoundingBox = boundingBox;
 
@@ -84,11 +84,11 @@ export class AABBDataTexture extends SquareDataTexture<Float32Array> {
         _data[0] = resultBoundingBox.center.x;
         _data[1] = resultBoundingBox.center.y;
         _data[2] = resultBoundingBox.center.z;
-        //_data[3] = 0;
+        _data[3] = extra1;
         _data[4] = resultBoundingBox.halfExtents.x;
         _data[5] = resultBoundingBox.halfExtents.y;
         _data[6] = resultBoundingBox.halfExtents.z;
-        //_data[7] = 0;
+        _data[7] = extra2;
 
         this.enqueueDataUpdate(index, _data);
     }

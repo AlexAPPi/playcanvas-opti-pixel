@@ -66,7 +66,7 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
      * @param device - The device
      * @param maxSize - The parameter sets the maximum pixel size of the hzb with mipmaps.
      */
-    constructor(device: pc.WebglGraphicsDevice, maxSize: number = 256) {
+    constructor(device: pc.WebglGraphicsDevice, maxSize: number = 1024) {
         this._enabled = true;
         this._device = device;
         this._maxSize = maxSize;

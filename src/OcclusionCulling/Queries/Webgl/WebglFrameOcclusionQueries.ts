@@ -86,11 +86,11 @@ export class WebglFrameOcclusionQueries<TKey = number> {
     }
 
     public execute(camera: pc.Camera) {
-        
+
         if (this._processing) {
             return false;
         }
-        
+
         this._beginExecuteTime = performance.now();
         this._processing = true;
 
