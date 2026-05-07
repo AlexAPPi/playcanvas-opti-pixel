@@ -84,7 +84,7 @@ export function getDebugInfo(
 
     const extent = maxCoord.clone().sub(minCoord);
     const viewSize = extent.clone().mul(hzbSize);
-    const size = Math.max(viewSize.x, viewSize.y);
+    const size = Math.max(viewSize.x, viewSize.y) / 2.0;
     const minMipLevel = 0;
     const maxMipLevel = tester.hzb.mipLevels - 1;
     const curMipLevel = Math.ceil(Math.log2(size));

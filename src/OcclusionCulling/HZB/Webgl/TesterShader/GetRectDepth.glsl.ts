@@ -14,7 +14,7 @@ export default `
         vec2 extent = clampedMaxCoord - clampedMinCoord;
         vec2 viewSize = extent * uHZBSize;
 
-        float size = max(viewSize.x, viewSize.y);
+        float size = max(viewSize.x, viewSize.y) / 2.0;
         float lod  = clamp(ceil(log2(size)), MIN_LEVEL, MAX_LEVEL);
 
         float probe0 = getDepth(clampedMinCoord, lod);

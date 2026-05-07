@@ -10,7 +10,7 @@ export default `
         let extent: vec2<f32> = clampedMaxCoord - clampedMinCoord;
         let viewSize: vec2<f32> = extent * uniforms.hzbSize;
 
-        let size: f32 = max(viewSize.x, viewSize.y);
+        let size: f32 = max(viewSize.x, viewSize.y) / 2.0;
         let lod: f32 = clamp(ceil(log2(size)), {MIN_LEVEL}, {MAX_LEVEL});
 
         let probe0: f32 = getDepth(clampedMinCoord, lod);
