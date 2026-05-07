@@ -57,7 +57,7 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
     public get maxSize() { return this._maxSize; }
     public set maxSize(value: number) {
         this._maxSize = value;
-        this.resize(this._screenWidth, this._screenHeight, this._maxSize);
+        this.resize(this.screenWidth, this.screenHeight, this._maxSize);
     }
 
     /**
