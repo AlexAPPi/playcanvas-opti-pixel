@@ -16,10 +16,8 @@ export default `
 
     void main(void) {
 
-        float instanceDepth;
-        float hzbDepth;
-        vec2 minCoord;
-        vec2 maxCoord;
+        vec3 rectMin;
+        vec3 rectMax;
 
         vec2 boundingBoxExtra;
         vec3 boundingBoxCenter;
@@ -29,14 +27,12 @@ export default `
 
         int cullStatus = cullBoundingBox(
             boundingBoxCenter, boundingBoxHalfExtents,
-            instanceDepth, hzbDepth,
-            minCoord, maxCoord
+            rectMin, rectMax
         );
 
         out_flags = getFlags(
             aBoundingBoxIndex, boundingBoxCenter, boundingBoxHalfExtents, boundingBoxExtra,
-            instanceDepth, hzbDepth, cullStatus,
-            minCoord, maxCoord
+            rectMin, rectMax, cullStatus
         );
     }
 `;

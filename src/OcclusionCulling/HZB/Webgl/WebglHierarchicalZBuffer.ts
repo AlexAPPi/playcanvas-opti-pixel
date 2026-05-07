@@ -1,6 +1,6 @@
 import { IHierarchicalZBuffer } from "../IHierarchicalZBuffer.js";
 import vertexCodeVS from "./WebglHierarchicalZBuffer.vert.glsl.js";
-import fragmentCodePS from "./WebglHierarchicalZBuffer.frag.glsl.js";
+import fragmentCodePS from "./WebglHierarchicalZBuffer.fragMin.glsl.js";
 import pc from "../../../engine.js";
 
 export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
@@ -149,6 +149,18 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         const format = depthByColor ?
             (this.isFloat32() ? pc.PIXELFORMAT_R32F : pc.PIXELFORMAT_RGBA8) :
             pc.PIXELFORMAT_DEPTH;
+
+        /*
+        // Fill default texture value of MAX
+        const textureBuffers = new Array<Uint8Array>(this._mipLevels);
+        for (let i = 0; i < this._mipLevels; i++) {
+            const mipLevel = i + this._minMipLevel;
+            const mipWidth = Math.max(1, this._globalMipWidth >> mipLevel);
+            const mipHeight = Math.max(1, this._globalMipHeight >> mipLevel);
+            textureBuffers[i] = new Uint8Array(mipWidth * mipHeight * 4);
+            textureBuffers[i].fill(255);
+        }
+        */
 
         this._texture1 = new pc.Texture(this._device, {
             name: "HZB_MIP_TX_1",

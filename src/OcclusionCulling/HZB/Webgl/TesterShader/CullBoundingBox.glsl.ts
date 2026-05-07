@@ -15,59 +15,24 @@ export default `
         return boundingBoxCorners;
     }
 
-    int cullBoundingBox(vec3 boxCenterWorld, vec3 boxHalfExtents, out float instanceDepth, out float hzbDepth, out vec2 minCoord, out vec2 maxCoord) {
+    int cullBoundingBox(vec3 boxCenterWorld, vec3 boxHalfExtents, out vec3 rectMin, out vec3 rectMax) {
 
-        instanceDepth = 1e6;
-        hzbDepth = -1e6;
-
-        minCoord = vec2(1e6);
-        maxCoord = vec2(-1e6);
+        rectMin = vec3( 1.0,  1.0,  1.0);
+        rectMax = vec3(-1.0, -1.0, -1.0);
 
         vec4[8] boundingBoxCorners = getBoundingBoxCorners(boxCenterWorld, boxHalfExtents);
 
-        #if CHECK_FRUSTUM
-        int outXPos = 0;
-        int outXNeg = 0;
-        int outYPos = 0;
-        int outYNeg = 0;
-        int outZPos = 0;
-        int outZNeg = 0;
-        #endif
-
         for (int i = 0; i < 8; i++) {
 
-            vec4 point = uMatrixViewProjection * boundingBoxCorners[i];
+            vec4 pointClip = uMatrixViewProjection * boundingBoxCorners[i];
+            vec3 pointScreen = pointClip.xyz / pointClip.w;
 
-            #if CHECK_FRUSTUM
-            if (point.x >  point.w) outXPos++;
-            if (point.x < -point.w) outXNeg++;
-            if (point.y >  point.w) outYPos++;
-            if (point.y < -point.w) outYNeg++;
-            if (point.z >  point.w) outZPos++;
-            if (point.z < -point.w) outZNeg++;
-            #endif
-
-            point.xyz /= point.w;
-
-            minCoord = min(minCoord, point.xy);
-            maxCoord = max(maxCoord, point.xy);
-            instanceDepth = min(instanceDepth, point.z);
+            rectMin = min(rectMin, pointScreen);
+            rectMax = max(rectMax, pointScreen);
         }
 
-        // Convert from NDC space [-1, 1] to texture space [0, 1]
-        minCoord = minCoord * 0.5 + 0.5;
-        maxCoord = maxCoord * 0.5 + 0.5;
+        float minDepth = getRectDepth(rectMin, rectMax);
 
-        #if CHECK_FRUSTUM
-        if (outXPos == 8 || outXNeg == 8 ||
-            outYPos == 8 || outYNeg == 8 ||
-            outZPos == 8 || outZNeg == 8) {
-            return 2;
-        }
-        #endif
-
-        hzbDepth = getRectDepth(minCoord, maxCoord);
-
-        return instanceDepth > hzbDepth ? 1 : 0;
+        return rectMax.z >= minDepth ? 1 : 0;
     }
 `;
