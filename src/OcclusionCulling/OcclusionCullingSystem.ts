@@ -145,16 +145,18 @@ export class OcclusionCullingSystem extends pc.EventHandler {
         // and try to fit the hzb generation between frames
         queueMicrotask(() => {
 
-            let start = performance.now();
+            //let start = performance.now();
 
             this._internalOnFrameEnd();
 
-            let end = performance.now();
+            //let end = performance.now();
 
+            /*
             createDebug(this.app.graphicsDevice).innerHTML =
             `
                 <span>Time: ${(end - start).toFixed(2)} ms</span>
             `;
+            */
         });
     }
 
@@ -192,7 +194,7 @@ export class OcclusionCullingSystem extends pc.EventHandler {
     }
 }
 
-
+/*
 let debugDiv: HTMLDivElement;
 
 function createDebug(device: pc.GraphicsDevice) {
@@ -210,3 +212,4 @@ function createDebug(device: pc.GraphicsDevice) {
     }
     return debugDiv;
 }
+*/

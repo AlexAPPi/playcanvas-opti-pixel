@@ -46,14 +46,14 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         this._enabled = true;
         this._device = device;
 
-        this._init();
+        this._init(this.device.width, this.device.height);
         this._updateComputeParameters();
     }
 
-    private _init() {
+    private _init(width: number = this.screenWidth, height: number = this.screenHeight) {
 
-        this._screenWidth = this.device.width | 0;
-        this._screenHeight = this.device.height | 0;
+        this._screenWidth = width | 0;
+        this._screenHeight = height | 0;
         this._width = this._screenWidth >> 1;
         this._height = this._screenHeight >> 1;
         this._mipLevels = this.calculateMipLevels(this._width, this._height);
@@ -203,9 +203,9 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         return 1 + Math.floor(Math.log2(maxSize));
     }
 
-    public resize() {
+    public resize(width: number = this.screenWidth, height: number = this.screenHeight) {
         this.destroy();
-        this._init();
+        this._init(width, height);
         this._updateComputeParameters();
     }
 

@@ -57,7 +57,7 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
     public get maxSize() { return this._maxSize; }
     public set maxSize(value: number) {
         this._maxSize = value;
-        this.resize();
+        this.resize(this._screenWidth, this._screenHeight, this._maxSize);
     }
 
     /**
@@ -66,7 +66,7 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
      * @param device - The device
      * @param maxSize - The parameter sets the maximum pixel size of the hzb with mipmaps.
      */
-    constructor(device: pc.WebglGraphicsDevice, maxSize: number = 1024) {
+    constructor(device: pc.WebglGraphicsDevice, maxSize: number = 256) {
         this._enabled = true;
         this._device = device;
         this._maxSize = maxSize;
@@ -75,7 +75,7 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         this._includeSrcExtraRowScope = this._device.scope.resolve("uIncludeSrcExtraRow");
         this._readLevelScope = this._device.scope.resolve("uReadLevel");
         this._depthMipScope = this._device.scope.resolve("uDepthMip");
-        this.resize();
+        this.resize(this.device.width, this.device.height, maxSize);
     }
 
     public isFloat32() {
@@ -114,10 +114,11 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         });
     }
 
-    public resize() {
+    public resize(width: number = this.screenWidth, height: number = this.screenHeight, maxSize: number = this.maxSize) {
         this.destroy();
-        this._screenWidth = this.device.width | 0;
-        this._screenHeight = this.device.height | 0;
+        this._maxSize = maxSize;
+        this._screenWidth = width | 0;
+        this._screenHeight = height | 0;
         this._globalMipWidth = this._screenWidth >> 1;
         this._globalMipHeight = this._screenHeight >> 1;
         this._globalMipLevels = this.calculateMipLevels(this._globalMipWidth, this._globalMipHeight);
