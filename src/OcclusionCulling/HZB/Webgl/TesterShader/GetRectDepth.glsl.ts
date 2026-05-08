@@ -4,25 +4,24 @@ export default `
 
     float getRectDepth(vec3 rectMin, vec3 rectMax) {
 
-        float posStart;
-        float posEnd;
-        float step;
+        vec4 rect = clamp(vec4(rectMin.xy, rectMax.xy) * 0.5 + 0.5, vec4(0.0), vec4(1.0)).xwzy;
+        vec4 rectPixels = rect * uHZBSize.xyxy;
+        vec2 rectSize = (rectPixels.zw - rectPixels.xy) * 0.5; // 0.5 for 4x4
+        float level = max(ceil(log2(max(rectSize.x, rectSize.y))), MIN_LEVEL);
 
-        // Convert from NDC space [-1, 1] to texture space [0, 1]
-        vec2 clampedRectMin = clamp(rectMin.xy * 0.5 + 0.5, vec2(0.0), vec2(1.0));
-        vec2 clampedRectMax = clamp(rectMax.xy * 0.5 + 0.5, vec2(0.0), vec2(1.0));
+        // Check if we can drop one level lower
+        float levelLower = max(level - 1.0, 0.0);
+        vec4 lowerRect = rectPixels * exp2(-levelLower);
+        vec2 lowerRectSize = ceil(lowerRect.zw) - floor(lowerRect.xy);
+        if (all(lessThanEqual(lowerRectSize, vec2(4.0)))) {
+            level = levelLower;
+        }
 
-        vec2 rectExtent = clampedRectMax - clampedRectMin;
-        vec2 rectPixels = rectExtent * uHZBSize;
-
-        float rectSize = max(rectPixels.x, rectPixels.y) / 2.0;
-        float level    = clamp(ceil(log2(rectSize)), MIN_LEVEL, MAX_LEVEL);
-
-        vec2 scale = rectExtent / 3.0;
-	    vec2 bias  = clampedRectMax;
+        vec2 scale = (rect.zw - rect.xy) / 3.0;
+	    vec2 bias  = rect.xy;
         vec4 minDepth = vec4(1.0);
 
-        for (int i = 0; i < 4; i++ ) {
+        for (int i = 0; i < 4; i++) {
             vec4 depth;
             depth.x = getDepth(vec2(i, 0) * scale + bias, level);
             depth.y = getDepth(vec2(i, 1) * scale + bias, level);

@@ -18,16 +18,11 @@ export default `
 
     float getDepth(vec2 uv, float lod) {
         int mip = int(lod + 0.5);
-        int even = 1 - (mip & 1);
-        float d1 = convertDepth(textureLod(uHZB1, uv, lod));
-        float d2 = convertDepth(textureLod(uHZB2, uv, lod));
-        return mix(d2, d1, float(even));
+        float even = float((mip & 1) == 0);
+        return mix(
+            convertDepth(textureLod(uHZB2, uv, lod)),
+            convertDepth(textureLod(uHZB1, uv, lod)),
+            even
+        );
     }
-
-    /*
-    return convertDepth(max(
-        textureLod(uHZB1, uv, lod),
-        textureLod(uHZB2, uv, lod)
-    ));
-    */
 `;
