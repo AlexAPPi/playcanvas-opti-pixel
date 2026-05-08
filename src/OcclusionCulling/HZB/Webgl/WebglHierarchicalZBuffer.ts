@@ -334,13 +334,17 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         // we use a chain of levels.
 
         // TODO: need more test on devices
-        const mainDepthTexture = (camera.renderPassDepthGrab as any)?.depthRenderTarget.depthBuffer;
+        const mainDepthTexture = (camera.renderPassDepthGrab as any)?.depthRenderTarget.depthBuffer as pc.Texture;
 
         if (!mainDepthTexture) {
             return;
         }
 
-        // TODO: check camera depth buffer viewport
+        if (mainDepthTexture.width !== this.screenWidth ||
+            mainDepthTexture.height !== this.screenHeight) {
+            this.resize(mainDepthTexture.width, mainDepthTexture.height);
+        }
+
         const { vx, vy, vw, vh, sx, sy, sw, sh } = device;
         const renderTarget = device.getRenderTarget();
         const mipLevels = this._minMipLevel + this._mipLevels;

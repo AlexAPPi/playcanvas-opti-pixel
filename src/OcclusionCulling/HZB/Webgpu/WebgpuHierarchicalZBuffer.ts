@@ -224,11 +224,15 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         }
 
         // TODO: need more test on devices
-        const mainDepthTexture = (camera.renderPassDepthGrab as any)?.depthRenderTarget.depthBuffer;
+        const mainDepthTexture = (camera.renderPassDepthGrab as any)?.depthRenderTarget.depthBuffer as pc.Texture;
 
         if (mainDepthTexture) {
 
-            // TODO: check camera depth buffer viewport
+            if (mainDepthTexture.width !== this.screenWidth ||
+                mainDepthTexture.height !== this.screenHeight) {
+                this.resize(mainDepthTexture.width, mainDepthTexture.height);
+            }
+
             this._updateMainDepthTexture(mainDepthTexture);
             this._device.computeDispatch(this._computeMips, this._debugName);
         }
