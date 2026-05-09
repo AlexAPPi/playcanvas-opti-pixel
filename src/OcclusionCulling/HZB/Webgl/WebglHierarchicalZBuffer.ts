@@ -1,7 +1,8 @@
+import pc from "../../../engine.js";
 import { IHierarchicalZBuffer } from "../IHierarchicalZBuffer.js";
 import vertexCodeVS from "./WebglHierarchicalZBuffer.vert.glsl.js";
 import fragmentCodePS from "./WebglHierarchicalZBuffer.frag.glsl.js";
-import pc from "../../../engine.js";
+import { getCameraDepthTexture } from "../../../Extras/CameraHelpers.js";
 
 export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
 
@@ -324,19 +325,15 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
 
     public update(camera: pc.Camera) {
 
-        if (!this._enabled) {
+        if (!this.enabled) {
             return;
         }
-
-        const device = this._device;
 
         // TODO: During testing on Android, the construction of
         // a mipmap texture showed poor performance;
         // we use a chain of levels.
 
-        // TODO: need more test on devices
-        const mainDepthTexture = (camera.renderPassDepthGrab as any)?.depthRenderTarget.depthBuffer as pc.Texture;
-
+        const mainDepthTexture = getCameraDepthTexture(camera);
         if (!mainDepthTexture) {
             return;
         }
@@ -346,6 +343,7 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
             this.resize(mainDepthTexture.width, mainDepthTexture.height);
         }
 
+        const device = this.device;
         const { vx, vy, vw, vh, sx, sy, sw, sh } = device;
         const oldRenderTarget = device.getRenderTarget();
         const numMipLevels = this._minMipLevel + this._mipLevels;

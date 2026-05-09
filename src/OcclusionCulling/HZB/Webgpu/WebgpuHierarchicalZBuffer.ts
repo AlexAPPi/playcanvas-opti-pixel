@@ -1,6 +1,7 @@
-import { IHierarchicalZBuffer } from "../IHierarchicalZBuffer.js";
-import cshader from "./WebgpuHierarchicalZBuffer.wgsl.js";
 import pc from "../../../engine.js";
+import type { IHierarchicalZBuffer } from "../IHierarchicalZBuffer.js";
+import cshader from "./WebgpuHierarchicalZBuffer.wgsl.js";
+import { getCameraDepthTexture } from "../../../Extras/CameraHelpers.js";
 
 export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
 
@@ -34,6 +35,8 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
     public get minLevel() { return this._minLevel; }
 
     public constructor(device: pc.WebgpuGraphicsDevice, debugName?: string) {
+
+        this._device = device;
 
         if (debugName !== undefined) {
             this._debugName = debugName;
@@ -222,14 +225,12 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
 
     public update(camera: pc.Camera) {
 
-        if (!this._enabled ||
-            !this._device ||
-            !this._device.supportsCompute) {
+        if (!this.enabled ||
+            !this.device.supportsCompute) {
             return;
         }
 
-        // TODO: need more test on devices
-        const mainDepthTexture = (camera.renderPassDepthGrab as any)?.depthRenderTarget.depthBuffer as pc.Texture;
+        const mainDepthTexture = getCameraDepthTexture(camera);
 
         if (mainDepthTexture) {
 
