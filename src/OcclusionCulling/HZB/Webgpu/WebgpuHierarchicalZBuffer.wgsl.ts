@@ -10,8 +10,8 @@ export default
 
     @group(0) @binding(0) var<uniform> uniforms: Uniforms;
     @group(0) @binding(1) var screenDepth: texture_depth_2d;
-    @group(0) @binding(2) var srcDepth: texture_2d<f32>;
-    @group(0) @binding(3) var dstDepth: texture_storage_2d<{DEPTH_STORAGE_FORMAT}, write>;
+    @group(0) @binding(2) var srcDepth: texture_2d<{SRC_DEPTH_FORMAT}>;
+    @group(0) @binding(3) var dstDepth: texture_storage_2d<{DST_DEPTH_FORMAT}, write>;
 
     fn getDepth(coords: vec2i) -> f32 {
 
@@ -19,7 +19,7 @@ export default
             return textureLoad(screenDepth, coords, 0);
         }
 
-        #ifdef DEPTH_IS_FLOAT
+        #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16)
             return textureLoad(srcDepth, coords, 0).r;
         #else
             return uint2float(textureLoad(srcDepth, coords, 0));
@@ -63,7 +63,7 @@ export default
                 maxDepth = max(maxDepth, max(r0, r1));
             }
 
-            #if DEPTH_IS_FLOAT
+            #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16)
                 let result = vec4f(maxDepth, 0.0, 0.0, 1.0);
             #else
                 let result: vec4f = float2uint(maxDepth);

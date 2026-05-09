@@ -59,10 +59,12 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         this._height = this._screenHeight >> 1;
         this._mipLevels = this.calculateMipLevels(this._width, this._height);
 
-        const depthByColor = this.isColor();
-        const format = depthByColor ?
-            (this.isFloat32() ? pc.PIXELFORMAT_R32F : pc.PIXELFORMAT_RGBA8) :
-            pc.PIXELFORMAT_DEPTH;
+        const format = (
+            !this.isColor()  ? pc.PIXELFORMAT_DEPTH :
+            this.isFloat16() ? pc.PIXELFORMAT_R16F :
+            this.isFloat32() ? pc.PIXELFORMAT_R32F :
+                               pc.PIXELFORMAT_RGBA8
+        );
 
         this._texture = new pc.Texture(this.device, {
             name: "HierarchicalZBufferTexture",
@@ -99,9 +101,17 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         const cdefines = new Map<string, string>();
         cdefines.set('{WORKGROUP_SIZE_X}', this._workgroupSizeX.toFixed(0));
         cdefines.set('{WORKGROUP_SIZE_Y}', this._workgroupSizeY.toFixed(0));
-        cdefines.set('{DEPTH_STORAGE_FORMAT}', this.isFloat32() ? 'r32float' : 'rgba8unorm');
+        cdefines.set('{SRC_DEPTH_FORMAT}', this.isFloat16() ? 'f16' : 'f32');
+        cdefines.set('{DST_DEPTH_FORMAT}',
+            this.isFloat16() ? 'r16float' :
+            this.isFloat32() ? 'r32float' :
+                               'rgba8unorm'
+        );
 
-        if (this.isFloat32()) {
+        if (this.isFloat16()) {
+            cdefines.set('DEPTH_IS_FLOAT16', '');
+        }
+        else if (this.isFloat32()) {
             cdefines.set('DEPTH_IS_FLOAT', '');
         }
 

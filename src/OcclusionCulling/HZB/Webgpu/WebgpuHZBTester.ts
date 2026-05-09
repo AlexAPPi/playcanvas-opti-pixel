@@ -92,14 +92,26 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
         const minLevel = 0;
         const maxLevel = mipLevels - 1;
 
-        if (this.hzb.isFloat32()) {
-            cdefines.set("DEPTH_IS_FLOAT", "");
+        if (this.hzb.isFloat16()) {
+            cdefines.set("DEPTH_IS_FLOAT16", "");
+            cdefines.set("{DEPTH_STORAGE_FORMAT}", "f16");
+        }
+        else {
+
+            // For r32float or rgba8unorm,
+            // store depth as float in shader for easier processing,
+            // even if the actual storage format is uint.
+            cdefines.set("{DEPTH_STORAGE_FORMAT}", "f32");
+
+            if (this.hzb.isFloat32()) {
+                cdefines.set("DEPTH_IS_FLOAT", "");
+            }
         }
 
         cdefines.set("{MIN_LEVEL}", minLevel.toFixed(1));
         cdefines.set("{MAX_LEVEL}", maxLevel.toFixed(1));
-        cdefines.set('{WORKGROUP_SIZE_X}', this._workgroupSizeX.toFixed(0));
-        cdefines.set('{WORKGROUP_SIZE_Y}', this._workgroupSizeY.toFixed(0));
+        cdefines.set("{WORKGROUP_SIZE_X}", this._workgroupSizeX.toFixed(0));
+        cdefines.set("{WORKGROUP_SIZE_Y}", this._workgroupSizeY.toFixed(0));
 
         cincludes.set("mainCS", mainCS);
         cincludes.set("getDepthCS", getDepthCS);

@@ -7,8 +7,13 @@ export default `
     uniform uDepthMipLevel: f32;
     uniform camera_params: vec4f;
 
+#ifdef DEPTH_IS_FLOAT16
+    var uDepthMip: texture_2d<f16>;
+    var uDepthMipSampler: sampler;
+#else
     var uDepthMip: texture_2d<f32>;
     var uDepthMipSampler: sampler;
+#endif
 
     fn linearizeDepth(z: f32, cameraParams: vec4f) -> f32 {
         if (cameraParams.w == 0.0) {

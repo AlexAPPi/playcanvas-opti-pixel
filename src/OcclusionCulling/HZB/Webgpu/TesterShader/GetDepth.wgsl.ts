@@ -1,8 +1,6 @@
 export default `
 
-    #ifndef DEPTH_IS_FLOAT
-        #include "floatAsUintPS"
-    #endif
+    #include "floatAsUintPS"
 
     fn getDepth(uv: vec2<f32>, lod: f32) -> f32 {
 
@@ -10,7 +8,7 @@ export default `
         let mUV: vec2<f32>  = vec2<f32>(uv.x, 1.0 - uv.y);
         let data: vec4<f32> = textureSampleLevel(hzb, hzbSampler, mUV, lod);
 
-        #ifdef DEPTH_IS_FLOAT
+        #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16)
             return data.r;
         #else
             return uint2float(data);
