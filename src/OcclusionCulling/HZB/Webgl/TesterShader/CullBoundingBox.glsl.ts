@@ -2,29 +2,24 @@ export default `
 
     #include "getRectDepthVS"
 
-    vec3[8] getBoundingBoxCorners(vec3 boxCenterWorld, vec3 boxHalfExtents) {
-        vec3 boundingBoxCorners[8];
-        boundingBoxCorners[0] = boxCenterWorld + vec3( boxHalfExtents.x, boxHalfExtents.y, boxHalfExtents.z);
-        boundingBoxCorners[1] = boxCenterWorld + vec3(-boxHalfExtents.x, boxHalfExtents.y, boxHalfExtents.z);
-        boundingBoxCorners[2] = boxCenterWorld + vec3( boxHalfExtents.x,-boxHalfExtents.y, boxHalfExtents.z);
-        boundingBoxCorners[3] = boxCenterWorld + vec3(-boxHalfExtents.x,-boxHalfExtents.y, boxHalfExtents.z);
-        boundingBoxCorners[4] = boxCenterWorld + vec3( boxHalfExtents.x, boxHalfExtents.y,-boxHalfExtents.z);
-        boundingBoxCorners[5] = boxCenterWorld + vec3(-boxHalfExtents.x, boxHalfExtents.y,-boxHalfExtents.z);
-        boundingBoxCorners[6] = boxCenterWorld + vec3( boxHalfExtents.x,-boxHalfExtents.y,-boxHalfExtents.z);
-        boundingBoxCorners[7] = boxCenterWorld + vec3(-boxHalfExtents.x,-boxHalfExtents.y,-boxHalfExtents.z);
-        return boundingBoxCorners;
-    }
-
-    int cullBoundingBox(vec3 boxCenterWorld, vec3 boxHalfExtents, out vec3 rectMin, out vec3 rectMax) {
+    int cullBoundingBox(vec3 boxCenter, vec3 boxExtents, out vec3 rectMin, out vec3 rectMax) {
 
         rectMin = vec3( 1.0,  1.0,  1.0);
         rectMax = vec3(-1.0, -1.0, -1.0);
 
-        vec3[8] boundingBoxCorners = getBoundingBoxCorners(boxCenterWorld, boxHalfExtents);
+        vec3 boundsMin = boxCenter.xyz - boxExtents.xyz;
+	    vec3 boundsMax = boxCenter.xyz + boxExtents.xyz;
+	    vec3 bounds[2] = vec3[](boundsMin, boundsMax);
 
         for (int i = 0; i < 8; i++) {
 
-            vec4 pointClip   = uMatrixViewProjection * vec4(boundingBoxCorners[i], 1.0);
+            vec3 pointSrc = vec3(
+                bounds[(i >> 0) & 1].x,
+                bounds[(i >> 1) & 1].y,
+                bounds[(i >> 2) & 1].z
+            );
+
+            vec4 pointClip   = uMatrixViewProjection * vec4(pointSrc, 1.0);
             vec3 pointScreen = pointClip.xyz / pointClip.w;
 
             rectMin = min(rectMin, pointScreen);
