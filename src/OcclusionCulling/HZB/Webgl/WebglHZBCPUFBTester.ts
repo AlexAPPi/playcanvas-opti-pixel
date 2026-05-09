@@ -25,6 +25,7 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
     private _hzbScope2: pc.ScopeId;
     private _hzbSizeScope: pc.ScopeId;
     private _screenSizeScope: pc.ScopeId;
+    private _uHZBUvFactorScope: pc.ScopeId;
     private _dataTextureScope: pc.ScopeId;
     private _pixelsSizePerInstanceScope: pc.ScopeId;
     private _matrixViewProjectionScope: pc.ScopeId;
@@ -64,6 +65,7 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
 
     private _updateScopes() {
         this._clearScopes();
+        this._uHZBUvFactorScope = this._hzb.device.scope.resolve("uHZBUvFactor");
         this._hzbSizeScope = this._hzb.device.scope.resolve("uHZBSize");
         this._screenSizeScope = this._hzb.device.scope.resolve("uScreenSize");
         this._dataTextureScope = this._hzb.device.scope.resolve("uDataTexture");
@@ -85,6 +87,9 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
 
         if (!this.hzb.isColor()) {
             vertexDefines.set("READ_DEPTH", "");
+        }
+        else if (this.hzb.isFloat16()) {
+            vertexDefines.set("DEPTH_IS_FLOAT16", "");
         }
         else if (this.hzb.isFloat32()) {
             vertexDefines.set("DEPTH_IS_FLOAT", "");
@@ -175,10 +180,15 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
             _hzbSizeArr[0] = this.hzb.width;
             _hzbSizeArr[1] = this.hzb.height;
 
+            _hzbUvFactorArr[0] = this.hzb.screenWidth  / ((2 ** (this.hzb.nearLevel + 1)) * this.hzb.width);
+            _hzbUvFactorArr[1] = this.hzb.screenHeight / ((2 ** (this.hzb.nearLevel + 1)) * this.hzb.height);
+            _hzbUvFactorArr[2] = 0;
+
             this._pixelsSizePerInstanceScope.setValue(this._aabbStore.pixelsPerInstance);
             this._dataTextureScope.setValue(this._aabbStore.texture);
             this._screenSizeScope.setValue(_screenSizeArr);
             this._hzbSizeScope.setValue(_hzbSizeArr);
+            this._uHZBUvFactorScope.setValue(_hzbUvFactorArr);
 
             // TODO: mobile android hzb mips slowed
             this._hzbScope1.setValue(this._hzb.texture);
@@ -229,4 +239,5 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
 
 const _hzbSizeArr = new Float32Array(2);
 const _screenSizeArr = new Float32Array(2);
+const _hzbUvFactorArr = new Float32Array(3);
 const _boundingBox = new pc.BoundingBox();

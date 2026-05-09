@@ -1,6 +1,6 @@
 import { IHierarchicalZBuffer } from "../IHierarchicalZBuffer.js";
 import vertexCodeVS from "./WebglHierarchicalZBuffer.vert.glsl.js";
-import fragmentCodePS from "./WebglHierarchicalZBuffer.fragMin.glsl.js";
+import fragmentCodePS from "./WebglHierarchicalZBuffer.frag.glsl.js";
 import pc from "../../../engine.js";
 
 export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
@@ -36,9 +36,10 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
     private _mipLevels: number;
     private _minMipLevel: number;
 
+    private _dispatchThreadIdToBufferUVScope: pc.ScopeId;
+    private _inputViewportMaxBoundScope: pc.ScopeId;
+    private _invSizeScope: pc.ScopeId;
     private _readScreenDepthScope: pc.ScopeId;
-    private _includeSrcExtraColumnScope: pc.ScopeId;
-    private _includeSrcExtraRowScope: pc.ScopeId;
     private _readLevelScope: pc.ScopeId;
     private _depthMipScope: pc.ScopeId;
 
@@ -70,12 +71,17 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         this._enabled = true;
         this._device = device;
         this._maxSize = maxSize;
+        this._dispatchThreadIdToBufferUVScope = this._device.scope.resolve("uDispatchThreadIdToBufferUV");
+        this._inputViewportMaxBoundScope = this._device.scope.resolve("uInputViewportMaxBound");
         this._readScreenDepthScope = this._device.scope.resolve("uReadScreenDepth");
-        this._includeSrcExtraColumnScope = this._device.scope.resolve("uIncludeSrcExtraColumn");
-        this._includeSrcExtraRowScope = this._device.scope.resolve("uIncludeSrcExtraRow");
         this._readLevelScope = this._device.scope.resolve("uReadLevel");
+        this._invSizeScope = this._device.scope.resolve("uInvSize");
         this._depthMipScope = this._device.scope.resolve("uDepthMip");
         this.resize(this.device.width, this.device.height, maxSize);
+    }
+
+    public isFloat16() {
+        return false;
     }
 
     public isFloat32() {
@@ -93,6 +99,9 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         if (!this.isColor()) {
             defines.set("READ_DEPTH", "");
             defines.set("WRITE_DEPTH", "");
+        }
+        else if (this.isFloat16()) {
+            defines.set("DEPTH_IS_FLOAT16", "");
         }
         else if (this.isFloat32()) {
             defines.set("DEPTH_IS_FLOAT", "");
@@ -119,14 +128,19 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         this._maxSize = maxSize;
         this._screenWidth = width | 0;
         this._screenHeight = height | 0;
-        this._globalMipWidth = this._screenWidth >> 1;
-        this._globalMipHeight = this._screenHeight >> 1;
-        this._globalMipLevels = this.calculateMipLevels(this._globalMipWidth, this._globalMipHeight);
+
+        const numMipsX = Math.max(Math.ceil(Math.log2(this._screenWidth)) - 1, 1);
+        const numMipsY = Math.max(Math.ceil(Math.log2(this._screenHeight)) - 1, 1);
+        const numMips  = Math.max(numMipsX, numMipsY);
+
+        this._globalMipWidth  = 1 << numMipsX;
+        this._globalMipHeight = 1 << numMipsY;
+        this._globalMipLevels = numMips;
 
         this._minMipLevel = this.getNearestMipLevel(this._globalMipWidth, this._globalMipHeight, this._maxSize);
-        this._width = this._globalMipWidth >> this._minMipLevel;
-        this._heigth = this._globalMipHeight >> this._minMipLevel;
-        this._mipLevels = this._globalMipLevels - this._minMipLevel;
+        this._width       = this._globalMipWidth  >> this._minMipLevel;
+        this._heigth      = this._globalMipHeight >> this._minMipLevel;
+        this._mipLevels   = this._globalMipLevels - this._minMipLevel;
 
         this._initShader();
         this._initRenders();
@@ -142,25 +156,15 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         this._buffers = new Array(this._globalMipLevels);
         this._renderTargets = new Array(this._globalMipLevels);
         this._quadRenderPasses = new Array(this._globalMipLevels);
-
         this._mipsBuffers = new Array(this._mipLevels);
 
         const depthByColor = this.isColor();
-        const format = depthByColor ?
-            (this.isFloat32() ? pc.PIXELFORMAT_R32F : pc.PIXELFORMAT_RGBA8) :
-            pc.PIXELFORMAT_DEPTH;
-
-        /*
-        // Fill default texture value of MAX
-        const textureBuffers = new Array<Uint8Array>(this._mipLevels);
-        for (let i = 0; i < this._mipLevels; i++) {
-            const mipLevel = i + this._minMipLevel;
-            const mipWidth = Math.max(1, this._globalMipWidth >> mipLevel);
-            const mipHeight = Math.max(1, this._globalMipHeight >> mipLevel);
-            textureBuffers[i] = new Uint8Array(mipWidth * mipHeight * 4);
-            textureBuffers[i].fill(255);
-        }
-        */
+        const format = (
+            !this.isColor()  ? pc.PIXELFORMAT_DEPTH :
+            this.isFloat16() ? pc.PIXELFORMAT_R16F :
+            this.isFloat32() ? pc.PIXELFORMAT_R32F :
+                               pc.PIXELFORMAT_RGBA8
+        );
 
         this._texture1 = new pc.Texture(this._device, {
             name: "HZB_MIP_TX_1",
@@ -227,8 +231,8 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
             }
             else {
 
-                const mipLevel = 0;
-                const mipWidth = Math.max(1, this._globalMipWidth >> mip);
+                const mipLevel  = 0;
+                const mipWidth  = Math.max(1, this._globalMipWidth >> mip);
                 const mipHeight = Math.max(1, this._globalMipHeight >> mip);
 
                 buffer = new pc.Texture(this._device, {
@@ -300,17 +304,14 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         this._texture2?.destroy();
     }
 
-    public calculateMipLevels(width: number, height: number): number {
-        const maxSize = Math.max(width, height);
-        return 1 + Math.floor(Math.log2(maxSize));
-    }
-
     public getNearestMipLevel(width: number, height: number, target: number = 256) {
 
-        const maxSize = Math.max(width, height);
-        const mipLevels = this.calculateMipLevels(width, height);
+        const numMipsX = Math.max(Math.ceil(Math.log2(width)) - 1, 1);
+        const numMipsY = Math.max(Math.ceil(Math.log2(height)) - 1, 1);
+        const numMips  = Math.max(numMipsX, numMipsY);
+        const maxSize  = Math.max(width, height);
 
-        for (let i = 0; i < mipLevels; i++) {
+        for (let i = 0; i < numMips; i++) {
 
             if (maxSize >> i <= target) {
 
@@ -346,30 +347,64 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         }
 
         const { vx, vy, vw, vh, sx, sy, sw, sh } = device;
-        const renderTarget = device.getRenderTarget();
-        const mipLevels = this._minMipLevel + this._mipLevels;
+        const oldRenderTarget = device.getRenderTarget();
+        const numMipLevels = this._minMipLevel + this._mipLevels;
 
-        for (let mip = 0; mip < mipLevels; mip++) {
+        let srcLevel  = 0;
+        let srcBuffer = mainDepthTexture;
+        let srcWidth  = mainDepthTexture.width;
+        let srcHeight = mainDepthTexture.height;
+        let readScreenDepth = true;
+        let invSize = [
+            1 / srcWidth,
+            1 / srcHeight
+        ];
 
-            const srcMip = mip - 1;
-            const dstMip = mip;
-            const srcWidth = Math.max(1, this._screenWidth >> mip);
-            const srcHeight = Math.max(1, this._screenHeight >> mip);
-            const srcBuffer = mip === 0 ? mainDepthTexture : this._buffers[srcMip];
-            const readScreenDepth = mip === 0 ? 1 : 0;
-            const includeSrcExtraColumn = srcWidth & 1;
-            const includeSrcExtraRow = srcHeight & 1;
-            const srcLevel = Math.max(srcMip - this._minMipLevel, 0);
+        let viewportMaxBound = [
+            (this.screenWidth  - 0.5) / srcWidth,
+            (this.screenHeight - 0.5) / srcHeight
+        ];
 
+        let dispatchThreadIdToBufferUV = [
+            2 / srcWidth,
+            2 / srcHeight,
+            0,
+            0
+        ];
+
+        let mip = 0;
+        do {
+            this._inputViewportMaxBoundScope.setValue(viewportMaxBound);
+            this._dispatchThreadIdToBufferUVScope.setValue(dispatchThreadIdToBufferUV);
+            this._invSizeScope.setValue(invSize);
             this._readScreenDepthScope.setValue(readScreenDepth);
-            this._includeSrcExtraColumnScope.setValue(includeSrcExtraColumn);
-            this._includeSrcExtraRowScope.setValue(includeSrcExtraRow);
             this._readLevelScope.setValue(srcLevel);
             this._depthMipScope.setValue(srcBuffer);
-            this._quadRenderPasses[dstMip].render();
-        }
 
-        device.setRenderTarget(renderTarget);
+            const quadRenderPass = this._quadRenderPasses[mip];
+
+            quadRenderPass.render();
+
+            readScreenDepth = false;
+            srcLevel  = Math.max(0, mip - this._minMipLevel);
+            srcWidth  = Math.max(1, this._globalMipWidth >> mip);
+            srcHeight = Math.max(1, this._globalMipHeight >> mip);
+            srcBuffer = this._buffers[mip];
+
+            mip++;
+
+            viewportMaxBound = [1, 1];
+            invSize = [1 / srcWidth, 1 / srcHeight];
+            dispatchThreadIdToBufferUV = [
+                2 / srcWidth,
+                2 / srcHeight,
+                0,
+                0
+            ];
+        }
+        while (mip < numMipLevels);
+
+        device.setRenderTarget(oldRenderTarget);
         device.setViewport(vx, vy, vw, vh);
         device.setScissor(sx, sy, sw, sh);
     }

@@ -52,6 +52,7 @@ export class HierarchicalZBufferDebugger {
 
         const defines =
             !this.hzb.isColor() ?   '#define READ_DEPTH' :
+             this.hzb.isFloat16() ? '#define DEPTH_IS_FLOAT16' :
              this.hzb.isFloat32() ? '#define DEPTH_IS_FLOAT' :
                                     '';
 

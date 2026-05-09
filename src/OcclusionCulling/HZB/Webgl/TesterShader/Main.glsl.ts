@@ -1,12 +1,11 @@
 export default `
 
-    precision highp float;
-
     attribute uint aBoundingBoxIndex;
 
     flat out uint out_flags;
 
     uniform mat4 uMatrixViewProjection;
+    uniform vec3 uHZBUvFactor;
     uniform vec2 uScreenSize;
     uniform vec2 uHZBSize;
 

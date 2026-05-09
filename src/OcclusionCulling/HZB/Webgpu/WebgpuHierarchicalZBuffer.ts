@@ -185,6 +185,11 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         }
     }
 
+    public isFloat16() {
+        // TODO: unsupported on WebGPU
+        return false;
+    }
+
     public isFloat32() {
         // TODO: on mobile r32float
         // render not supported used rgba8unorm
