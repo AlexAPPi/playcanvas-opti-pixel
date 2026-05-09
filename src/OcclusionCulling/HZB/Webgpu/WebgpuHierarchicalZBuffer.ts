@@ -46,11 +46,9 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
             return;
         }
 
-        this._enabled = true;
-        this._device = device;
-
         this._init(this.device.width, this.device.height);
         this._updateComputeParameters();
+        this._enabled = true;
     }
 
     private _init(width: number = this.screenWidth, height: number = this.screenHeight) {
