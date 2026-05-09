@@ -355,35 +355,31 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         let srcWidth  = mainDepthTexture.width;
         let srcHeight = mainDepthTexture.height;
         let readScreenDepth = true;
-        let invSize = [
-            1 / srcWidth,
-            1 / srcHeight
-        ];
 
-        let viewportMaxBound = [
-            (this.screenWidth  - 0.5) / srcWidth,
-            (this.screenHeight - 0.5) / srcHeight
-        ];
-
-        let dispatchThreadIdToBufferUV = [
-            2 / srcWidth,
-            2 / srcHeight,
-            0,
-            0
-        ];
+        _viewportMaxBoundArr[0] = (this.screenWidth  - 0.5) / srcWidth;
+        _viewportMaxBoundArr[1] = (this.screenHeight - 0.5) / srcHeight;
 
         let mip = 0;
         do {
-            this._inputViewportMaxBoundScope.setValue(viewportMaxBound);
-            this._dispatchThreadIdToBufferUVScope.setValue(dispatchThreadIdToBufferUV);
-            this._invSizeScope.setValue(invSize);
+            _invSizeArr[0] = 1 / srcWidth;
+            _invSizeArr[1] = 1 / srcHeight;
+
+            _dispatchThreadIdToBufferUVArr[0] = 2 / srcWidth;
+            _dispatchThreadIdToBufferUVArr[1] = 2 / srcHeight;
+
+            // Offsets to sample from the center of the pixel
+            //_dispatchThreadIdToBufferUVArr[2] = 0;
+            //_dispatchThreadIdToBufferUVArr[3] = 0;
+
+            this._inputViewportMaxBoundScope.setValue(_viewportMaxBoundArr);
+            this._dispatchThreadIdToBufferUVScope.setValue(_dispatchThreadIdToBufferUVArr);
+            this._invSizeScope.setValue(_invSizeArr);
             this._readScreenDepthScope.setValue(readScreenDepth);
             this._readLevelScope.setValue(srcLevel);
             this._depthMipScope.setValue(srcBuffer);
 
-            const quadRenderPass = this._quadRenderPasses[mip];
-
-            quadRenderPass.render();
+            // Render to the current mip level
+            this._quadRenderPasses[mip].render();
 
             readScreenDepth = false;
             srcLevel  = Math.max(0, mip - this._minMipLevel);
@@ -393,14 +389,10 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
 
             mip++;
 
-            viewportMaxBound = [1, 1];
-            invSize = [1 / srcWidth, 1 / srcHeight];
-            dispatchThreadIdToBufferUV = [
-                2 / srcWidth,
-                2 / srcHeight,
-                0,
-                0
-            ];
+            if (mip === 1) {
+                _viewportMaxBoundArr[0] = 1;
+                _viewportMaxBoundArr[1] = 1;
+            }
         }
         while (mip < numMipLevels);
 
@@ -409,3 +401,7 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         device.setScissor(sx, sy, sw, sh);
     }
 }
+
+const _invSizeArr = new Float32Array(2);
+const _viewportMaxBoundArr = new Float32Array(2);
+const _dispatchThreadIdToBufferUVArr = new Float32Array(4);
