@@ -123,13 +123,9 @@ export class SquareDataTexture<TTTypedArray extends TTypedArray> {
             newData.set(subData);
 
             this._data = newData as any;
-            this._rowToUpdate.length = size;
-
-            this._texture.resize(size, size);
+            this._rowToUpdate.length = 0;
             this._texture._levels[0] = newData;
-            this._texture._levelsUpdated[0] = true;
-            this._texture._needsUpload = true;
-            this._texture._needsMipmapsUpload = false;
+            this._texture.resize(size, size);
         }
         else {
 
@@ -182,7 +178,7 @@ export class SquareDataTexture<TTTypedArray extends TTypedArray> {
         const rowIndex = Math.floor(index / elementsPerRow);
         this._rowToUpdate[rowIndex] = true;
     }
-    
+
     /**
      * Queues a data update for a specific instance in the texture buffer.
      * Unlike `enqueueUpdate`, this method allows providing the updated data directly,
@@ -234,14 +230,15 @@ export class SquareDataTexture<TTTypedArray extends TTypedArray> {
         if (this._device.isWebGL2) {
 
             const device = this._device as pc.WebglGraphicsDevice;
-            const gl = device.gl;
-            const width = this._texture.width;
-            const glFormat = this._texture.impl._glFormat;
-            const glPixelType = this._texture.impl._glPixelType;
 
             device.setTexture(this._texture, 0);
             device.setUnpackFlipY(false);
             device.setUnpackPremultiplyAlpha(this._texture.premultiplyAlpha);
+
+            const gl = device.gl;
+            const width = this._texture.width;
+            const glFormat = this._texture.impl._glFormat;
+            const glPixelType = this._texture.impl._glPixelType;
 
             for (const { count, row } of info) {
                 gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, row, width, count, glFormat, glPixelType, this._data, row * width * channels);
@@ -299,7 +296,7 @@ export class SquareDataTexture<TTTypedArray extends TTypedArray> {
     public update(): void {
 
         const rowsInfo = this._getUpdateRowsInfo();
-        
+
         if (rowsInfo.length === 0) {
             return;
         }
@@ -309,11 +306,6 @@ export class SquareDataTexture<TTTypedArray extends TTypedArray> {
             this._texture.dirtyAll();
             return;
         }
-
-        this._texture._needsUpload = false;
-        this._texture._needsMipmapsUpload = false;
-        this._texture._levelsUpdated[0] = false;
-        this._texture._mipmapsUploaded  = true;
 
         this._updateRows(rowsInfo);
         this._rowToUpdate.fill(false);
