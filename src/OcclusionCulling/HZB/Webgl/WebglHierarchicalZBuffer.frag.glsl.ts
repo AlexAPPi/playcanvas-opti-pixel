@@ -9,24 +9,34 @@ export default `
 
     varying vec2 uv0;
 
+    #ifdef FLOAT_WORKAROUND
     #include "floatAsUintPS"
+    #endif
 
     float convertDepth(vec4 value) {
 
-        if (uReadScreenDepth == 1) {
+        #ifdef FLOAT_WORKAROUND
+            float workaroundValue = uint2float(value);
+        #else
+            float workaroundValue = value.r;
+        #endif
+
+        return mix(
+
+            #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16 || READ_DEPTH)
+                value.r,
+            #else
+                workaroundValue,
+            #endif
 
             #ifdef SCENE_DEPTHMAP_FLOAT
-                return value.r;
+                value.r,
             #else
-                return uint2float(value);
+                workaroundValue,
             #endif
-        }
 
-        #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16 || READ_DEPTH)
-            return value.r;
-        #else
-            return uint2float(value);
-        #endif
+            uReadScreenDepth == 1
+        );
     }
 
     float calcDepth() {

@@ -97,19 +97,28 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
 
         const defines = new Map();
 
+        let workaroundForFloat = false;
+
         if (!this.isColor()) {
             defines.set("READ_DEPTH", "");
             defines.set("WRITE_DEPTH", "");
         }
         else if (this.isFloat16()) {
             defines.set("DEPTH_IS_FLOAT16", "");
+            workaroundForFloat = true;
         }
         else if (this.isFloat32()) {
             defines.set("DEPTH_IS_FLOAT", "");
+            workaroundForFloat = true;
         }
 
         if (this.device.textureFloatRenderable) {
             defines.set("SCENE_DEPTHMAP_FLOAT", "");
+            workaroundForFloat = true;
+        }
+
+        if (workaroundForFloat) {
+            defines.set("FLOAT_WORKAROUND", "");
         }
 
         this._shader = pc.ShaderUtils.createShader(this._device, {
