@@ -31,7 +31,7 @@ export class IndexQueueEx {
         const arrLen = count * this._itemSize;
 
         if (!this._indexes || arrLen !== this._indexes.length) {
-            
+
             this._indexes = this._indexManager.isUint32 ? new Uint32Array(arrLen) : new Uint16Array(arrLen);
             this._dirty = true;
         }
