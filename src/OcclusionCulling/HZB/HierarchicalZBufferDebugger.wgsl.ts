@@ -9,11 +9,11 @@ export default `
 
 #ifdef DEPTH_IS_FLOAT16
     var uDepthMip: texture_2d<f16>;
-    var uDepthMipSampler: sampler;
 #else
     var uDepthMip: texture_2d<f32>;
-    var uDepthMipSampler: sampler;
 #endif
+
+    var uDepthMipSampler: sampler;
 
     fn linearizeDepth(z: f32, cameraParams: vec4f) -> f32 {
         if (cameraParams.w == 0.0) {
@@ -23,7 +23,7 @@ export default `
     }
 
     fn extractDepthFromData(data: vec4f) -> f32 {
-        #ifdef (DEPTH_IS_FLOAT || READ_DEPTH)
+        #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16 || READ_DEPTH)
             return data.r;
         #else
             return uint2float(data);

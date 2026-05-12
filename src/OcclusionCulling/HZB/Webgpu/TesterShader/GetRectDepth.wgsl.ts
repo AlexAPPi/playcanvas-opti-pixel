@@ -2,22 +2,37 @@ export default `
 
     #include "getDepthCS"
 
-    fn getRectDepth(minCoord: vec2<f32>, maxCoord: vec2<f32>) -> f32 {
+    fn getRectDepth(rectMin: vec3f, rectMax: vec3f) -> f32 {
 
-        let clampedMinCoord: vec2<f32> = clamp(minCoord, vec2<f32>(0.0), vec2<f32>(1.0));
-        let clampedMaxCoord: vec2<f32> = clamp(maxCoord, vec2<f32>(0.0), vec2<f32>(1.0));
+        let rawRect = vec4f(rectMin.xy, rectMax.xy) * 0.5 + 0.5;
+        let clampedRect = clamp(rawRect, vec4f(0.0), vec4f(1.0));
+        let rect = clampedRect.xwzy;
+        let rectPixels = rect * uniforms.hzbSize.xyxy;
+        let rectSize = (rectPixels.zw - rectPixels.xy) * 0.5; // 0.5 for 4x4
+        var level = max(ceil(log2(max(rectSize.x, rectSize.y))), uniforms.hzbUvFactor.z);
 
-        let extent: vec2<f32> = clampedMaxCoord - clampedMinCoord;
-        let viewSize: vec2<f32> = extent * uniforms.hzbSize;
+        let levelLower = max(level - 1.0, 0.0);
+        let lowerRect = rectPixels * exp2(-levelLower);
+        let lowerRectSize = ceil(lowerRect.zw) - floor(lowerRect.xy);
+        if (all(lowerRectSize <= vec2f(4.0))) {
+            level = levelLower;
+        }
 
-        let size: f32 = max(viewSize.x, viewSize.y) / 2.0;
-        let lod: f32 = clamp(ceil(log2(size)), {MIN_LEVEL}, {MAX_LEVEL});
+        let hzbUvFactor = vec2f(uniforms.hzbUvFactor.xy);
+        let scale = hzbUvFactor.xy * (rect.zw - rect.xy) / 3.0;
+        let bias = hzbUvFactor.xy * rect.xy;
+        var maxDepth = vec4f(0.0);
 
-        let probe0: f32 = getDepth(clampedMinCoord, lod);
-        let probe1: f32 = getDepth(clampedMaxCoord, lod);
-        let probe2: f32 = getDepth(vec2<f32>(clampedMinCoord.x, clampedMaxCoord.y), lod);
-        let probe3: f32 = getDepth(vec2<f32>(clampedMaxCoord.x, clampedMinCoord.y), lod);
+        for (var i: f32 = 0.0; i < 4.0; i = i + 1.0) {
+            let depth = vec4f(
+                getDepth(vec2f(i, 0.0) * scale + bias, level),
+                getDepth(vec2f(i, 1.0) * scale + bias, level),
+                getDepth(vec2f(i, 2.0) * scale + bias, level),
+                getDepth(vec2f(i, 3.0) * scale + bias, level)
+            );
+            maxDepth = max(maxDepth, depth);
+        }
 
-        return max(max(probe0, probe1), max(probe2, probe3));
+        return max(max(maxDepth.x, maxDepth.y), max(maxDepth.z, maxDepth.w));
     }
 `;

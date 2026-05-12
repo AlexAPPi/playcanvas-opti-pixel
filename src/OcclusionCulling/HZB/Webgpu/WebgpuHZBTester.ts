@@ -149,6 +149,7 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
                     new pc.UniformFormat("boundingBoxPixelsSizePerInstance", pc.UNIFORMTYPE_UINT),
                     new pc.UniformFormat("metaDataPixelsSizePerInstance", pc.UNIFORMTYPE_UINT),
                     new pc.UniformFormat("viewProjection", pc.UNIFORMTYPE_MAT4),
+                    new pc.UniformFormat("hzbUvFactor", pc.UNIFORMTYPE_VEC3),
                     new pc.UniformFormat("screenSize", pc.UNIFORMTYPE_VEC2),
                     new pc.UniformFormat("hzbSize", pc.UNIFORMTYPE_VEC2),
                     new pc.UniformFormat("count", pc.UNIFORMTYPE_UINT),
@@ -204,6 +205,10 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
                 this._modelViewProjection.mul2(projectionMatrix, viewMatrix);
             }
 
+            _hzbUvFactorArr[0] = this.hzb.screenWidth  / (2 * this.hzb.width);
+            _hzbUvFactorArr[1] = this.hzb.screenHeight / (2 * this.hzb.height);
+            _hzbUvFactorArr[2] = 0;
+
             _screenSizeArr[0] = this.hzb.screenWidth;
             _screenSizeArr[1] = this.hzb.screenHeight;
 
@@ -218,16 +223,18 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
             this._compute.setParameter("boundingBoxPixelsSizePerInstance", this._aabbStore.pixelsPerInstance);
             this._compute.setParameter("metaDataPixelsSizePerInstance", this._metaStore.pixelsPerInstance);
             this._compute.setParameter('viewProjection', this._modelViewProjection.data);
+            this._compute.setParameter('hzbUvFactor', _hzbUvFactorArr);
             this._compute.setParameter('screenSize', _screenSizeArr);
             this._compute.setParameter('hzbSize', _hzbSizeArr);
             this._compute.setParameter("count", count);
             this._compute.setupDispatch(groupX, 1, 1);
 
-            this.hzb.device.computeDispatch([this._compute], "Test" + count);
+            this.hzb.device.computeDispatch([this._compute], "TestHZB");
         }
     }
 }
 
 const _hzbSizeArr = new Float32Array(2);
 const _screenSizeArr = new Float32Array(2);
+const _hzbUvFactorArr = new Float32Array(3);
 const _boundingBox = new pc.BoundingBox();

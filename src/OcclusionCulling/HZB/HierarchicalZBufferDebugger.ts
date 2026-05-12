@@ -68,13 +68,23 @@ export class HierarchicalZBufferDebugger {
         );
     }
 
-    public debug() {
-        if (this.enabled) {
-            const m = this.hzb.mipLevels - 1;
-            const h = Math.floor(m / 2);
-            this.debugBuffer(0, 0.75, 0.5, 0.25, 0.25);
-            this.debugBuffer(h, 0.75, 0.0, 0.25, 0.25);
-            this.debugBuffer(m, 0.75, -0.5, 0.25, 0.25);
+    public debug(count: number = 5, maxElementHeight: number = 0.25, spacing: number = 0.02, x: number = 0.75, w: number = 0.25) {
+
+        if (!this.enabled || count <= 0) return;
+
+        const m = this.hzb.mipLevels - 1;
+        const step = m / (count - 1);
+        const autoElementHeight = Math.min(2 / count, maxElementHeight) - spacing;
+        const totalHeight = count * autoElementHeight + (count - 1) * spacing;
+
+        const centerY = 0;
+        const baseY = centerY + totalHeight / 2 - autoElementHeight / 2;
+
+        for (let i = 0; i < count; i++) {
+            const level = Math.floor(i * step);
+            const y = baseY - i * (autoElementHeight + spacing);
+            const h = autoElementHeight;
+            this.debugBuffer(level, x, y, w, h);
         }
     }
 
@@ -105,7 +115,7 @@ export class HierarchicalZBufferDebugger {
         }
 
         const info = this._tester.getDebugInfo(index);
-        const rectangle = info.rectangle;
+        const rectangle = mipLevel ? info.rectangleDepth : info.rectangleScreen;
         const boundingBox = info.boundingBox;
 
         let occlusionStatus = OCCLUSION_UNKNOWN;

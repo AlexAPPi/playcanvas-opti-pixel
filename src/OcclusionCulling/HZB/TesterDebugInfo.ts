@@ -2,106 +2,137 @@ import pc from "../../engine.js";
 import { IDebugInfo } from "./IHierarchicalZBufferTester.js";
 import { IHierarchicalZBufferTester } from "./IHierarchicalZBufferTester.js";
 
-const _boundingBox = [new pc.Vec4(), new pc.Vec4(), new pc.Vec4(), new pc.Vec4(), new pc.Vec4(), new pc.Vec4(), new pc.Vec4(), new pc.Vec4()];
 const _hzbSize = new pc.Vec2();
-const _minCoord = new pc.Vec2();
-const _maxCoord = new pc.Vec2();
+const _rectMin = new pc.Vec3();
+const _rectMax = new pc.Vec3();
+const _boundsMin = new pc.Vec3();
+const _boundsMax = new pc.Vec3();
+const _bounds    = [_boundsMin, _boundsMax];
+const _pointSrc = new pc.Vec4();
+const _pointClip = new pc.Vec4();
+const _pointScreen = new pc.Vec3();
+
+const _rectMin2 = new pc.Vec2();
+const _rectMax2 = new pc.Vec2();
+
+export function min3(vec1: pc.Vec3, vec2: pc.Vec3) {
+    vec1.x = Math.min(vec1.x, vec2.x);
+    vec1.y = Math.min(vec1.y, vec2.y);
+    vec1.z = Math.min(vec1.z, vec2.z);
+    return vec1;
+}
+
+export function max3(vec1: pc.Vec3, vec2: pc.Vec3) {
+    vec1.x = Math.max(vec1.x, vec2.x);
+    vec1.y = Math.max(vec1.y, vec2.y);
+    vec1.z = Math.max(vec1.z, vec2.z);
+    return vec1;
+}
+
+export function ceil2(vec1: pc.Vec2) {
+    vec1.x = Math.ceil(vec1.x);
+    vec1.y = Math.ceil(vec1.y);
+    return vec1;
+}
+
+export function floor2(vec1: pc.Vec2) {
+    vec1.x = Math.floor(vec1.x);
+    vec1.y = Math.floor(vec1.y);
+    return vec1;
+}
 
 export function getDebugInfo(
     tester: IHierarchicalZBufferTester,
     matrix: pc.Mat4,
-    boundingBox: pc.BoundingBox
+    box: pc.BoundingBox
 ): IDebugInfo {
 
-    const bbCenter = boundingBox.center;
-    const bbhalfExtents = boundingBox.halfExtents;
+    const minMipLevel = 0;
 
-    _boundingBox[0].set(bbCenter.x +  bbhalfExtents.x, bbCenter.y +  bbhalfExtents.y, bbCenter.z +  bbhalfExtents.z, 1.0);
-    _boundingBox[1].set(bbCenter.x + -bbhalfExtents.x, bbCenter.y +  bbhalfExtents.y, bbCenter.z +  bbhalfExtents.z, 1.0);
-    _boundingBox[2].set(bbCenter.x +  bbhalfExtents.x, bbCenter.y + -bbhalfExtents.y, bbCenter.z +  bbhalfExtents.z, 1.0);
-    _boundingBox[3].set(bbCenter.x + -bbhalfExtents.x, bbCenter.y + -bbhalfExtents.y, bbCenter.z +  bbhalfExtents.z, 1.0);
-    _boundingBox[4].set(bbCenter.x +  bbhalfExtents.x, bbCenter.y +  bbhalfExtents.y, bbCenter.z + -bbhalfExtents.z, 1.0);
-    _boundingBox[5].set(bbCenter.x + -bbhalfExtents.x, bbCenter.y +  bbhalfExtents.y, bbCenter.z + -bbhalfExtents.z, 1.0);
-    _boundingBox[6].set(bbCenter.x +  bbhalfExtents.x, bbCenter.y + -bbhalfExtents.y, bbCenter.z + -bbhalfExtents.z, 1.0);
-    _boundingBox[7].set(bbCenter.x + -bbhalfExtents.x, bbCenter.y + -bbhalfExtents.y, bbCenter.z + -bbhalfExtents.z, 1.0);
+    _rectMin.set( 1.0,  1.0,  1.0);
+    _rectMax.set(-1.0, -1.0, -1.0);
 
-    let minCoordX = 1e6;
-    let minCoordY = 1e6;
-    let maxCoordX = -1e6;
-    let maxCoordY = -1e6;
-    let instanceMinDepth = 1e6;
+    _boundsMin.copy(box.center).sub(box.halfExtents);
+    _boundsMax.copy(box.center).add(box.halfExtents);
 
-    let outXPos = 0;
-    let outXNeg = 0;
-    let outYPos = 0;
-    let outYNeg = 0;
-    let outZPos = 0;
-    let outZNeg = 0;
+    for (var i = 0; i < 8; i++) {
 
-    for (let i = 0; i < 8; i++) {
+        _pointSrc.set(
+            _bounds[(i >> 0) & 1].x,
+            _bounds[(i >> 1) & 1].y,
+            _bounds[(i >> 2) & 1].z,
+            1.0
+        );
 
-        matrix.transformVec4(_boundingBox[i], _boundingBox[i]);
+        matrix.transformVec4(_pointSrc, _pointClip);
 
-        const current = _boundingBox[i];
+        _pointScreen.set(
+            _pointClip.x / _pointClip.w,
+            _pointClip.y / _pointClip.w,
+            _pointClip.z / _pointClip.w,
+        );
 
-        if (current.x >  current.w) outXPos++;
-        if (current.x < -current.w) outXNeg++;
-        if (current.y >  current.w) outYPos++;
-        if (current.y < -current.w) outYNeg++;
-        if (current.z >  current.w) outZPos++;
-        if (current.z < -current.w) outZNeg++;
-
-        current.x /= current.w;
-        current.y /= current.w;
-        current.z /= current.w;
-
-        minCoordX = Math.min(minCoordX, current.x);
-        minCoordY = Math.min(minCoordY, current.y);
-        maxCoordX = Math.max(maxCoordX, current.x);
-        maxCoordY = Math.max(maxCoordY, current.y);
-
-        instanceMinDepth = Math.min(instanceMinDepth, current.z);
+        min3(_rectMin, _pointScreen);
+        max3(_rectMax, _pointScreen);
     }
 
-    const outsidePlanes = (outXPos > 0 || outXNeg > 0 ? 1 : 0) +
-                          (outYPos > 0 || outYNeg > 0 ? 1 : 0) +
-                          (outZPos > 0 || outZNeg > 0 ? 1 : 0);
+    _rectMin2.set(_rectMin.x, _rectMin.y).mulScalar(0.5).addScalar(0.5);
+    _rectMax2.set(_rectMax.x, _rectMax.y).mulScalar(0.5).addScalar(0.5);
 
-    const inFrustum = !(outXPos === 8 || outXNeg === 8 || outYPos === 8 || outYNeg === 8 || outZPos === 8 || outZNeg === 8);
-    const minCoord = _minCoord.set(minCoordX, minCoordY).mulScalar(0.5).addScalar(0.5);
-    const maxCoord = _maxCoord.set(maxCoordX, maxCoordY).mulScalar(0.5).addScalar(0.5);
+    _rectMin2.x = pc.math.clamp(_rectMin2.x, 0.0, 1.0);
+    _rectMin2.y = pc.math.clamp(_rectMin2.y, 0.0, 1.0);
 
-    minCoord.x = pc.math.clamp(minCoord.x, 0.0, 1.0);
-    minCoord.y = pc.math.clamp(minCoord.y, 0.0, 1.0);
-
-    maxCoord.x = pc.math.clamp(maxCoord.x, 0.0, 1.0);
-    maxCoord.y = pc.math.clamp(maxCoord.y, 0.0, 1.0);
+    _rectMax2.x = pc.math.clamp(_rectMax2.x, 0.0, 1.0);
+    _rectMax2.y = pc.math.clamp(_rectMax2.y, 0.0, 1.0);
 
     const hzbSize = _hzbSize.set(
         tester.hzb.width,
         tester.hzb.height
     );
 
-    const extent = maxCoord.clone().sub(minCoord);
-    const viewSize = extent.clone().mul(hzbSize);
-    const size = Math.max(viewSize.x, viewSize.y) / 2.0;
-    const minMipLevel = 0;
-    const maxMipLevel = tester.hzb.mipLevels - 1;
-    const curMipLevel = Math.ceil(Math.log2(size));
-    const lod = pc.math.clamp(curMipLevel, minMipLevel, maxMipLevel);
+    const rectPixelsMin = _rectMin2.clone().mul(hzbSize);
+    const rectPixelsMax = _rectMax2.clone().mul(hzbSize);
+    const rectSize = rectPixelsMax.clone().sub(rectPixelsMin).mulScalar(0.5);
+
+    let level = Math.max(Math.ceil(Math.log2(Math.max(rectSize.x, rectSize.y))), minMipLevel);
+
+    const levelLower = Math.max(level - 1, 0);
+    const levelLowerC = Math.pow(2, -levelLower);
+    const lowerRectMin = rectPixelsMin.clone().mulScalar(levelLowerC);
+    const lowerRectMax = rectPixelsMax.clone().mulScalar(levelLowerC);
+    const lowerRectSize = ceil2(lowerRectMax).sub(floor2(lowerRectMin));
+
+    if (lowerRectSize.x <= 4.0 &&
+        lowerRectSize.y <= 4.0) {
+        level = levelLower;
+    }
+
+    const extent = new pc.Vec2().sub2(_rectMax2, _rectMin2);
+    const viewSize = new pc.Vec2().mul2(extent, hzbSize);
+
+    const hzbFactor = new pc.Vec2(
+        tester.hzb.screenWidth  / (2 * tester.hzb.width),
+        tester.hzb.screenHeight / (2 * tester.hzb.height)
+    );
 
     return {
-        inFrustum,
-        outsidePlanes,
-        lod,
+        inFrustum: _rectMax.z < 1,
+        factor: hzbFactor,
+        lod: level,
         viewSize,
         boundingBox: {
-            center: bbCenter,
-            halfExtents: bbhalfExtents,
+            center: box.center,
+            halfExtents: box.halfExtents,
         },
-        rectangle: {
-            x: (minCoord.x + extent.x / 2) * 2 - 1,
-            y: (minCoord.y + extent.y / 2) * 2 - 1,
+        rectangleScreen: {
+            x: (_rectMin2.x + extent.x / 2) * 2 - 1,
+            y: (_rectMin2.y + extent.y / 2) * 2 - 1,
+            width: extent.x * 2,
+            height: extent.y * 2,
+        },
+        rectangleDepth: {
+            x: (_rectMin2.x + extent.x / 2) * 2 - 1,
+            y: (_rectMin2.y + extent.y / 2) * 2 - 1,
             width: extent.x * 2,
             height: extent.y * 2,
         }

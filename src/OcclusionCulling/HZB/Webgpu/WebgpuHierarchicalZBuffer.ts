@@ -5,6 +5,8 @@ import { getCameraDepthTexture } from "../../../Extras/CameraHelpers.js";
 
 export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
 
+    public readonly maxMipBatchSize: number = 1;
+
     private _debugName: string = "HZB";
     private _enabled: boolean = false;
     private _device: pc.WebgpuGraphicsDevice;
@@ -55,9 +57,14 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
 
         this._screenWidth = width | 0;
         this._screenHeight = height | 0;
-        this._width = this._screenWidth >> 1;
-        this._height = this._screenHeight >> 1;
-        this._mipLevels = this.calculateMipLevels(this._width, this._height);
+
+        const numMipsX = Math.max(Math.ceil(Math.log2(this._screenWidth)) - 1, 1);
+        const numMipsY = Math.max(Math.ceil(Math.log2(this._screenHeight)) - 1, 1);
+        const numMips  = Math.max(numMipsX, numMipsY);
+
+        this._width  = 1 << numMipsX;
+        this._height = 1 << numMipsY;
+        this._mipLevels = numMips;
 
         const format = (
             !this.isColor()  ? pc.PIXELFORMAT_DEPTH :
@@ -67,7 +74,7 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         );
 
         this._texture = new pc.Texture(this.device, {
-            name: "HierarchicalZBufferTexture",
+            name: "HZBTexture",
             width: this._width,
             height: this._height,
             format: format,
@@ -86,15 +93,15 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         const computeUniformBufferFormats = {
             ub: new pc.UniformBufferFormat(this.device, [
                 new pc.UniformFormat('readScreenDepth', pc.UNIFORMTYPE_INT),
-                new pc.UniformFormat('includeSrcExtraColumn', pc.UNIFORMTYPE_INT),
-                new pc.UniformFormat('includeSrcExtraRow', pc.UNIFORMTYPE_INT),
+                new pc.UniformFormat('invSize', pc.UNIFORMTYPE_VEC2),
+                new pc.UniformFormat('inputViewportMaxBound', pc.UNIFORMTYPE_VEC2),
+                new pc.UniformFormat('dispatchThreadIdToBufferUV', pc.UNIFORMTYPE_VEC4)
             ])
         };
 
         const computeBindGroupFormat = new pc.BindGroupFormat(this.device, [
             new pc.BindUniformBufferFormat('ub', pc.SHADERSTAGE_COMPUTE),
-            new pc.BindTextureFormat('screenDepth', pc.SHADERSTAGE_COMPUTE, pc.TEXTUREDIMENSION_2D, pc.SAMPLETYPE_DEPTH, false, null),
-            new pc.BindTextureFormat('srcDepth', pc.SHADERSTAGE_COMPUTE, pc.TEXTUREDIMENSION_2D, pc.SAMPLETYPE_UNFILTERABLE_FLOAT, false, null),
+            new pc.BindTextureFormat('srcDepth', pc.SHADERSTAGE_COMPUTE, pc.TEXTUREDIMENSION_2D, pc.SAMPLETYPE_UNFILTERABLE_FLOAT, true, 'srcDepthSampler'),
             new pc.BindStorageTextureFormat('dstDepth', format, pc.TEXTUREDIMENSION_2D, true, false)
         ]);
 
@@ -105,7 +112,7 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         cdefines.set('{DST_DEPTH_FORMAT}',
             this.isFloat16() ? 'r16float' :
             this.isFloat32() ? 'r32float' :
-                               'rgba8unorm'
+                               'rgba8unorm' // fallback to color format for unsupported depth texture mipmap on webgpu platform
         );
 
         if (this.isFloat16()) {
@@ -127,53 +134,67 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         });
 
         this._textureViews = new Array(this._mipLevels);
-        this._computeMips = new Array(this._mipLevels);
+        this._computeMips  = new Array(this._mipLevels / this.maxMipBatchSize);
 
         for (let i = 0; i < this._mipLevels; i++) {
             this._textureViews[i] = this._texture.getView(i);
-            this._computeMips[i] = new pc.Compute(this.device, this._computeMipsShader, 'HZBComputeMip' + i);
         }
-    }
 
-    private _updateMainScreenDepthTexture() {
-        if (this._mainScreenDepthTexture) {
-            for (let mip = 0; mip < this._mipLevels; mip++) {
-                this._computeMips[mip].setParameter('screenDepth', this._mainScreenDepthTexture);
-            }
+        //for (let i = this.maxMipBatchSize; i < this._mipLevels; i += this.maxMipBatchSize) {
+        //    const idx = (i / this.maxMipBatchSize) - 1;
+        for (let idx = 0; idx < this._mipLevels; idx++) {
+            this._computeMips[idx] = new pc.Compute(this.device, this._computeMipsShader, 'HZBComputeMipBatch' + idx);
         }
     }
 
     private _updateComputeParameters() {
 
-        for (let mip = 0; mip < this._mipLevels; mip++) {
+        if (!this._mainScreenDepthTexture) {
+            return;
+        }
 
-            const srcMip = mip - 1;
-            const srcWidth = Math.max(1, this._screenWidth >> mip);
-            const srcHeight = Math.max(1, this._screenHeight >> mip);
-            const readScreenDepth = mip === 0 ? 1 : 0;
-            const includeSrcExtraColumn = srcWidth & 1;
-            const includeSrcExtraRow = srcHeight & 1;
-            const srcTexture = mip === 0 ? this._textureViews[this._mipLevels - 1] : this._textureViews[srcMip];
-            const dstTexture = this._textureViews[mip];
+        let srcWidth  = this._mainScreenDepthTexture.width;
+        let srcHeight = this._mainScreenDepthTexture.height;
+
+        let viewportMaxBoundArr = [
+            (this.screenWidth  - 0.5) / srcWidth,
+            (this.screenHeight - 0.5) / srcHeight
+        ];
+
+        let mip = 0;
+        let readScreenDepth = 1;
+        let srcTexture = this._mainScreenDepthTexture as (pc.Texture | pc.TextureView);
+        let dstTexture = this._textureViews[mip];
+        do {
+            const invSizeArr = [1 / srcWidth, 1 / srcHeight];
+            const dispatchThreadIdToBufferUVArr = [2 / srcWidth, 2 / srcHeight, 0, 0];
 
             this._computeMips[mip].setParameter('readScreenDepth', readScreenDepth);
-            this._computeMips[mip].setParameter('includeSrcExtraColumn', includeSrcExtraColumn);
-            this._computeMips[mip].setParameter('includeSrcExtraRow', includeSrcExtraRow);
+            this._computeMips[mip].setParameter('invSize', invSizeArr);
+            this._computeMips[mip].setParameter('inputViewportMaxBound', viewportMaxBoundArr);
+            this._computeMips[mip].setParameter('dispatchThreadIdToBufferUV', dispatchThreadIdToBufferUVArr);
             this._computeMips[mip].setParameter('srcDepth', srcTexture);
             this._computeMips[mip].setParameter('dstDepth', dstTexture);
 
-            if (this._mainScreenDepthTexture) {
-                this._computeMips[mip].setParameter('screenDepth', this._mainScreenDepthTexture);
-            }
+            readScreenDepth = 0;
+            srcWidth  = Math.max(1, this._width >> mip);
+            srcHeight = Math.max(1, this._height >> mip);
 
-            const dstWidth  = Math.max(1, srcWidth >> 1);
-            const dstHeight = Math.max(1, srcHeight >> 1);
-
-            const w = Math.ceil(dstWidth / this._workgroupSizeX);
-            const h = Math.ceil(dstHeight / this._workgroupSizeY);
+            // src = current mip level
+            const w = Math.ceil(srcWidth  / this._workgroupSizeX);
+            const h = Math.ceil(srcHeight / this._workgroupSizeY);
 
             this._computeMips[mip].setupDispatch(w, h);
+
+            mip++;
+            srcTexture = this._textureViews[mip - 1];
+            dstTexture = this._textureViews[mip];
+
+            if (mip === 1) {
+                viewportMaxBoundArr = [1, 1];
+            }
         }
+        while (mip < this._mipLevels);
     }
 
     private _needUpdate(mainDepthTexture: pc.Texture) {
@@ -192,7 +213,7 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
     private _updateMainDepthTexture(mainDepthTexture: pc.Texture) {
         if (this._needUpdate(mainDepthTexture)) {
             this._mainScreenDepthTexture = mainDepthTexture;
-            this._updateMainScreenDepthTexture();
+            this._updateComputeParameters();
         }
     }
 
@@ -205,7 +226,7 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         // TODO: on mobile r32float
         // render not supported used rgba8unorm
         // for supported all platforms
-        return false;
+        return true;
     }
 
     public isColor() {
@@ -227,6 +248,7 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
 
     public destroy() {
         this._mainScreenDepthTexture = null;
+        this._computeMips.forEach(x => x?.destroy());
         this._texture?.destroy();
         this._computeMipsShader?.destroy();
     }

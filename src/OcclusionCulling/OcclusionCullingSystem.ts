@@ -118,7 +118,7 @@ export class OcclusionCullingSystem extends pc.EventHandler {
     }
 
     private _onFrameUpdate(ms: number) {
-        this._hzbDebugger?.debug();
+        this._hzbDebugger?.debug(this.hzbDebugger?.hzb.mipLevels);
         this._hzbTester?.frameUpdate();
         this._queriesTester?.frameUpdate();
     }
