@@ -9,7 +9,7 @@ export default `
         let rect = clampedRect.xwzy;
         let rectPixels = rect * uniforms.hzbSize.xyxy;
         let rectSize = (rectPixels.zw - rectPixels.xy) * 0.5; // 0.5 for 4x4
-        var level = max(ceil(log2(max(rectSize.x, rectSize.y))), uniforms.hzbUvFactor.z);
+        var level = max(ceil(log2(max(rectSize.x, rectSize.y))), 0.0);
 
         let levelLower = max(level - 1.0, 0.0);
         let lowerRect = rectPixels * exp2(-levelLower);
@@ -18,9 +18,8 @@ export default `
             level = levelLower;
         }
 
-        let hzbUvFactor = vec2f(uniforms.hzbUvFactor.xy);
-        let scale = hzbUvFactor.xy * (rect.zw - rect.xy) / 3.0;
-        let bias = hzbUvFactor.xy * rect.xy;
+        let scale = (rect.zw - rect.xy) / 3.0;
+        let bias = rect.xy;
         var maxDepth = vec4f(0.0);
 
         for (var i: f32 = 0.0; i < 4.0; i = i + 1.0) {

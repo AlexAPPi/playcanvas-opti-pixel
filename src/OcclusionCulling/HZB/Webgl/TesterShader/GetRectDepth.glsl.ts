@@ -7,7 +7,7 @@ export default `
         vec4 rect       = clamp(vec4(rectMin.xy, rectMax.xy) * 0.5 + 0.5, vec4(0.0), vec4(1.0)).xwzy;
         vec4 rectPixels = rect * uHZBSize.xyxy;
         vec2 rectSize   = (rectPixels.zw - rectPixels.xy) * 0.5; // 0.5 for 4x4
-        float level     = max(ceil(log2(max(rectSize.x, rectSize.y))), uHZBUvFactor.z);
+        float level     = max(ceil(log2(max(rectSize.x, rectSize.y))), 0.0);
 
         // Check if we can drop one level lower
         float levelLower = max(level - 1.0, 0.0);
@@ -17,8 +17,8 @@ export default `
             level = levelLower;
         }
 
-        vec2 scale = uHZBUvFactor.xy * (rect.zw - rect.xy) / 3.0;
-	    vec2 bias  = uHZBUvFactor.xy * rect.xy;
+        vec2 scale = (rect.zw - rect.xy) / 3.0;
+	    vec2 bias  = rect.xy;
         vec4 maxDepth = vec4(0.0);
 
         for (int i = 0; i < 4; i++) {
