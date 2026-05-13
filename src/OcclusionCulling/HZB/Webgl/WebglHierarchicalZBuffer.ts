@@ -62,6 +62,13 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         this.resize(this.screenWidth, this.screenHeight, this._maxSize);
     }
 
+    public get uvFactor(): [number, number] {
+        return [
+            this.screenWidth  / ((2 ** (this.nearLevel + 1)) * this.width),
+            this.screenHeight / ((2 ** (this.nearLevel + 1)) * this.height)
+        ];
+    }
+
     /**
      * Create Webgl hierarchical z buffer
      * 

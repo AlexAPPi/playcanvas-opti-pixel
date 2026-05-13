@@ -198,6 +198,7 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
 
             const groupX = Math.ceil(count / this._workgroupSizeX);
             const hzbTexture = this.hzb.texture!;
+            const uvFactor = this.hzb.uvFactor;
 
             if (updateParams) {
                 const viewMatrix = camera.viewMatrix;
@@ -205,9 +206,8 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
                 this._modelViewProjection.mul2(projectionMatrix, viewMatrix);
             }
 
-            _hzbUvFactorArr[0] = this.hzb.screenWidth  / (2 * this.hzb.width);
-            _hzbUvFactorArr[1] = this.hzb.screenHeight / (2 * this.hzb.height);
-            _hzbUvFactorArr[2] = 0;
+            _hzbUvFactorArr[0] = uvFactor[0];
+            _hzbUvFactorArr[1] = uvFactor[1];
 
             _screenSizeArr[0] = this.hzb.screenWidth;
             _screenSizeArr[1] = this.hzb.screenHeight;
@@ -236,5 +236,5 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
 
 const _hzbSizeArr = new Float32Array(2);
 const _screenSizeArr = new Float32Array(2);
-const _hzbUvFactorArr = new Float32Array(3);
+const _hzbUvFactorArr = new Float32Array(2);
 const _boundingBox = new pc.BoundingBox();

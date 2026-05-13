@@ -173,6 +173,7 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
         if (state && state.count > 0) {
 
             const count = state.count;
+            const uvFactor = this.hzb.uvFactor;
 
             _screenSizeArr[0] = this.hzb.screenWidth;
             _screenSizeArr[1] = this.hzb.screenHeight;
@@ -180,9 +181,8 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
             _hzbSizeArr[0] = this.hzb.width;
             _hzbSizeArr[1] = this.hzb.height;
 
-            _hzbUvFactorArr[0] = this.hzb.screenWidth  / ((2 ** (this.hzb.nearLevel + 1)) * this.hzb.width);
-            _hzbUvFactorArr[1] = this.hzb.screenHeight / ((2 ** (this.hzb.nearLevel + 1)) * this.hzb.height);
-            _hzbUvFactorArr[2] = 0;
+            _hzbUvFactorArr[0] = uvFactor[0];
+            _hzbUvFactorArr[1] = uvFactor[1];
 
             this._pixelsSizePerInstanceScope.setValue(this._aabbStore.pixelsPerInstance);
             this._dataTextureScope.setValue(this._aabbStore.texture);
@@ -239,5 +239,5 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
 
 const _hzbSizeArr = new Float32Array(2);
 const _screenSizeArr = new Float32Array(2);
-const _hzbUvFactorArr = new Float32Array(3);
+const _hzbUvFactorArr = new Float32Array(2);
 const _boundingBox = new pc.BoundingBox();

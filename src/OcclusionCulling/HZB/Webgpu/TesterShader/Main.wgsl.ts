@@ -4,7 +4,7 @@ export default `
         boundingBoxPixelsSizePerInstance: u32,
         metaDataPixelsSizePerInstance: u32,
         viewProjection: mat4x4<f32>,
-        hzbUvFactor: vec3<f32>,
+        hzbUvFactor: vec2<f32>,
         screenSize: vec2<f32>,
         hzbSize: vec2<f32>,
         count: u32

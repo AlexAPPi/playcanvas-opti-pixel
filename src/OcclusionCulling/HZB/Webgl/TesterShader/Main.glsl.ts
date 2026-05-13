@@ -5,7 +5,7 @@ export default `
     flat out uint out_flags;
 
     uniform mat4 uMatrixViewProjection;
-    uniform vec3 uHZBUvFactor;
+    uniform vec2 uHZBUvFactor;
     uniform vec2 uScreenSize;
     uniform vec2 uHZBSize;
 

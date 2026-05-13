@@ -36,6 +36,13 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
     public get mipLevels() { return this._mipLevels; }
     public get minLevel() { return this._minLevel; }
 
+    public get uvFactor(): [number, number] {
+        return [
+            this.screenWidth  / (2 * this.width),
+            this.screenHeight / (2 * this.height)
+        ];
+    }
+
     public constructor(device: pc.WebgpuGraphicsDevice, debugName?: string) {
 
         this._device = device;
