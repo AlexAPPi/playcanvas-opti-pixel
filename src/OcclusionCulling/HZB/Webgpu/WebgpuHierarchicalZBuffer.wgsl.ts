@@ -28,11 +28,40 @@ export default
         #endif
     }
 
+    fn gather4(bufferUV: vec2f) -> vec4f {
+
+        // TODO: textureGather availability on the platform ?
+        #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16)
+
+            let uv = min(bufferUV + vec2(-0.25, -0.25) * uniforms.invSize, uniforms.inputViewportMaxBound - uniforms.invSize);
+            return textureGather(0, srcDepth, srcDepthSampler, uv);
+
+        #else
+
+            // min(..., uInputViewportMaxBound) because we don't want to sample outside of the viewport
+            // when the view size has odd dimensions on X/Y axis.
+            let uv0 = min(bufferUV + vec2f(-0.25, -0.25) * uniforms.invSize, uniforms.inputViewportMaxBound);
+            let uv1 = min(bufferUV + vec2f( 0.25, -0.25) * uniforms.invSize, uniforms.inputViewportMaxBound);
+            let uv2 = min(bufferUV + vec2f(-0.25,  0.25) * uniforms.invSize, uniforms.inputViewportMaxBound);
+            let uv3 = min(bufferUV + vec2f( 0.25,  0.25) * uniforms.invSize, uniforms.inputViewportMaxBound);
+
+            var out: vec4f;
+            out.x = convertDepth(textureSamplerLevel(srcDepth, srcDepthSampler, uv0, 0));
+            out.y = convertDepth(textureSamplerLevel(srcDepth, srcDepthSampler, uv1, 0));
+            out.z = convertDepth(textureSamplerLevel(srcDepth, srcDepthSampler, uv2, 0));
+            out.w = convertDepth(textureSamplerLevel(srcDepth, srcDepthSampler, uv3, 0));
+            return out;
+
+        #endif
+    }
+
     fn calcDepth(coord: vec2u) -> f32 {
+
         let bufferUV = vec2f(vec2f(coord) + 0.5) * uniforms.dispatchThreadIdToBufferUV.xy + uniforms.dispatchThreadIdToBufferUV.zw;
-        let uv = min(bufferUV + vec2(-0.25, -0.25) * uniforms.invSize, uniforms.inputViewportMaxBound - uniforms.invSize);
-        let data = textureGather(0, srcDepth, srcDepthSampler, uv);
-        return max(max(data.x, data.y), max(data.z, data.w));
+        let deviceZ = gather4(bufferUV);
+
+        // TODO: we can use min if the reverse z is implemented in engine
+        return max(max(deviceZ.x, deviceZ.y), max(deviceZ.z, deviceZ.w));
     }
 
     @compute @workgroup_size({WORKGROUP_SIZE_X}, {WORKGROUP_SIZE_Y}, 1)
