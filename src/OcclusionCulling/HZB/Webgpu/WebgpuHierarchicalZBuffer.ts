@@ -217,7 +217,7 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         return false;
     }
 
-    private _updateMainDepthTexture(mainDepthTexture: pc.Texture) {
+    private _tryUpdateMainDepthTexture(mainDepthTexture: pc.Texture) {
         if (this._needUpdate(mainDepthTexture)) {
             this._mainScreenDepthTexture = mainDepthTexture;
             this._updateComputeParameters();
@@ -276,7 +276,7 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
                 this.resize(mainDepthTexture.width, mainDepthTexture.height);
             }
 
-            this._updateMainDepthTexture(mainDepthTexture);
+            this._tryUpdateMainDepthTexture(mainDepthTexture);
             this._device.computeDispatch(this._computeMips, this._debugName);
         }
     }
