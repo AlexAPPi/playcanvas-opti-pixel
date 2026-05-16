@@ -100,46 +100,6 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         return true;
     }
 
-    private _initShader() {
-
-        const defines = new Map();
-
-        let workaroundForFloat = false;
-
-        if (!this.isColor()) {
-            defines.set("READ_DEPTH", "");
-            defines.set("WRITE_DEPTH", "");
-        }
-        else if (this.isFloat16()) {
-            defines.set("DEPTH_IS_FLOAT16", "");
-            workaroundForFloat = true;
-        }
-        else if (this.isFloat32()) {
-            defines.set("DEPTH_IS_FLOAT", "");
-            workaroundForFloat = true;
-        }
-
-        if (this.device.textureFloatRenderable) {
-            defines.set("SCENE_DEPTHMAP_FLOAT", "");
-            workaroundForFloat = true;
-        }
-
-        if (workaroundForFloat) {
-            defines.set("FLOAT_WORKAROUND", "");
-        }
-
-        this._shader = pc.ShaderUtils.createShader(this._device, {
-            uniqueName: "HZB_SHADER",
-            useTransformFeedback: false,
-            vertexGLSL: vertexCodeVS,
-            fragmentGLSL: fragmentCodePS,
-            fragmentDefines: defines,
-            attributes: {
-                aPosition: pc.SEMANTIC_POSITION
-            },
-        });
-    }
-
     public resize(width: number = this.screenWidth, height: number = this.screenHeight, maxSize: number = this.maxSize) {
         this.destroy();
         this._maxSize = maxSize;
@@ -163,7 +123,50 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         this._initRenders();
     }
 
-    private _initRenders() {
+    protected _initShader() {
+
+        const defines = new Map();
+
+        let workaroundFloat = false;
+
+        if (!this.isColor()) {
+            defines.set("READ_DEPTH", "");
+            defines.set("WRITE_DEPTH", "");
+        }
+        else if (this.isFloat16()) {
+            defines.set("DEPTH_IS_FLOAT16", "");
+        }
+        else if (this.isFloat32()) {
+            defines.set("DEPTH_IS_FLOAT", "");
+        }
+        else {
+            workaroundFloat = true;
+        }
+
+        if (this.device.textureFloatRenderable) {
+            defines.set("SCENE_DEPTHMAP_FLOAT", "");
+        }
+        else {
+            workaroundFloat = true;
+        }
+
+        if (workaroundFloat) {
+            defines.set("WORKAROUND_FLOAT", "");
+        }
+
+        this._shader = pc.ShaderUtils.createShader(this._device, {
+            uniqueName: "HZB_SHADER",
+            useTransformFeedback: false,
+            vertexGLSL: vertexCodeVS,
+            fragmentGLSL: fragmentCodePS,
+            fragmentDefines: defines,
+            attributes: {
+                aPosition: pc.SEMANTIC_POSITION
+            },
+        });
+    }
+
+    protected _initRenders() {
 
         // We alternate the textures so that even mip levels are written into the second texture
         // and odd mip levels into the first one. This way, we do not need to copy data between textures,
@@ -177,7 +180,7 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
 
         const depthByColor = this.isColor();
         const format = (
-            !this.isColor()  ? pc.PIXELFORMAT_DEPTH :
+            !depthByColor    ? pc.PIXELFORMAT_DEPTH :
             this.isFloat16() ? pc.PIXELFORMAT_R16F :
             this.isFloat32() ? pc.PIXELFORMAT_R32F :
                                pc.PIXELFORMAT_RGBA8
@@ -368,7 +371,7 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         let srcBuffer = mainDepthTexture;
         let srcWidth  = mainDepthTexture.width;
         let srcHeight = mainDepthTexture.height;
-        let readScreenDepth = true;
+        let readScreenDepth = 1;
 
         _viewportMaxBoundArr[0] = (this.screenWidth  - 0.5) / srcWidth;
         _viewportMaxBoundArr[1] = (this.screenHeight - 0.5) / srcHeight;
@@ -395,7 +398,7 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
             // Render to the current mip level
             this._quadRenderPasses[mip].render();
 
-            readScreenDepth = false;
+            readScreenDepth = 0;
             srcLevel  = Math.max(0, mip - this._minMipLevel);
             srcWidth  = Math.max(1, this._globalMipWidth >> mip);
             srcHeight = Math.max(1, this._globalMipHeight >> mip);

@@ -1,6 +1,6 @@
 export default `
 
-    uniform int uReadScreenDepth;
+    uniform float uReadScreenDepth;
     uniform float uReadLevel;
     uniform vec2 uInvSize;
     uniform vec2 uInputViewportMaxBound;
@@ -9,34 +9,29 @@ export default `
 
     varying vec2 uv0;
 
-    #ifdef FLOAT_WORKAROUND
+    #ifdef WORKAROUND_FLOAT
     #include "floatAsUintPS"
     #endif
 
     float convertDepth(vec4 value) {
 
-        #ifdef FLOAT_WORKAROUND
-            float workaroundValue = uint2float(value);
-        #else
-            float workaroundValue = value.r;
+        #ifdef WORKAROUND_FLOAT
+            float workaroundFloat = uint2float(value);
         #endif
 
-        return mix(
+        #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16 || READ_DEPTH)
+            float mipDepth = value.r;
+        #else
+            float mipDepth = workaroundFloat;
+        #endif
 
-            #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16 || READ_DEPTH)
-                value.r,
-            #else
-                workaroundValue,
-            #endif
+        #ifdef SCENE_DEPTHMAP_FLOAT
+            float screenDepth = value.r;
+        #else
+            float screenDepth = workaroundFloat;
+        #endif
 
-            #ifdef SCENE_DEPTHMAP_FLOAT
-                value.r,
-            #else
-                workaroundValue,
-            #endif
-
-            uReadScreenDepth == 1
-        );
+        return uReadScreenDepth > 0.5 ? screenDepth : mipDepth;
     }
 
     vec4 gather4(vec2 bufferUV) {
