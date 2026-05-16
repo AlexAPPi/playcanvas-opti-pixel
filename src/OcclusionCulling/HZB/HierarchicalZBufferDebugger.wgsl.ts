@@ -38,8 +38,7 @@ export default `
 
     @fragment fn fragmentMain(input: FragmentInput) -> FragmentOutput {
         var output: FragmentOutput;
-        let mirrorYUV = vec2<f32>(input.uv0.x, 1.0 - input.uv0.y);
-        let depth: f32 = getLinearScreenDepth(getImageEffectUV(mirrorYUV), uniform.uDepthMipLevel, uniform.camera_params) * uniform.camera_params.x;
+        let depth: f32 = getLinearScreenDepth(input.uv0, uniform.uDepthMipLevel, uniform.camera_params) * uniform.camera_params.x;
         output.color = vec4f(gammaCorrectOutput(vec3f(depth)), 1.0);
         return output;
     };

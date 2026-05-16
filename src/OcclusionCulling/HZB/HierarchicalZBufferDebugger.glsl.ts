@@ -30,8 +30,8 @@ export default `
     }
 
     void main() {
-        vec2 mirrorYUV = vec2(uv0.x, 1.0 - uv0.y);
-        float depth = getLinearScreenDepth(getImageEffectUV(mirrorYUV)) * camera_params.x;
+        vec2 uv = vec2(uv0.x, 1.0 - uv0.y);
+        float depth = getLinearScreenDepth(uv) * camera_params.x;
         gl_FragColor = vec4(gammaCorrectOutput(vec3(depth)), 1.0);
     }
 `;
