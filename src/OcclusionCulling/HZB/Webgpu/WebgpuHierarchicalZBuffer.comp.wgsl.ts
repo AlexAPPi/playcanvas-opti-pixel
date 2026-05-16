@@ -235,16 +235,12 @@ export default `
 
         sharedFurthestDeviceZ[groupThreadIndex] = furthestDeviceZ;
         sharedClosestDeviceZ[groupThreadIndex] = closestDeviceZ;
-        workgroupBarrier();
+        workgroupBarrier(); // await workgroup
 
         for (var mipLevel: u32 = 1u; mipLevel < DIM_MIP_LEVEL_COUNT; mipLevel++) {
 
             let tileSize = GROUP_TILE_SIZE / (1u << mipLevel);
             let reduceBankSize = tileSize * tileSize;
-
-            if (mipLevel == 1u) {
-                workgroupBarrier();
-            }
 
             if (groupThreadIndex < reduceBankSize) {
 
