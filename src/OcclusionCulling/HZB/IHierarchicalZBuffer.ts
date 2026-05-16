@@ -8,7 +8,9 @@ export interface IHierarchicalZBuffer {
     readonly width: number;
     readonly height: number;
     readonly mipLevels: number;
+    uvFactor: [number, number];
     enabled: boolean;
+    isFloat16(): boolean;
     isFloat32(): boolean;
     isColor(): boolean;
 }

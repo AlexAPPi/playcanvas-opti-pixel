@@ -6,20 +6,22 @@ export default `
 
     float convertDepth(vec4 data) {
 
-        #ifdef (DEPTH_IS_FLOAT || READ_DEPTH)
+        #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16 || READ_DEPTH)
             return data.r;
         #else
             return uint2float(data);
         #endif
     }
 
-    uniform highp sampler2D uHZB1;
-    uniform highp sampler2D uHZB2;
+    uniform sampler2D uHZB1;
+    uniform sampler2D uHZB2;
 
     float getDepth(vec2 uv, float lod) {
-        return convertDepth(max(
-            textureLod(uHZB1, uv, lod),
-            textureLod(uHZB2, uv, lod)
-        ));
+        // Convert from screen uv to hzb mips uv
+        vec2 factoredUv = uHZBUvFactor.xy * uv;
+        return max(
+            convertDepth(textureLod(uHZB1, factoredUv, lod)),
+            convertDepth(textureLod(uHZB2, factoredUv, lod))
+        );
     }
 `;

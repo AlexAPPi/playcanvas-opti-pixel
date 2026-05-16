@@ -4,6 +4,7 @@ export default `
         boundingBoxPixelsSizePerInstance: u32,
         metaDataPixelsSizePerInstance: u32,
         viewProjection: mat4x4<f32>,
+        hzbUvFactor: vec2<f32>,
         screenSize: vec2<f32>,
         hzbSize: vec2<f32>,
         count: u32
@@ -21,7 +22,7 @@ export default `
     #include "getIndirectMetaDataCS"
 
     @group(0) @binding(0) var<uniform> uniforms: Uniforms;
-    @group(0) @binding(1) var hzb: texture_2d<f32>;
+    @group(0) @binding(1) var hzb: texture_2d<{DEPTH_STORAGE_FORMAT}>;
     @group(0) @binding(2) var hzbSampler: sampler;
     @group(0) @binding(3) var boundingBoxes: texture_2d<f32>;
     @group(0) @binding(4) var indirectMetaData: texture_2d<u32>;

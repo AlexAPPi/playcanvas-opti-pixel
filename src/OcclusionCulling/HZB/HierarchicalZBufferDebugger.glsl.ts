@@ -6,7 +6,7 @@ export default `
 
     uniform vec4 camera_params;
     uniform float uDepthMipLevel;
-    uniform highp sampler2D uDepthMip;
+    uniform sampler2D uDepthMip;
 
     float linearizeDepth(float z) {
         if (camera_params.w == 0.0) {
@@ -16,7 +16,7 @@ export default `
     }
 
     float extractDepthFromData(vec4 data) {
-        #ifdef (DEPTH_IS_FLOAT || READ_DEPTH)
+        #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16 || READ_DEPTH)
             return data.r;
         #else
             return uint2float(data);

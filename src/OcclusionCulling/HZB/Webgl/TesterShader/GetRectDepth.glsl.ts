@@ -2,26 +2,34 @@ export default `
 
     #include "getDepthVS"
 
-    float getRectDepth(vec2 minCoord, vec2 maxCoord) {
+    float getRectDepth(vec3 rectMin, vec3 rectMax) {
 
-        float posStart;
-        float posEnd;
-        float step;
+        vec4 rect       = clamp(vec4(rectMin.xy, rectMax.xy) * 0.5 + 0.5, vec4(0.0), vec4(1.0)).xwzy;
+        vec4 rectPixels = rect * uHZBSize.xyxy;
+        vec2 rectSize   = (rectPixels.zw - rectPixels.xy) * 0.5; // 0.5 for 4x4
+        float level     = max(ceil(log2(max(rectSize.x, rectSize.y))), 0.0);
 
-        vec2 clampedMinCoord = clamp(minCoord, vec2(0.0), vec2(1.0));
-        vec2 clampedMaxCoord = clamp(maxCoord, vec2(0.0), vec2(1.0));
+        // Check if we can drop one level lower
+        float levelLower = max(level - 1.0, 0.0);
+        vec4 lowerRect = rectPixels * exp2(-levelLower);
+        vec2 lowerRectSize = ceil(lowerRect.zw) - floor(lowerRect.xy);
+        if (all(lessThanEqual(lowerRectSize, vec2(4.0)))) {
+            level = levelLower;
+        }
 
-        vec2 extent = clampedMaxCoord - clampedMinCoord;
-        vec2 viewSize = extent * uHZBSize;
+        vec2 scale = (rect.zw - rect.xy) / 3.0;
+	    vec2 bias  = rect.xy;
+        vec4 maxDepth = vec4(0.0);
 
-        float size = max(viewSize.x, viewSize.y) / 2.0;
-        float lod  = clamp(ceil(log2(size)), MIN_LEVEL, MAX_LEVEL);
+        for (int i = 0; i < 4; i++) {
+            vec4 depth;
+            depth.x = getDepth(vec2(i, 0) * scale + bias, level);
+            depth.y = getDepth(vec2(i, 1) * scale + bias, level);
+            depth.z = getDepth(vec2(i, 2) * scale + bias, level);
+            depth.w = getDepth(vec2(i, 3) * scale + bias, level);
+            maxDepth = max(maxDepth, depth);
+        }
 
-        float probe0 = getDepth(clampedMinCoord, lod);
-        float probe1 = getDepth(clampedMaxCoord, lod);
-        float probe2 = getDepth(vec2(clampedMinCoord.x, clampedMaxCoord.y), lod);
-        float probe3 = getDepth(vec2(clampedMaxCoord.x, clampedMinCoord.y), lod);
-
-        return max(max(probe0, probe1), max(probe2, probe3));
+        return max(max(maxDepth.x, maxDepth.y), max(maxDepth.z, maxDepth.w));
     }
 `;

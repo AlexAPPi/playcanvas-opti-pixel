@@ -1,93 +1,82 @@
 export default `
 
-    precision highp float;
-
     uniform int uReadScreenDepth;
-    uniform int uIncludeSrcExtraColumn;
-    uniform int uIncludeSrcExtraRow;
-    uniform int uReadLevel;
-    uniform highp sampler2D uDepthMip;
+    uniform float uReadLevel;
+    uniform vec2 uInvSize;
+    uniform vec2 uInputViewportMaxBound;
+    uniform vec4 uDispatchThreadIdToBufferUV;
+    uniform sampler2D uDepthMip;
 
     varying vec2 uv0;
 
+    #ifdef FLOAT_WORKAROUND
     #include "floatAsUintPS"
+    #endif
 
     float convertDepth(vec4 value) {
 
-        if (uReadScreenDepth == 1) {
+        #ifdef FLOAT_WORKAROUND
+            float workaroundValue = uint2float(value);
+        #else
+            float workaroundValue = value.r;
+        #endif
+
+        return mix(
+
+            #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16 || READ_DEPTH)
+                value.r,
+            #else
+                workaroundValue,
+            #endif
 
             #ifdef SCENE_DEPTHMAP_FLOAT
-                return value.r;
+                value.r,
             #else
-                return uint2float(value);
+                workaroundValue,
             #endif
-        }
 
-        #ifdef DEPTH_IS_FLOAT || READ_DEPTH
-            return value.r;
-        #else
-            return uint2float(value);
-        #endif
+            uReadScreenDepth == 1
+        );
     }
 
-    #define getDepth(xy, offset) (convertDepth(texelFetchOffset(uDepthMip, xy, uReadLevel, offset)));
+    vec4 gather4(vec2 bufferUV) {
 
-    float getMaxDepth() {
+        // min(..., uInputViewportMaxBound) because we don't want to sample outside of the viewport
+        // when the view size has odd dimensions on X/Y axis.
+        vec2 uv0 = min(bufferUV + vec2(-0.25, -0.25) * uInvSize, uInputViewportMaxBound);
+        vec2 uv1 = min(bufferUV + vec2( 0.25, -0.25) * uInvSize, uInputViewportMaxBound);
+        vec2 uv2 = min(bufferUV + vec2(-0.25,  0.25) * uInvSize, uInputViewportMaxBound);
+        vec2 uv3 = min(bufferUV + vec2( 0.25,  0.25) * uInvSize, uInputViewportMaxBound);
 
-        const ivec2 p00 = ivec2(0, 0);
-        const ivec2 p10 = ivec2(1, 0);
-        const ivec2 p11 = ivec2(1, 1);
-        const ivec2 p01 = ivec2(0, 1);
-        const ivec2 p20 = ivec2(2, 0);
-        const ivec2 p21 = ivec2(2, 1);
-        const ivec2 p22 = ivec2(2, 2);
-        const ivec2 p02 = ivec2(0, 2);
-        const ivec2 p12 = ivec2(1, 2);
+        return vec4(
+            convertDepth(textureLod(uDepthMip, uv0, uReadLevel)),
+            convertDepth(textureLod(uDepthMip, uv1, uReadLevel)),
+            convertDepth(textureLod(uDepthMip, uv2, uReadLevel)),
+            convertDepth(textureLod(uDepthMip, uv3, uReadLevel))
+        );
+    }
 
-        ivec2 thisLevelTexelCoord = ivec2(gl_FragCoord.xy);
-        ivec2 previousLevelBaseTexelCoord = 2 * thisLevelTexelCoord;
-
-        float d00 = getDepth(previousLevelBaseTexelCoord, p00);
-        float d10 = getDepth(previousLevelBaseTexelCoord, p10);
-        float d11 = getDepth(previousLevelBaseTexelCoord, p11);
-        float d01 = getDepth(previousLevelBaseTexelCoord, p01);
-
-        float maxDepth = max(max(d00, d10), max(d11, d01));
-
-        if (uIncludeSrcExtraColumn == 1) {
-            float ec0 = getDepth(previousLevelBaseTexelCoord, p20);
-            float ec1 = getDepth(previousLevelBaseTexelCoord, p21);
-            maxDepth = max(maxDepth, max(ec0, ec1));
-
-            // In the case where the width and height are both odd, need to include the
-            // 'corner' value as well.
-            if (uIncludeSrcExtraRow == 1) {
-                float er0 = getDepth(previousLevelBaseTexelCoord, p22);
-                maxDepth = max(maxDepth, er0);
-            }
-        }
-
-        if (uIncludeSrcExtraRow == 1) {
-            float er0 = getDepth(previousLevelBaseTexelCoord, p02);
-            float er1 = getDepth(previousLevelBaseTexelCoord, p12);
-            maxDepth = max(maxDepth, max(er0, er1));
-        }
-
-        return maxDepth;
+    float maxInVec(vec4 v) {
+        return max(
+            max(v.x, v.y),
+            max(v.z, v.w)
+        );
     }
 
     void main() {
 
-        float maxDepth = getMaxDepth();
+        vec2 bufferUV = gl_FragCoord.xy * uDispatchThreadIdToBufferUV.xy + uDispatchThreadIdToBufferUV.zw;
+        vec4 deviceZ = gather4(bufferUV);
+        float depth = maxInVec(deviceZ);
 
         #ifdef WRITE_DEPTH
-            gl_FragDepth = maxDepth;
+            gl_FragDepth = depth;
         #else
 
-            #ifdef DEPTH_IS_FLOAT
-                gl_FragColor = vec4(maxDepth, 0.0, 0.0, 1.0);
+            #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16)
+                gl_FragColor = vec4(depth, 0.0, 0.0, 1.0);
             #else
-                gl_FragColor = float2uint(maxDepth);
+                gl_FragColor = float2uint(depth);
             #endif
 
         #endif

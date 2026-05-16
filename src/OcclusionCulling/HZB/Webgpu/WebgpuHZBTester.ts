@@ -92,14 +92,26 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
         const minLevel = 0;
         const maxLevel = mipLevels - 1;
 
-        if (this.hzb.isFloat32()) {
-            cdefines.set("DEPTH_IS_FLOAT", "");
+        if (this.hzb.isFloat16()) {
+            cdefines.set("DEPTH_IS_FLOAT16", "");
+            cdefines.set("{DEPTH_STORAGE_FORMAT}", "f16");
+        }
+        else {
+
+            // For r32float or rgba8unorm,
+            // store depth as float in shader for easier processing,
+            // even if the actual storage format is uint.
+            cdefines.set("{DEPTH_STORAGE_FORMAT}", "f32");
+
+            if (this.hzb.isFloat32()) {
+                cdefines.set("DEPTH_IS_FLOAT", "");
+            }
         }
 
         cdefines.set("{MIN_LEVEL}", minLevel.toFixed(1));
         cdefines.set("{MAX_LEVEL}", maxLevel.toFixed(1));
-        cdefines.set('{WORKGROUP_SIZE_X}', this._workgroupSizeX.toFixed(0));
-        cdefines.set('{WORKGROUP_SIZE_Y}', this._workgroupSizeY.toFixed(0));
+        cdefines.set("{WORKGROUP_SIZE_X}", this._workgroupSizeX.toFixed(0));
+        cdefines.set("{WORKGROUP_SIZE_Y}", this._workgroupSizeY.toFixed(0));
 
         cincludes.set("mainCS", mainCS);
         cincludes.set("getDepthCS", getDepthCS);
@@ -137,6 +149,7 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
                     new pc.UniformFormat("boundingBoxPixelsSizePerInstance", pc.UNIFORMTYPE_UINT),
                     new pc.UniformFormat("metaDataPixelsSizePerInstance", pc.UNIFORMTYPE_UINT),
                     new pc.UniformFormat("viewProjection", pc.UNIFORMTYPE_MAT4),
+                    new pc.UniformFormat("hzbUvFactor", pc.UNIFORMTYPE_VEC3),
                     new pc.UniformFormat("screenSize", pc.UNIFORMTYPE_VEC2),
                     new pc.UniformFormat("hzbSize", pc.UNIFORMTYPE_VEC2),
                     new pc.UniformFormat("count", pc.UNIFORMTYPE_UINT),
@@ -185,12 +198,16 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
 
             const groupX = Math.ceil(count / this._workgroupSizeX);
             const hzbTexture = this.hzb.texture!;
+            const uvFactor = this.hzb.uvFactor;
 
             if (updateParams) {
                 const viewMatrix = camera.viewMatrix;
                 const projectionMatrix = camera.projectionMatrix;
                 this._modelViewProjection.mul2(projectionMatrix, viewMatrix);
             }
+
+            _hzbUvFactorArr[0] = uvFactor[0];
+            _hzbUvFactorArr[1] = uvFactor[1];
 
             _screenSizeArr[0] = this.hzb.screenWidth;
             _screenSizeArr[1] = this.hzb.screenHeight;
@@ -206,16 +223,18 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
             this._compute.setParameter("boundingBoxPixelsSizePerInstance", this._aabbStore.pixelsPerInstance);
             this._compute.setParameter("metaDataPixelsSizePerInstance", this._metaStore.pixelsPerInstance);
             this._compute.setParameter('viewProjection', this._modelViewProjection.data);
+            this._compute.setParameter('hzbUvFactor', _hzbUvFactorArr);
             this._compute.setParameter('screenSize', _screenSizeArr);
             this._compute.setParameter('hzbSize', _hzbSizeArr);
             this._compute.setParameter("count", count);
             this._compute.setupDispatch(groupX, 1, 1);
 
-            this.hzb.device.computeDispatch([this._compute], "Test" + count);
+            this.hzb.device.computeDispatch([this._compute], "TestHZB");
         }
     }
 }
 
 const _hzbSizeArr = new Float32Array(2);
 const _screenSizeArr = new Float32Array(2);
+const _hzbUvFactorArr = new Float32Array(2);
 const _boundingBox = new pc.BoundingBox();

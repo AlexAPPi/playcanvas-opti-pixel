@@ -14,8 +14,7 @@ export default `
 
     uint getFlags(
         uint index, vec3 boxCenterWorld, vec3 boxHalfExtents, vec2 boxExtra,
-        float instanceDepth, float hzbDepth, int cullStatus,
-        vec2 minCoord, vec2 maxCoord
+        vec3 rectMin, vec3 rectMax, int cullStatus
     ) {
         // Here we can wrap the output flag and return some other data,
         // for example, calculate the LOD for boxCenterWorld or any
