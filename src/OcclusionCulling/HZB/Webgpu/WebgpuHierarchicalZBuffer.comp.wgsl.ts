@@ -1,6 +1,11 @@
 export default `
     #include "floatAsUintPS"
 
+    const MAX_MIP_BATCH_SIZE: u32 = 4u;
+    const MAX_MIP_BATCH_SIZE_MINUS_ONE: u32 = MAX_MIP_BATCH_SIZE - 1u;
+    const GROUP_TILE_SIZE: u32 = 8u;
+    const DIM_MIP_LEVEL_COUNT: u32 = {DIM_MIP_LEVEL_COUNT}u;
+
     struct Uniforms {
         readScreenDepth: i32,
         invSize: vec2<f32>,
@@ -11,6 +16,22 @@ export default `
     @group(0) @binding(0) var<uniform> uniforms: Uniforms;
     @group(0) @binding(1) var srcDepth: texture_2d<{SRC_DEPTH_FORMAT}>;
     @group(0) @binding(2) var srcDepthSampler: sampler;
+
+    #if DIM_MIP_LEVEL_COUNT >= 1
+    @group(0) @binding(3) var dstDepth0: texture_storage_2d<{DST_DEPTH_FORMAT}, write>;
+    #endif
+
+    #if DIM_MIP_LEVEL_COUNT >= 2
+    @group(0) @binding(4) var dstDepth1: texture_storage_2d<{DST_DEPTH_FORMAT}, write>;
+    #endif
+
+    #if DIM_MIP_LEVEL_COUNT >= 3
+    @group(0) @binding(5) var dstDepth2: texture_storage_2d<{DST_DEPTH_FORMAT}, write>;
+    #endif
+
+    #if DIM_MIP_LEVEL_COUNT >= 4
+    @group(0) @binding(6) var dstDepth3: texture_storage_2d<{DST_DEPTH_FORMAT}, write>;
+    #endif
 
     fn minInVec(vec: vec4<f32>) -> f32 {
         return min(
@@ -58,36 +79,21 @@ export default `
         let uv2 = min(bufferUV + vec2f(-0.25,  0.25) * uniforms.invSize, uniforms.inputViewportMaxBound);
         let uv3 = min(bufferUV + vec2f( 0.25,  0.25) * uniforms.invSize, uniforms.inputViewportMaxBound);
 
+        let textureSize = vec2f(textureDimensions(srcDepth, 0) - 1u);
+        let texel0 = vec2i(uv0 * textureSize);
+        let texel1 = vec2i(uv1 * textureSize);
+        let texel2 = vec2i(uv2 * textureSize);
+        let texel3 = vec2i(uv3 * textureSize);
+
         var out: vec4f;
-        out.x = convertDepth(textureSamplerLevel(srcDepth, srcDepthSampler, uv0, 0));
-        out.y = convertDepth(textureSamplerLevel(srcDepth, srcDepthSampler, uv1, 0));
-        out.z = convertDepth(textureSamplerLevel(srcDepth, srcDepthSampler, uv2, 0));
-        out.w = convertDepth(textureSamplerLevel(srcDepth, srcDepthSampler, uv3, 0));
+        out.x = convertDepth(textureLoad(srcDepth, texel0, 0));
+        out.y = convertDepth(textureLoad(srcDepth, texel1, 0));
+        out.z = convertDepth(textureLoad(srcDepth, texel2, 0));
+        out.w = convertDepth(textureLoad(srcDepth, texel3, 0));
         return out;
 
         #endif
     }
-
-    const MAX_MIP_BATCH_SIZE: u32 = 4u;
-    const MAX_MIP_BATCH_SIZE_MINUS_ONE: u32 = MAX_MIP_BATCH_SIZE - 1u;
-    const GROUP_TILE_SIZE: u32 = 8u;
-    const DIM_MIP_LEVEL_COUNT: u32 = {DIM_MIP_LEVEL_COUNT}u;
-
-    #if DIM_MIP_LEVEL_COUNT >= 1
-    @group(0) @binding(3) var dstDepth0: texture_storage_2d<{DST_DEPTH_FORMAT}, write>;
-    #endif
-
-    #if DIM_MIP_LEVEL_COUNT >= 2
-    @group(0) @binding(4) var dstDepth1: texture_storage_2d<{DST_DEPTH_FORMAT}, write>;
-    #endif
-
-    #if DIM_MIP_LEVEL_COUNT >= 3
-    @group(0) @binding(5) var dstDepth2: texture_storage_2d<{DST_DEPTH_FORMAT}, write>;
-    #endif
-
-    #if DIM_MIP_LEVEL_COUNT >= 4
-    @group(0) @binding(6) var dstDepth3: texture_storage_2d<{DST_DEPTH_FORMAT}, write>;
-    #endif
 
     fn output0Level(outputPixelPos: vec2<u32>, furthestDeviceZ: f32, closestDeviceZ: f32) {
 

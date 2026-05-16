@@ -490,7 +490,7 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         // TODO: on mobile r32float
         // render not supported used rgba8unorm
         // for supported all platforms
-        return true;
+        return false;
     }
 
     public isColor() {
