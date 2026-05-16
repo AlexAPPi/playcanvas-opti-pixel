@@ -15,7 +15,7 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
     private _mipLevels: number = 0;
     private _blankTexture: pc.Texture | null = null;
     private _blankTextureView: pc.TextureView[];
-    private _maxMipBatchSize: number = 1;
+    private _maxMipBatchSize: number = 4;
 
     private _texture: pc.Texture | null = null;
     private _computeMipsShaders: pc.Shader[] = [];
@@ -37,7 +37,7 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
     public get mipLevels() { return this._mipLevels; }
     public get maxMipBatchSize() { return this._maxMipBatchSize; }
     public set maxMipBatchSize(value: number) {
-        this._maxMipBatchSize = this.getSafeBatchSize(value);
+        this._maxMipBatchSize = this.getSafeMipBatchSize(value);
         this._free();
         this._init();
     }
@@ -52,7 +52,7 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
     public constructor(device: pc.WebgpuGraphicsDevice, maxMipBatchSize: number = 4, debugName?: string) {
 
         this._device = device;
-        this._maxMipBatchSize = this.getSafeBatchSize(maxMipBatchSize);
+        this._maxMipBatchSize = this.getSafeMipBatchSize(maxMipBatchSize);
 
         if (debugName !== undefined) {
             this._debugName = debugName;
@@ -67,11 +67,11 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         this._enabled = true;
     }
 
-    public getSafeBatchSize(value: number) {
+    public getSafeMipBatchSize(value: number) {
         if (value < 1 || value > 4) {
-            console.warn("HZB mip batch size must be 1 or 4");
+            console.warn("HZB mip batch size must be 1 or 2 or 3 or 4]");
         }
-        return Math.min(1, Math.max(Math.floor(value), 4));
+        return Math.max(1, Math.min(Math.floor(value), 4));
     }
 
     private _free() {
