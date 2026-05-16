@@ -5,9 +5,7 @@ import { getCameraDepthTexture } from "../../../Extras/CameraHelpers.js";
 
 export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
 
-    public readonly maxMipBatchSize: number = 1;
-
-    private _debugName: string = "HZB";
+    private _debugName: string = 'HZB';
     private _enabled: boolean = false;
     private _device: pc.WebgpuGraphicsDevice;
     private _screenWidth: number = 0;
@@ -15,9 +13,12 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
     private _width: number = 0;
     private _height: number = 0;
     private _mipLevels: number = 0;
-    private _minLevel: number = 0;
+    private _blankTexture: pc.Texture | null = null;
+    private _blankTextureView: pc.TextureView[];
+    private _maxMipBatchSize: number = 1;
+
     private _texture: pc.Texture | null = null;
-    private _computeMipsShader: pc.Shader | null = null;
+    private _computeMipsShaders: pc.Shader[] = [];
     private _textureViews: pc.TextureView[] = [];
     private _computeMips: pc.Compute[] = [];
     private _workgroupSizeX: number = 8;
@@ -34,7 +35,12 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
     public get buffers() { return undefined; }
     public get texture() { return this._texture; }
     public get mipLevels() { return this._mipLevels; }
-    public get minLevel() { return this._minLevel; }
+    public get maxMipBatchSize() { return this._maxMipBatchSize; }
+    public set maxMipBatchSize(value: number) {
+        this._maxMipBatchSize = this.getSafeBatchSize(value);
+        this._free();
+        this._init();
+    }
 
     public get uvFactor(): [number, number] {
         return [
@@ -43,9 +49,10 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         ];
     }
 
-    public constructor(device: pc.WebgpuGraphicsDevice, debugName?: string) {
+    public constructor(device: pc.WebgpuGraphicsDevice, maxMipBatchSize: number = 4, debugName?: string) {
 
         this._device = device;
+        this._maxMipBatchSize = this.getSafeBatchSize(maxMipBatchSize);
 
         if (debugName !== undefined) {
             this._debugName = debugName;
@@ -58,6 +65,21 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         this._init(this.device.width, this.device.height);
         this._updateComputeParameters();
         this._enabled = true;
+    }
+
+    public getSafeBatchSize(value: number) {
+        if (value < 1 || value > 4) {
+            console.warn("HZB mip batch size must be 1 or 4");
+        }
+        return Math.min(1, Math.max(Math.floor(value), 4));
+    }
+
+    private _free() {
+        this._mainScreenDepthTexture = null;
+        this._computeMips.forEach(x => x?.destroy());
+        this._computeMipsShaders?.forEach(x => x?.destroy());
+        this._blankTexture?.destroy();
+        this._texture?.destroy();
     }
 
     private _init(width: number = this.screenWidth, height: number = this.screenHeight) {
@@ -79,6 +101,29 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
             this.isFloat32() ? pc.PIXELFORMAT_R32F :
                                pc.PIXELFORMAT_RGBA8
         );
+
+        this._blankTexture = new pc.Texture(this.device, {
+            name: "HZBBlankTexture",
+            width: 16,
+            height: 16,
+            format: format,
+            mipmaps: true,
+            numLevels: 4,
+            minFilter: pc.FILTER_NEAREST_MIPMAP_NEAREST,
+            magFilter: pc.FILTER_NEAREST,
+            addressU: pc.ADDRESS_CLAMP_TO_EDGE,
+            addressV: pc.ADDRESS_CLAMP_TO_EDGE,
+            addressW: pc.ADDRESS_CLAMP_TO_EDGE,
+            storage: true,
+        });
+
+        this._blankTexture.upload();
+        this._blankTextureView = [
+            this._blankTexture.getView(0),
+            this._blankTexture.getView(1),
+            this._blankTexture.getView(2),
+            this._blankTexture.getView(3)
+        ];
 
         this._texture = new pc.Texture(this.device, {
             name: "HZBTexture",
@@ -106,13 +151,9 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
             ])
         };
 
-        const computeBindGroupFormat = new pc.BindGroupFormat(this.device, [
-            new pc.BindUniformBufferFormat('ub', pc.SHADERSTAGE_COMPUTE),
-            new pc.BindTextureFormat('srcDepth', pc.SHADERSTAGE_COMPUTE, pc.TEXTUREDIMENSION_2D, pc.SAMPLETYPE_UNFILTERABLE_FLOAT, true, 'srcDepthSampler'),
-            new pc.BindStorageTextureFormat('dstDepth', format, pc.TEXTUREDIMENSION_2D, true, false)
-        ]);
-
         const cdefines = new Map<string, string>();
+        const cincludes = pc.ShaderChunks.get(this.device, pc.SHADERLANGUAGE_WGSL);
+
         cdefines.set('{WORKGROUP_SIZE_X}', this._workgroupSizeX.toFixed(0));
         cdefines.set('{WORKGROUP_SIZE_Y}', this._workgroupSizeY.toFixed(0));
         cdefines.set('{SRC_DEPTH_FORMAT}', this.isFloat16() ? 'f16' : 'f32');
@@ -129,28 +170,58 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
             cdefines.set('DEPTH_IS_FLOAT', '');
         }
 
-        this._computeMipsShader = new pc.Shader(this.device, {
-            name: 'HZBComputeShader',
-            shaderLanguage: pc.SHADERLANGUAGE_WGSL,
-            cshader: cshader,
-            cdefines: cdefines,
-            cincludes: pc.ShaderChunks.get(this.device, pc.SHADERLANGUAGE_WGSL),
-            // @ts-ignore
-            computeUniformBufferFormats,
-            computeBindGroupFormat
-        });
-
         this._textureViews = new Array(this._mipLevels);
-        this._computeMips  = new Array(this._mipLevels / this.maxMipBatchSize);
+        this._computeMips  = new Array(Math.ceil(this._mipLevels / this.maxMipBatchSize));
+        this._computeMipsShaders = new Array(this.maxMipBatchSize);
 
         for (let i = 0; i < this._mipLevels; i++) {
             this._textureViews[i] = this._texture.getView(i);
         }
 
-        //for (let i = this.maxMipBatchSize; i < this._mipLevels; i += this.maxMipBatchSize) {
-        //    const idx = (i / this.maxMipBatchSize) - 1;
-        for (let idx = 0; idx < this._mipLevels; idx++) {
-            this._computeMips[idx] = new pc.Compute(this.device, this._computeMipsShader, 'HZBComputeMipBatch' + idx);
+        for (let startDestMip = 0; startDestMip < this._mipLevels; startDestMip += this.maxMipBatchSize) {
+
+            const endDestMip = Math.min(startDestMip + this.maxMipBatchSize, this._mipLevels);
+            const levelCount = endDestMip - startDestMip;
+            const index = startDestMip / this.maxMipBatchSize;
+
+            // Create shader for level count
+            if (this._computeMipsShaders[levelCount] === undefined) {
+
+                const tmpDefines = new Map(cdefines);
+
+                tmpDefines.set('{DIM_MIP_LEVEL_COUNT}', levelCount.toFixed(0));
+                tmpDefines.set('DIM_MIP_LEVEL_COUNT', levelCount.toFixed(0));
+                tmpDefines.set('DIM_FURTHEST', '');
+
+                const formats = [
+                    new pc.BindUniformBufferFormat('ub', pc.SHADERSTAGE_COMPUTE),
+                    new pc.BindTextureFormat('srcDepth', pc.SHADERSTAGE_COMPUTE, pc.TEXTUREDIMENSION_2D, pc.SAMPLETYPE_UNFILTERABLE_FLOAT, true, 'srcDepthSampler'),
+                ];
+
+                // Set dst textures for levels
+                for (let level = 0; level < levelCount; level++) {
+                    formats.push(new pc.BindStorageTextureFormat('dstDepth' + level, format, pc.TEXTUREDIMENSION_2D, true, false));
+                }
+
+                const computeBindGroupFormat = new pc.BindGroupFormat(this.device, formats);
+
+                this._computeMipsShaders[levelCount] = new pc.Shader(this.device, {
+                    name: 'HZBComputeShaderBatch' + levelCount,
+                    shaderLanguage: pc.SHADERLANGUAGE_WGSL,
+                    cshader: cshader,
+                    cdefines: tmpDefines,
+                    cincludes: cincludes,
+                    // @ts-ignore
+                    computeUniformBufferFormats,
+                    computeBindGroupFormat
+                });
+            }
+
+            this._computeMips[index] = new pc.Compute(
+                this.device,
+                this._computeMipsShaders[levelCount],
+                'HZBComputeMipBatch' + index
+            );
         }
     }
 
@@ -168,40 +239,44 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
             (this.screenHeight - 0.5) / srcHeight
         ];
 
-        let mip = 0;
+        let startDestMip = 0;
         let readScreenDepth = 1;
         let srcTexture = this._mainScreenDepthTexture as (pc.Texture | pc.TextureView);
-        let dstTexture = this._textureViews[mip];
         do {
+            const dstTexture0 = this._textureViews[startDestMip + 0] ?? this._blankTextureView[0];
+            const dstTexture1 = this._textureViews[startDestMip + 1] ?? this._blankTextureView[1];
+            const dstTexture2 = this._textureViews[startDestMip + 2] ?? this._blankTextureView[2];
+            const dstTexture3 = this._textureViews[startDestMip + 3] ?? this._blankTextureView[3];
+
             const invSizeArr = [1 / srcWidth, 1 / srcHeight];
             const dispatchThreadIdToBufferUVArr = [2 / srcWidth, 2 / srcHeight, 0, 0];
+            const index = startDestMip / this.maxMipBatchSize;
 
-            this._computeMips[mip].setParameter('readScreenDepth', readScreenDepth);
-            this._computeMips[mip].setParameter('invSize', invSizeArr);
-            this._computeMips[mip].setParameter('inputViewportMaxBound', viewportMaxBoundArr);
-            this._computeMips[mip].setParameter('dispatchThreadIdToBufferUV', dispatchThreadIdToBufferUVArr);
-            this._computeMips[mip].setParameter('srcDepth', srcTexture);
-            this._computeMips[mip].setParameter('dstDepth', dstTexture);
+            // Calc work-groups for current
+            const currentWidth  = Math.max(1, this._width >> startDestMip);
+            const currentHeight = Math.max(1, this._height >> startDestMip);
+            const w = Math.ceil(currentWidth  / this._workgroupSizeX);
+            const h = Math.ceil(currentHeight / this._workgroupSizeY);
 
+            this._computeMips[index].setParameter('readScreenDepth', readScreenDepth);
+            this._computeMips[index].setParameter('invSize', invSizeArr);
+            this._computeMips[index].setParameter('inputViewportMaxBound', viewportMaxBoundArr);
+            this._computeMips[index].setParameter('dispatchThreadIdToBufferUV', dispatchThreadIdToBufferUVArr);
+            this._computeMips[index].setParameter('srcDepth', srcTexture);
+            this._computeMips[index].setParameter('dstDepth0', dstTexture0);
+            this._computeMips[index].setParameter('dstDepth1', dstTexture1);
+            this._computeMips[index].setParameter('dstDepth2', dstTexture2);
+            this._computeMips[index].setParameter('dstDepth3', dstTexture3);
+            this._computeMips[index].setupDispatch(w, h);
+
+            startDestMip += this.maxMipBatchSize;
+            srcWidth  = Math.max(1, this._width >> (startDestMip - 1));
+            srcHeight = Math.max(1, this._height >> (startDestMip - 1));
+            srcTexture = this._textureViews[startDestMip - 1];
+            viewportMaxBoundArr = [1, 1];
             readScreenDepth = 0;
-            srcWidth  = Math.max(1, this._width >> mip);
-            srcHeight = Math.max(1, this._height >> mip);
-
-            // src = current mip level
-            const w = Math.ceil(srcWidth  / this._workgroupSizeX);
-            const h = Math.ceil(srcHeight / this._workgroupSizeY);
-
-            this._computeMips[mip].setupDispatch(w, h);
-
-            mip++;
-            srcTexture = this._textureViews[mip - 1];
-            dstTexture = this._textureViews[mip];
-
-            if (mip === 1) {
-                viewportMaxBoundArr = [1, 1];
-            }
         }
-        while (mip < this._mipLevels);
+        while (startDestMip < this._mipLevels);
     }
 
     private _needUpdate(mainDepthTexture: pc.Texture) {
@@ -254,10 +329,7 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
     }
 
     public destroy() {
-        this._mainScreenDepthTexture = null;
-        this._computeMips.forEach(x => x?.destroy());
-        this._texture?.destroy();
-        this._computeMipsShader?.destroy();
+        this._free();
     }
 
     public update(camera: pc.Camera) {
