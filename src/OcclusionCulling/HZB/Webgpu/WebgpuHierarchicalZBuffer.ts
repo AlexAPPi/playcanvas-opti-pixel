@@ -1,7 +1,7 @@
 import pc from "../../../engine.js";
 import type { IHierarchicalZBuffer } from "../IHierarchicalZBuffer.js";
 import vertexCodeVS from "./WebgpuHierarchicalZBuffer.vert.wgsl.js";
-import fragmentCodeVS from "./WebgpuHierarchicalZBuffer.frag.wgsl.js";
+import fragmentCodePS from "./WebgpuHierarchicalZBuffer.frag.wgsl.js";
 import computeCodeCS from "./WebgpuHierarchicalZBuffer.comp.wgsl.js";
 import { getCameraDepthTexture } from "../../../Extras/CameraHelpers.js";
 
@@ -110,7 +110,7 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         return pc.PIXELFORMAT_RGBA8;
     }
 
-    private _free() {
+    protected _free() {
         this._mainScreenDepthTexture = null;
         this._computeMips.forEach(x => x?.destroy());
         this._computeMipsShaders?.forEach(x => x?.destroy());
@@ -120,7 +120,7 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         this._texture?.destroy();
     }
 
-    private _init(width: number = this.screenWidth, height: number = this.screenHeight) {
+    protected _init(width: number = this.screenWidth, height: number = this.screenHeight) {
 
         this._screenWidth = width | 0;
         this._screenHeight = height | 0;
@@ -161,7 +161,7 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         else                  this._initPixel();
     }
 
-    private _initPixel() {
+    protected _initPixel() {
 
         console.error("Until sampler control is available, the pixel shader is not available.");
 
@@ -204,7 +204,7 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
             uniqueName: 'HZB_PIXEL_SHADER',
             useTransformFeedback: false,
             vertexWGSL: vertexCodeVS,
-            fragmentWGSL: fragmentCodeVS,
+            fragmentWGSL: fragmentCodePS,
             fragmentDefines: defines,
             // @ts-ignore
             processingOptions: true,
@@ -246,7 +246,7 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         }
     }
 
-    private _initCompute() {
+    protected _initCompute() {
 
         const textureFormat = this.getTextureFormat();
         const computeUniformBufferFormats = {
@@ -348,7 +348,7 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         }
     }
 
-    private _updateComputeParameters() {
+    protected _updateComputeParameters() {
 
         if (!this._mainScreenDepthTexture ||
             !this._useCompute) {
@@ -403,7 +403,7 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         while (startDestMip < this._mipLevels);
     }
 
-    private _tryUpdateByMainDepthTexture(mainDepthTexture: pc.Texture) {
+    protected _tryUpdateByMainDepthTexture(mainDepthTexture: pc.Texture) {
 
         if (this.screenWidth !== mainDepthTexture.width ||
             this.screenHeight !== mainDepthTexture.height) {
@@ -416,11 +416,11 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         }
     }
 
-    private _executeCompute() {
+    protected _executeCompute() {
         this._device.computeDispatch(this._computeMips, this._debugName);
     }
 
-    private _executePixel() {
+    protected _executePixel() {
 
         if (!this._mainScreenDepthTexture) {
             return;

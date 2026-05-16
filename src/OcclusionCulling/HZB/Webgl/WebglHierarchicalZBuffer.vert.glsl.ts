@@ -6,6 +6,6 @@ export default `
 
     void main(void) {
         gl_Position = vec4(aPosition, 0.0, 1.0);
-        uv0 = getImageEffectUV((aPosition.xy + 1.0) * 0.5);
+        uv0 = (aPosition.xy + 1.0) * 0.5;
     }
 `;
