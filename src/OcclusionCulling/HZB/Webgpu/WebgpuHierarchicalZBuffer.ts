@@ -499,11 +499,6 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         return true;
     }
 
-    public calculateMipLevels(width: number, height: number): number {
-        const maxSize = Math.max(width, height);
-        return 1 + Math.floor(Math.log2(maxSize));
-    }
-
     public resize(width: number = this.screenWidth, height: number = this.screenHeight) {
         this._free();
         this._init(width, height);
