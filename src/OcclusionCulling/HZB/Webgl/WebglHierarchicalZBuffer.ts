@@ -101,7 +101,7 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
     }
 
     public resize(width: number = this.screenWidth, height: number = this.screenHeight, maxSize: number = this.maxSize) {
-        this.destroy();
+        this._dispose();
         this._maxSize = maxSize;
         this._screenWidth = width | 0;
         this._screenHeight = height | 0;
@@ -313,7 +313,7 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         }
     }
 
-    public destroy() {
+    protected _dispose() {
         this._quadRenderPasses?.forEach(x => x?.destroy());
         this._renderTargets?.forEach(x => x?.destroy());
         this._buffers?.forEach(x => x?.destroy());
@@ -322,6 +322,10 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         this._shader?.destroy();
         this._texture1?.destroy();
         this._texture2?.destroy();
+    }
+
+    public destroy() {
+        this._dispose();
     }
 
     public getNearestMipLevel(width: number, height: number, target: number = 256) {
