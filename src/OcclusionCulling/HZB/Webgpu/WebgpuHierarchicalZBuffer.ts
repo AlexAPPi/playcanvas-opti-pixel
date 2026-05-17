@@ -55,14 +55,14 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
     public get useCompute() { return this._useCompute; }
     public set useCompute(value) {
         this._useCompute = value;
-        this._free();
+        this._dispose();
         this._init();
     }
 
     public get maxMipBatchSize() { return this._maxMipBatchSize; }
     public set maxMipBatchSize(value: number) {
         this._maxMipBatchSize = this.getSafeMipBatchSize(value);
-        this._free();
+        this._dispose();
         this._init();
     }
 
@@ -110,7 +110,7 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         return pc.PIXELFORMAT_RGBA8;
     }
 
-    protected _free() {
+    protected _dispose() {
         this._mainScreenDepthTexture = null;
         this._computeMips.forEach(x => x?.destroy());
         this._computeMipsShaders?.forEach(x => x?.destroy());
@@ -163,9 +163,9 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
 
     protected _initPixel() {
 
-        console.error("Until sampler control is available, the pixel shader is not available.");
+        // console.error("Until sampler control is available, the pixel shader is not available.");
 
-        if (!this._texture || 1 === 1) {
+        if (!this._texture) {
             return;
         }
 
@@ -198,25 +198,23 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
             defines.set('FLOAT_WORKAROUND', '');
         }
 
-        defines.set('{SRC_DEPTH_FORMAT}', this.isFloat16() ? 'f16' : 'f32');
+        // uff workaround for depth textures pc.SAMPLETYPE_UNFILTERABLE_FLOAT
+        defines.set('{SRC_DEPTH_FORMAT}', this.isFloat16() ? 'f16' : 'uff');
 
         this._pixelShader = pc.ShaderUtils.createShader(this._device, {
             uniqueName: 'HZB_PIXEL_SHADER',
-            useTransformFeedback: false,
             vertexWGSL: vertexCodeVS,
             fragmentWGSL: fragmentCodePS,
             fragmentDefines: defines,
-            // @ts-ignore
-            processingOptions: true,
             attributes: {
                 aPosition: pc.SEMANTIC_POSITION
             },
         });
 
         // TODO: we need to control the sampler type
-        this._pixelShader.meshBindGroupFormat = new pc.BindGroupFormat(this._device, [
-            new pc.BindTextureFormat('srcDepth', pc.SHADERSTAGE_FRAGMENT, pc.TEXTUREDIMENSION_2D, pc.SAMPLETYPE_UNFILTERABLE_FLOAT, true, 'srcDepthSampler')
-        ]);
+        // this._pixelShader.meshBindGroupFormat = new pc.BindGroupFormat(this._device, [
+        //      new pc.BindTextureFormat('srcDepth', pc.SHADERSTAGE_FRAGMENT, pc.TEXTUREDIMENSION_2D, pc.SAMPLETYPE_UNFILTERABLE_FLOAT, true, 'srcDepthSampler')
+        // ]);
 
         this._pixelRenders = new Array(this._mipLevels);
 
@@ -434,7 +432,7 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         let srcBuffer = this._mainScreenDepthTexture as (pc.Texture | pc.TextureView);
         let srcWidth  = this._mainScreenDepthTexture.width;
         let srcHeight = this._mainScreenDepthTexture.height;
-        let readScreenDepth = true;
+        let readScreenDepth = 1;
 
         _viewportMaxBoundArr[0] = (this.screenWidth  - 0.5) / srcWidth;
         _viewportMaxBoundArr[1] = (this.screenHeight - 0.5) / srcHeight;
@@ -461,7 +459,7 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
             // Render to the current mip level
             this._pixelRenders[mip].render();
 
-            readScreenDepth = false;
+            readScreenDepth = 0;
             srcLevel  = Math.max(0, mip);
             srcWidth  = Math.max(1, this._width >> mip);
             srcHeight = Math.max(1, this._height >> mip);
@@ -500,30 +498,28 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
     }
 
     public resize(width: number = this.screenWidth, height: number = this.screenHeight) {
-        this._free();
+        this._dispose();
         this._init(width, height);
         this._updateComputeParameters();
     }
 
     public destroy() {
-        this._free();
+        this._dispose();
     }
 
     public update(camera: pc.Camera) {
 
-        if (!this.enabled ||
-            !this.device.supportsCompute) {
-            return;
-        }
+        if (this.enabled) {
 
-        const mainDepthTexture = getCameraDepthTexture(camera);
+            const mainDepthTexture = getCameraDepthTexture(camera);
 
-        if (mainDepthTexture) {
+            if (mainDepthTexture) {
 
-            this._tryUpdateByMainDepthTexture(mainDepthTexture);
+                this._tryUpdateByMainDepthTexture(mainDepthTexture);
 
-            if (this._useCompute) this._executeCompute();
-            else                  this._executePixel();
+                if (this._useCompute) this._executeCompute();
+                else                  this._executePixel();
+            }
         }
     }
 }

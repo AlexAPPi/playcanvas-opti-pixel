@@ -1,4 +1,5 @@
 export default `
+    #include "floatAsUintPS"
 
     uniform uReadScreenDepth: i32;
     uniform uReadLevel: f32;
@@ -6,10 +7,8 @@ export default `
     uniform uInputViewportMaxBound: vec2<f32>;
     uniform uDispatchThreadIdToBufferUV: vec4<f32>;
 
-    varying uv0: vec2f;
-
-    @group(0) @binding(0) var srcDepth: texture_2d<{SRC_DEPTH_FORMAT}>;
-    @group(0) @binding(1) var srcDepthSampler: sampler;
+    var srcDepth: texture_2d<{SRC_DEPTH_FORMAT}>;
+    var srcDepthSampler: sampler;
 
     fn minInVec(vec: vec4<f32>) -> f32 {
         return min(
@@ -58,21 +57,28 @@ export default `
         let uv3 = min(bufferUV + vec2f( 0.25,  0.25) * uniform.uInvSize, uniform.uInputViewportMaxBound);
 
         var out: vec4f;
-        out.x = convertDepth(textureSamplerLevel(srcDepth, srcDepthSampler, uv0, 0));
-        out.y = convertDepth(textureSamplerLevel(srcDepth, srcDepthSampler, uv1, 0));
-        out.z = convertDepth(textureSamplerLevel(srcDepth, srcDepthSampler, uv2, 0));
-        out.w = convertDepth(textureSamplerLevel(srcDepth, srcDepthSampler, uv3, 0));
+        out.x = convertDepth(textureSampleLevel(srcDepth, srcDepthSampler, uv0, 0));
+        out.y = convertDepth(textureSampleLevel(srcDepth, srcDepthSampler, uv1, 0));
+        out.z = convertDepth(textureSampleLevel(srcDepth, srcDepthSampler, uv2, 0));
+        out.w = convertDepth(textureSampleLevel(srcDepth, srcDepthSampler, uv3, 0));
         return out;
 
         #endif
     }
 
-    @fragment fn fragmentMain(input: FragmentInput) -> FragmentOutput {
+    @fragment fn fragmentMain(input : FragmentInput) -> FragmentOutput {
         var output: FragmentOutput;
-        let bufferUV = (input.uv0 + 0.5) * uniform.uDispatchThreadIdToBufferUV.xy + uniform.uDispatchThreadIdToBufferUV.zw;
+        let bufferUV = input.position.xy * uniform.uDispatchThreadIdToBufferUV.xy + uniform.uDispatchThreadIdToBufferUV.zw;
         let deviceZ = gather4(bufferUV);
         let depth = maxInVec(deviceZ);
-        output.color = vec4f(vec3<f32>(depth), 1.0);
+
+        #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16)
+            let outColor = vec4<f32>(vec3<f32>(depth), 1.0);
+        #else
+            let outColor = float2uint(depth);
+        #endif
+
+        output.color = outColor;
         return output;
     }
 `;

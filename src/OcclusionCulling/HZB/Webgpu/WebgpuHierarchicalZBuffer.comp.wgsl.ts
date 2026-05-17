@@ -79,17 +79,11 @@ export default `
         let uv2 = min(bufferUV + vec2f(-0.25,  0.25) * uniforms.invSize, uniforms.inputViewportMaxBound);
         let uv3 = min(bufferUV + vec2f( 0.25,  0.25) * uniforms.invSize, uniforms.inputViewportMaxBound);
 
-        let texelF = vec2f(textureDimensions(srcDepth, 0)) - vec2f(0.25, 0.25);
-        let texel0 = vec2i(uv0 * texelF);
-        let texel1 = vec2i(uv1 * texelF);
-        let texel2 = vec2i(uv2 * texelF);
-        let texel3 = vec2i(uv3 * texelF);
-
         var out: vec4f;
-        out.x = convertDepth(textureLoad(srcDepth, texel0, 0));
-        out.y = convertDepth(textureLoad(srcDepth, texel1, 0));
-        out.z = convertDepth(textureLoad(srcDepth, texel2, 0));
-        out.w = convertDepth(textureLoad(srcDepth, texel3, 0));
+        out.x = convertDepth(textureSampleLevel(srcDepth, srcDepthSampler, uv0, 0));
+        out.y = convertDepth(textureSampleLevel(srcDepth, srcDepthSampler, uv1, 0));
+        out.z = convertDepth(textureSampleLevel(srcDepth, srcDepthSampler, uv2, 0));
+        out.w = convertDepth(textureSampleLevel(srcDepth, srcDepthSampler, uv3, 0));
         return out;
 
         #endif
