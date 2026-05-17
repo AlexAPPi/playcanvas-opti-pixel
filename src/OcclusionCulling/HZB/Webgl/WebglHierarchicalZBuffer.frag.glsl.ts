@@ -7,8 +7,6 @@ export default `
     uniform vec4 uDispatchThreadIdToBufferUV;
     uniform sampler2D uDepthMip;
 
-    varying vec2 uv0;
-
     #ifdef WORKAROUND_FLOAT
     #include "floatAsUintPS"
     #endif
