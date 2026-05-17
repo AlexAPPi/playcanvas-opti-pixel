@@ -163,8 +163,6 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
 
     protected _initPixel() {
 
-        // console.error("Until sampler control is available, the pixel shader is not available.");
-
         if (!this._texture) {
             return;
         }
