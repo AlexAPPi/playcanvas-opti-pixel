@@ -1,15 +1,12 @@
 import pc from "../engine.js";
+import { TTypedArray, TTypedArrayConstructor } from "./Typed.js";
 
 export type TChannelSize = 1 | 2 | 4;
-export type TTypedArrayBufferLike = Float32Array<ArrayBufferLike> | Uint32Array<ArrayBufferLike> | Uint16Array<ArrayBufferLike> | Uint8Array<ArrayBufferLike>;
-export type TTypedArray = Float32Array | Uint32Array | Uint16Array | Uint8Array;
-export type TTypedArrayConstructor<T extends TTypedArray> = new (count: number) => T;
-export type TTypedArrayBufferLikeConstructor<T extends TTypedArrayBufferLike> = new (buffer: ArrayBufferLike) => T;
 
 export interface IUpdateRowInfo {
     row: number;
     count: number;
-};
+}
 
 export function getSquareTextureSize(capacity: number, pixelsPerInstance: number): number {
     return Math.max(pixelsPerInstance, Math.ceil(Math.sqrt(capacity / pixelsPerInstance)) * pixelsPerInstance);

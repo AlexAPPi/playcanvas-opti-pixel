@@ -1,6 +1,7 @@
 import pc from "../engine.js";
 import { IndexManager } from "./IndexManager.js";
-import { SquareDataTexture, type TChannelSize, type TTypedArray, type TTypedArrayConstructor } from "./SquareDataTexture.js";
+import { type TTypedArray, type TTypedArrayConstructor } from "./Typed.js";
+import { SquareDataTexture, type TChannelSize } from "./SquareDataTexture.js";
 
 export class GPUElementsStore<TTTypedArray extends TTypedArray> {
 
