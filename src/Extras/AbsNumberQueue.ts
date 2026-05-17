@@ -1,4 +1,4 @@
-import { TTypedArray, TTypedArrayConstructor } from "./Typed";
+import { TTypedArray, TTypedArrayConstructor } from "./TypedArray";
 
 export abstract class AbsNumberQueue<TTTypedArray extends TTypedArray> {
 
@@ -24,17 +24,18 @@ export abstract class AbsNumberQueue<TTTypedArray extends TTypedArray> {
 
     protected abstract _getDefaultExtra(): number;
 
-    protected _resize(count: number, arrayConstructor: TTypedArrayConstructor<TTTypedArray>): boolean {
+    protected _resize(capacity: number, arrayConstructor: TTypedArrayConstructor<TTTypedArray>): boolean {
 
-        const arrLen = count * this._itemSize;
+        const arrLen = capacity * this._itemSize;
 
-        if (this._arrayConstructor.name !== arrayConstructor.name ||
-            this._count !== count ||
-            this._queue === undefined ||
-            this._queue.length !== arrLen) {
+        if (this._queue === undefined ||
+            this._queue.length !== arrLen ||
+            this._arrayConstructor.name !== arrayConstructor.name) {
 
+            this._arrayConstructor = arrayConstructor;
             this._queue = new arrayConstructor(arrLen);
             this._dirty = true;
+            this._count = 0;
             return true;
         }
 

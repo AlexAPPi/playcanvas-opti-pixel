@@ -1,5 +1,5 @@
 import pc from "../engine.js";
-import { TTypedArray, TTypedArrayConstructor } from "./Typed.js";
+import { type TTypedArray, type TTypedArrayConstructor } from "./TypedArray.js";
 
 export type TChannelSize = 1 | 2 | 4;
 

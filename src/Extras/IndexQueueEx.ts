@@ -12,6 +12,7 @@ export class IndexQueueEx extends AbsNumberQueue<Uint32Array<ArrayBuffer> | Uint
 
     public constructor(indexManager: IndexManager, extraSize: number = 0) {
         super(extraSize, indexManager.capacity, indexManager.isUint32 ? Uint32Array : Uint16Array);
+        this._indexManager = indexManager;
     }
 
     protected _getDefaultExtra(): number {
