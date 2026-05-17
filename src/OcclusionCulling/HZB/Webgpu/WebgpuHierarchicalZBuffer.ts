@@ -176,19 +176,22 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
 
         const defines = new Map();
 
-        let workaroundForFloat = true;
+        let workaroundForFloat = false;
 
         if (this.isFloat16()) {
             defines.set('DEPTH_IS_FLOAT16', '');
-            workaroundForFloat = true;
         }
         else if (this.isFloat32()) {
             defines.set('DEPTH_IS_FLOAT', '');
+        }
+        else {
             workaroundForFloat = true;
         }
 
         if (this.device.textureFloatRenderable) {
             defines.set('SCENE_DEPTHMAP_FLOAT', '');
+        }
+        else {
             workaroundForFloat = true;
         }
 
@@ -208,11 +211,6 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
                 aPosition: pc.SEMANTIC_POSITION
             },
         });
-
-        // TODO: we need to control the sampler type
-        // this._pixelShader.meshBindGroupFormat = new pc.BindGroupFormat(this._device, [
-        //      new pc.BindTextureFormat('srcDepth', pc.SHADERSTAGE_FRAGMENT, pc.TEXTUREDIMENSION_2D, pc.SAMPLETYPE_UNFILTERABLE_FLOAT, true, 'srcDepthSampler')
-        // ]);
 
         this._pixelRenders = new Array(this._mipLevels);
 
