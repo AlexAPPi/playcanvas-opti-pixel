@@ -60,16 +60,16 @@ export default `
 
         vec2 bufferUV = gl_FragCoord.xy * uDispatchThreadIdToBufferUV.xy + uDispatchThreadIdToBufferUV.zw;
         vec4 deviceZ = gather4(bufferUV);
-        float depth = maxInVec(deviceZ);
+        float maxDepth = maxInVec(deviceZ);
 
         #ifdef WRITE_DEPTH
-            gl_FragDepth = depth;
+            gl_FragDepth = maxDepth;
         #else
 
             #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16)
-                gl_FragColor = vec4(depth, 0.0, 0.0, 1.0);
+                gl_FragColor = vec4(maxDepth, 0.0, 0.0, 1.0);
             #else
-                gl_FragColor = float2uint(depth);
+                gl_FragColor = float2uint(maxDepth);
             #endif
 
         #endif
