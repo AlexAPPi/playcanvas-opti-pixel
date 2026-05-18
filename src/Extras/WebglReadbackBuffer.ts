@@ -1,6 +1,6 @@
 import pc from "../engine.js";
 
-export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer> = Uint8Array<ArrayBuffer>> extends pc.VertexBuffer {
+export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer>> extends pc.VertexBuffer {
 
     public declare device: pc.WebglGraphicsDevice;
     public readonly storageData: TData;
@@ -11,7 +11,12 @@ export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer> = Ui
 
     constructor(device: pc.WebglGraphicsDevice, capacity: number, itemByteSize: number = 4, arrayOrConstructor: TData | ArrayConstructorOf<TData>) {
 
-        const data = tryCreateStorage(arrayOrConstructor, capacity, itemByteSize) ?? (new Uint8Array(capacity * itemByteSize) as unknown as TData);
+        const data = tryCreateStorage(arrayOrConstructor, capacity, itemByteSize);
+
+        if (!data) {
+            throw new Error("Parameter arrayOrConstructor must be type of array or array constructor.");
+        }
+
         const { type, isInt, components, byte } = getVertexFormatOptions(data, itemByteSize);
 
         const format = new pc.VertexFormat(device, [{
