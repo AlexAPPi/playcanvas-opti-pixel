@@ -123,7 +123,7 @@ export class OcclusionCullingSystem extends pc.EventHandler {
         this._queriesTester?.frameUpdate();
     }
 
-    private _internalOnFrameEnd() {
+    private _updateHZBAndHandleReadbackTester() {
 
         if (this.active && this._camera) {
 
@@ -140,24 +140,7 @@ export class OcclusionCullingSystem extends pc.EventHandler {
     }
 
     private _onFrameEnd() {
-
-        // Let's release the rendering of the current frame
-        // and try to fit the hzb generation between frames
-        queueMicrotask(() => {
-
-            //let start = performance.now();
-
-            this._internalOnFrameEnd();
-
-            //let end = performance.now();
-
-            /*
-            createDebug(this.app.graphicsDevice).innerHTML =
-            `
-                <span>Time: ${(end - start).toFixed(2)} ms</span>
-            `;
-            */
-        });
+        this._updateHZBAndHandleReadbackTester();
     }
 
     private _onResizeCanvas() {
