@@ -120,7 +120,8 @@ export class SquareDataTexture<TTTypedArray extends TTypedArray> {
             newData.set(subData);
 
             this._data = newData as any;
-            this._rowToUpdate.length = 0;
+            this._rowToUpdate.length = size;
+            this._rowToUpdate.fill(false);
             this._texture._levels[0] = newData;
             this._texture.resize(size, size);
         }
@@ -144,7 +145,6 @@ export class SquareDataTexture<TTTypedArray extends TTypedArray> {
                 magFilter: pc.FILTER_NEAREST,
                 addressU: pc.ADDRESS_CLAMP_TO_EDGE,
                 addressV: pc.ADDRESS_CLAMP_TO_EDGE,
-                numLevels: 1,
                 levels: [array as any],
                 storage: true
             });
@@ -285,6 +285,7 @@ export class SquareDataTexture<TTTypedArray extends TTypedArray> {
 
     public upload() {
         this._texture.upload();
+        this._rowToUpdate.fill(false);
     }
 
     /**
