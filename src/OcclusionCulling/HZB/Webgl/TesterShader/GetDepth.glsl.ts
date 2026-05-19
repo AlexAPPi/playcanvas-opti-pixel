@@ -13,9 +13,6 @@ export default `
         #endif
     }
 
-    uniform sampler2D uHZB1;
-    uniform sampler2D uHZB2;
-
     float getDepth(vec2 uv, float lod) {
         // Convert from screen uv to hzb mips uv
         vec2 factoredUv = uHZBUvFactor.xy * uv;

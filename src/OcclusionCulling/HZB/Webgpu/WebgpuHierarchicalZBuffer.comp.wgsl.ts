@@ -239,7 +239,7 @@ export default `
 
         for (var mipLevel: u32 = 1u; mipLevel < DIM_MIP_LEVEL_COUNT; mipLevel++) {
 
-            let tileSize = GROUP_TILE_SIZE / (1u << mipLevel);
+            let tileSize = GROUP_TILE_SIZE >> mipLevel;
             let reduceBankSize = tileSize * tileSize;
 
             if (groupThreadIndex < reduceBankSize) {
