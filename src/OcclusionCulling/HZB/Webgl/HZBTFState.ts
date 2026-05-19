@@ -86,7 +86,7 @@ export class HZBTFState {
         this._lock = false;
     }
 
-    public async read() {
+    public async read(intervalMs: number) {
 
         try {
 
@@ -96,7 +96,7 @@ export class HZBTFState {
 
             if (resultCount > 0) {
 
-                resultCount = await this.outputBuffer.read(resultCount);
+                resultCount = await this.outputBuffer.read(resultCount, intervalMs);
 
                 if (this._lock) {
 

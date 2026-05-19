@@ -15,6 +15,17 @@ import { executeTransformFeedbackShader } from "../../../Extras/TransformFeedbac
 import { IndexManager } from "../../../Extras/IndexManager.js";
 import { AABBDataTexture } from "../../../Extras/AABBDataTexture.js";
 
+export function estimateReadbackDelayMs(
+    avgFrameTimeMs: number,
+    gpuLatencyFrames: number = 1.2,
+    safetyMarginMs: number = 1.0,
+    minDelayMs: number = 0,
+    maxDelayMs: number = 50
+) {
+    const estimated = avgFrameTimeMs * gpuLatencyFrames + safetyMarginMs;
+    return Math.max(minDelayMs, Math.min(maxDelayMs, estimated));
+}
+
 export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPUReadbackOcclusionCullingTester {
 
     readonly _ocTesterType = "gpu2cpu_readback_oct";
@@ -34,6 +45,10 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
     private _aabbStore: AABBDataTexture;
     private _modelViewProjection = new pc.Mat4();
 
+    private _lastTime: number;
+    private _avgFrameTimeMs: number;
+    private _readbackIntervalMs: number;
+
     public get hzb() { return this._hzb; }
     public set hzb(v: WebglHierarchicalZBuffer) {
         this._hzb = v;
@@ -46,6 +61,9 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
         this._indexManager = new IndexManager(capacity, true);
         this._aabbStore = new AABBDataTexture(hzb.device, capacity);
         this._queue = new HZBTStateQueue(hzb.device, this._indexManager);
+        this._lastTime = performance.now();
+        this._avgFrameTimeMs = 20;
+        this._readbackIntervalMs = 20;
         this._updateScopes();
         this._updateShader();
     }
@@ -155,6 +173,22 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
     }
 
     public frameUpdate() {
+
+        // calculation of the optimal time until
+        // completion of writing to the buffer
+        // and subsequent reading
+
+        const now = performance.now();
+        const frameTimeMs = now - this._lastTime;
+        this._lastTime = now;
+
+        const alphaUp = 0.5;
+        const alphaDown = 0.25;
+        const alpha = frameTimeMs > this._avgFrameTimeMs ? alphaUp : alphaDown;
+
+        this._avgFrameTimeMs += (frameTimeMs - this._avgFrameTimeMs) * alpha;
+        this._readbackIntervalMs = estimateReadbackDelayMs(this._avgFrameTimeMs);
+
         this._queue.frameUpdate();
     }
 
@@ -218,7 +252,7 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
             const state = this._internalTest(camera);
 
             if (state) {
-                await state.read();
+                await state.read(this._readbackIntervalMs);
             }
         }
     }

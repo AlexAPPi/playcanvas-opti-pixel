@@ -113,12 +113,11 @@ export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer>> ext
         });
     }
 
-    public async read(length: number) {
+    public async read(length: number, intervalMs: number = 16) {
 
         this.abortRead();
-
         const currentVersion = this._version;
-        const ready = await this._clientWaitAsync(currentVersion, 0, 5);
+        const ready = await this._clientWaitAsync(currentVersion, 0, intervalMs);
 
         if (ready && currentVersion === this._version) {
 
