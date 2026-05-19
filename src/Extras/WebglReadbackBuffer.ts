@@ -118,7 +118,7 @@ export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer>> ext
         this.abortRead();
 
         const currentVersion = this._version;
-        const ready = await this._clientWaitAsync(currentVersion, 0, 14);
+        const ready = await this._clientWaitAsync(currentVersion, 0, 5);
 
         if (ready && currentVersion === this._version) {
 
