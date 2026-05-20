@@ -6,7 +6,7 @@ export default `
 
     uniform vec4 camera_params;
     uniform float uDepthMipLevel;
-    uniform sampler2D uDepthMip;
+    uniform highp sampler2D uDepthMip;
 
     float linearizeDepth(float z) {
         if (camera_params.w == 0.0) {

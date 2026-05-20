@@ -5,7 +5,7 @@ export default `
     uniform vec2 uInvSize;
     uniform vec2 uInputViewportMaxBound;
     uniform vec4 uDispatchThreadIdToBufferUV;
-    uniform sampler2D uDepthMip;
+    uniform highp sampler2D uDepthMip;
 
     #ifdef WORKAROUND_FLOAT
     #include "floatAsUintPS"

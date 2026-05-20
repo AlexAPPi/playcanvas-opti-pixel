@@ -8,8 +8,8 @@ export default `
     uniform vec2 uHZBUvFactor;
     uniform vec2 uScreenSize;
     uniform vec2 uHZBSize;
-    uniform sampler2D uHZB1;
-    uniform sampler2D uHZB2;
+    uniform highp sampler2D uHZB1;
+    uniform highp sampler2D uHZB2;
 
     #include "getBoundingBoxVS"
     #include "cullBoundingBoxVS"
