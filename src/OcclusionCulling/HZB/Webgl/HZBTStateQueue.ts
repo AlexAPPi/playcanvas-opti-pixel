@@ -4,23 +4,6 @@ import { OCCLUSION_UNKNOWN } from "../../IOcclusionCullingTester.js";
 import pc from "../../../engine.js";
 import { ReadbackQueue } from "../../../Extras/ReadbackQueue.js";
 
-/*
-let debugDiv: HTMLDivElement;
-
-function createDebug(device: WebglGraphicsDevice) {
-    debugDiv = document.createElement('div');
-    debugDiv.style.position = 'absolute';
-    debugDiv.style.top = '48px';
-    debugDiv.style.left = '10px';
-    debugDiv.style.color = 'white';
-    debugDiv.style.fontSize = '12px';
-    debugDiv.style.pointerEvents = 'none';
-    debugDiv.style.display = 'flex';
-    debugDiv.style.flexDirection = 'column';
-    device.canvas.parentNode!.appendChild(debugDiv);
-}
-//*/
-
 export class HZBTStateQueue extends ReadbackQueue<HZBTFState> {
 
     public readonly device: pc.WebglGraphicsDevice;
@@ -30,7 +13,6 @@ export class HZBTStateQueue extends ReadbackQueue<HZBTFState> {
         super(freeToUsedRatio, historyLength);
         this.device = device;
         this.indexManager = indexManager;
-        // createDebug(device);
     }
 
     protected _createReader(): HZBTFState {
@@ -38,17 +20,6 @@ export class HZBTStateQueue extends ReadbackQueue<HZBTFState> {
     }
 
     public next() {
-
-        /*
-        debugDiv.innerHTML = `
-            <span>AVG: ${this.avgUsed}</span>
-            <span>TRFR: ${this.targetFree}</span>
-            <span>Free: ${this.freeCount}</span>
-            <span>Queue: ${this.usedCount}</span>
-            <span>All: ${this.allCount}</span>
-        `;
-        //*/
-
         return super.next();
     }
 
