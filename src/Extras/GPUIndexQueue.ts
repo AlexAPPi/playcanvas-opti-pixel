@@ -4,7 +4,11 @@ import { GPUBufferTool } from "./GPUBufferTool.js";
 import { IndexManager } from "./IndexManager.js";
 import { IndexQueueEx } from "./IndexQueueEx.js";
 
-export class GPUIndexQueue {
+export const positionSemantic = pc.SEMANTIC_POSITION;
+export const instancingIndexSemantic = pc.SEMANTIC_ATTR11;
+export const instancingExtraSemantic = pc.SEMANTIC_ATTR12;
+
+export class GPUIndexQueue { 
 
     protected _device: pc.GraphicsDevice;
     protected _instancing: boolean;
@@ -31,15 +35,14 @@ export class GPUIndexQueue {
     protected _getBufferFormat() {
 
         const type = this._indexQueue.isUint32 ? pc.TYPE_UINT32 : pc.TYPE_UINT16;
-        const semantic = this._instancing ? pc.SEMANTIC_ATTR11 : pc.SEMANTIC_POSITION;
-        const semantics = [pc.SEMANTIC_ATTR1, pc.SEMANTIC_ATTR2, pc.SEMANTIC_ATTR3, pc.SEMANTIC_ATTR4, pc.SEMANTIC_ATTR5, pc.SEMANTIC_ATTR6];
+        const semantic = this._instancing ? instancingIndexSemantic : positionSemantic;
         const description: ConstructorParameters<typeof pc.VertexFormat>[1] = [
             { semantic: semantic, components: 1, type: type, normalize: false, asInt: true },
         ];
 
-        for (let i = 0; i < this._indexQueue.extraSize; i++) {
-            const extraSemantic = semantics[i];
-            description.push({ semantic: extraSemantic, components: 1, type: type, normalize: false, asInt: true });
+        const extraSize = this._indexQueue.extraSize;
+        if (extraSize > 0) {
+            description.push({ semantic: instancingExtraSemantic, components: extraSize, type: type, normalize: false, asInt: true });
         }
 
         const bufferFormat = new pc.VertexFormat(this._device, description);
@@ -52,14 +55,12 @@ export class GPUIndexQueue {
     }
 
     protected _recreateKeyBuffer() {
-
         this._buffer?.destroy();
-
         const dataBuffer = this._indexQueue.indexes.buffer;
         const numVertices = this._indexQueue.capacity;
         const bufferFormat = this._getBufferFormat();
         this._buffer = new pc.VertexBuffer(this._device, bufferFormat, numVertices, {
-            usage: pc.BUFFER_STREAM,
+            usage: pc.BUFFER_DYNAMIC,
             data: dataBuffer,
             storage: true
         });

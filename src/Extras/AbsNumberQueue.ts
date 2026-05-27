@@ -1,12 +1,12 @@
-import { TTypedArray, TTypedArrayConstructor } from "./TypedArray";
+import { TypedArrayType, TypedArrayConstructorType } from "./TypedArray";
 
-export abstract class AbsNumberQueue<TTTypedArray extends TTypedArray> {
+export abstract class AbsNumberQueue<TArray extends TypedArrayType> {
 
     private _dirty: boolean;
     private _count: number;
     private _itemSize: number;
-    private _queue: TTTypedArray;
-    private _arrayConstructor: TTypedArrayConstructor<TTTypedArray>;
+    private _queue: TArray;
+    private _arrayConstructor: TypedArrayConstructorType<TArray>;
 
     public get dirty() { return this._dirty; }
     public get count() { return this._count; }
@@ -15,7 +15,7 @@ export abstract class AbsNumberQueue<TTTypedArray extends TTypedArray> {
 
     protected get _store() { return this._queue; }
 
-    constructor(extraSize: number = 0, capacity: number = 512, arrayConstructor: TTypedArrayConstructor<TTTypedArray>) {
+    constructor(extraSize: number = 0, capacity: number = 512, arrayConstructor: TypedArrayConstructorType<TArray>) {
         this._count = 0;
         this._dirty = true;
         this._itemSize = extraSize + 1;
@@ -24,7 +24,7 @@ export abstract class AbsNumberQueue<TTTypedArray extends TTypedArray> {
 
     protected abstract _getDefaultExtra(): number;
 
-    protected _resize(capacity: number, arrayConstructor: TTypedArrayConstructor<TTTypedArray>): boolean {
+    protected _resize(capacity: number, arrayConstructor: TypedArrayConstructorType<TArray>): boolean {
 
         const arrLen = capacity * this._itemSize;
 
@@ -47,7 +47,7 @@ export abstract class AbsNumberQueue<TTTypedArray extends TTypedArray> {
         this._count = 0;
     }
 
-    public enqueue(index: number, extra?: number | number[] | TTTypedArray): number {
+    public enqueue(index: number, extra?: number | number[] | TArray): number {
 
         const queueIndex = this._count++;
         const indexIndex = queueIndex * this._itemSize;
@@ -60,7 +60,7 @@ export abstract class AbsNumberQueue<TTTypedArray extends TTypedArray> {
 
         if (this._itemSize > 1) {
 
-            const normalizedExtra = typeof extra === 'object';
+            const normalizedExtra = typeof extra === "object";
             const defaultExtra = this._getDefaultExtra();
 
             for (let i = 1; i < this._itemSize; i++) {

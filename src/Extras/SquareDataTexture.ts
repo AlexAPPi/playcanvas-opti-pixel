@@ -1,5 +1,5 @@
 import pc from "../engine.js";
-import { type TTypedArray, type TTypedArrayConstructor } from "./TypedArray.js";
+import { type TypedArrayType, type TypedArrayConstructorType } from "./TypedArray.js";
 
 export type TChannelSize = 1 | 2 | 4;
 
@@ -12,7 +12,7 @@ export function getSquareTextureSize(capacity: number, pixelsPerInstance: number
     return Math.max(pixelsPerInstance, Math.ceil(Math.sqrt(capacity / pixelsPerInstance)) * pixelsPerInstance);
 }
 
-export function getPixelFormatByArrayType(arrayType: TTypedArrayConstructor<TTypedArray>, channels: TChannelSize): number {
+export function getPixelFormatByArrayType(arrayType: TypedArrayConstructorType<TypedArrayType>, channels: TChannelSize): number {
 
     if (arrayType.name === Float32Array.name) {
         if (channels === 1) return pc.PIXELFORMAT_R32F;
@@ -41,7 +41,7 @@ export function getPixelFormatByArrayType(arrayType: TTypedArrayConstructor<TTyp
     throw new Error("Unsupported format");
 }
 
-export function getSquareTextureInfo<TConstructor extends TTypedArrayConstructor<TTypedArray>>(
+export function getSquareTextureInfo<TConstructor extends TypedArrayConstructorType<TypedArrayType>>(
     arrayType: TConstructor,
     channels: TChannelSize,
     pixelsPerInstance: number,
@@ -58,7 +58,7 @@ export function getSquareTextureInfo<TConstructor extends TTypedArrayConstructor
     return { array, size, pixelFormat };
 }
 
-export class SquareDataTexture<TTTypedArray extends TTypedArray> {
+export class SquareDataTexture<TArray extends TypedArrayType> {
 
     /**
      * Whether to enable partial texture updates by row. If `false`, the entire texture will be updated.
@@ -72,11 +72,11 @@ export class SquareDataTexture<TTTypedArray extends TTypedArray> {
      */
     public maxUpdateCalls = Infinity;
 
-    protected _arrayConstructor: TTypedArrayConstructor<TTTypedArray>;
+    protected _arrayConstructor: TypedArrayConstructorType<TArray>;
     protected _device: pc.GraphicsDevice;
     protected _capacity: number;
     protected _texture: pc.Texture;
-    protected _data: InstanceType<TTypedArrayConstructor<TTTypedArray>>;
+    protected _data: InstanceType<TypedArrayConstructorType<TArray>>;
     protected _stride: number;
     protected _channels: TChannelSize;
     protected _pixelsPerInstance: number;
@@ -87,7 +87,7 @@ export class SquareDataTexture<TTTypedArray extends TTypedArray> {
     public get texture() { return this._texture; }
     public get data() { return this._data; }
 
-    constructor(device: pc.GraphicsDevice, arrayConstructor: TTypedArrayConstructor<TTTypedArray>, channels: TChannelSize, pixelsPerInstance: number, capacity: number = 512) {
+    constructor(device: pc.GraphicsDevice, arrayConstructor: TypedArrayConstructorType<TArray>, channels: TChannelSize, pixelsPerInstance: number, capacity: number = 512) {
         this._device = device;
         this._channels = channels;
         this._arrayConstructor = arrayConstructor;
@@ -184,7 +184,7 @@ export class SquareDataTexture<TTTypedArray extends TTypedArray> {
      * @param inData The new data to be written into the instance slot.
      * @param offset The byte offset within the instance data where the update begins. Default is 0.
      */
-    public enqueueDataUpdate(index: number, inData: TTTypedArray, offset: number = 0): void {
+    public enqueueDataUpdate(index: number, inData: TArray, offset: number = 0): void {
 
         this.enqueueUpdate(index);
 
@@ -212,7 +212,7 @@ export class SquareDataTexture<TTTypedArray extends TTypedArray> {
                 for (; i < l; i++) {
                     if (!rowsToUpdate[i]) break;
                 }
-                
+
                 result.push({ row, count: i - row });
             }
         }
@@ -284,8 +284,8 @@ export class SquareDataTexture<TTTypedArray extends TTypedArray> {
     }
 
     public upload() {
-        this._texture.upload();
         this._rowToUpdate.fill(false);
+        this._texture.upload();
     }
 
     /**

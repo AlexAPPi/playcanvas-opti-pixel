@@ -1,13 +1,13 @@
 import pc from "../engine.js";
 import { IndexManager } from "./IndexManager.js";
-import { type TTypedArray, type TTypedArrayConstructor } from "./TypedArray.js";
+import { type TypedArrayType, type TypedArrayConstructorType } from "./TypedArray.js";
 import { SquareDataTexture, type TChannelSize } from "./SquareDataTexture.js";
 
-export class GPUElementsStore<TTTypedArray extends TTypedArray> {
+export class GPUElementsStore<TArray extends TypedArrayType> {
 
     protected _device: pc.GraphicsDevice;
     protected _instancing: boolean;
-    protected _dataStore: SquareDataTexture<TTTypedArray>;
+    protected _dataStore: SquareDataTexture<TArray>;
     protected _indexManager: IndexManager;
 
     public get device() { return this._device; }
@@ -19,7 +19,7 @@ export class GPUElementsStore<TTTypedArray extends TTypedArray> {
     public get pixelsPerInstance() { return this._dataStore.pixelsPerInstance; }
     public get dataStore() { return this._dataStore; }
 
-    constructor(device: pc.GraphicsDevice, instancing: boolean, arrayConstructor: TTypedArrayConstructor<TTTypedArray>, channels: TChannelSize, pixelsPerInstance: number, capacity?: number) {
+    constructor(device: pc.GraphicsDevice, instancing: boolean, arrayConstructor: TypedArrayConstructorType<TArray>, channels: TChannelSize, pixelsPerInstance: number, capacity?: number) {
         this._device = device;
         this._instancing = instancing;
         this._indexManager = new IndexManager(capacity, instancing ? false : true);
@@ -31,7 +31,7 @@ export class GPUElementsStore<TTTypedArray extends TTypedArray> {
         this._dataStore = null!;
     }
 
-    public lockSegment(data: TTTypedArray, offset: number = 0) {
+    public lockSegment(data: TArray, offset: number = 0) {
         const index = this._indexManager.reserve();
         this._dataStore.enqueueDataUpdate(index, data, offset);
         return index;
