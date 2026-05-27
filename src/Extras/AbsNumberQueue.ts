@@ -42,23 +42,34 @@ export abstract class AbsNumberQueue<TArray extends TypedArrayType> {
         return false;
     }
 
+    protected _swap(i: number, j: number) {
+
+        if (i === j) return;
+
+        const itemSize = this._itemSize;
+        const queue = this._queue;
+
+        const baseI = i * itemSize;
+        const baseJ = j * itemSize;
+
+        for (let k = 0; k < itemSize; k++) {
+            const idxI = baseI + k;
+            const idxJ = baseJ + k;
+            const tmp = queue[idxI];
+            queue[idxI] = queue[idxJ];
+            queue[idxJ] = tmp;
+        }
+    }
+
     public clear(): void {
         this._dirty = false;
         this._count = 0;
     }
 
-    public swap(index1: number, index2: number, markDirty: boolean = true): void {
-
+    public swap(i: number, j: number, markDirty: boolean = true): void {
+        this._swap(i, j);
         if (markDirty) {
             this._dirty = true;
-        }
-
-        for (let i = 0; i < this._itemSize; i++) {
-            const get = i + index1;
-            const set = i + index2;
-            const tmp = this._queue[get];
-            this._queue[get] = this._queue[set];
-            this._queue[set] = tmp;
         }
     }
 
