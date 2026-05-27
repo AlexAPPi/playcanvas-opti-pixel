@@ -1,11 +1,10 @@
-const COUN_MAX = 256;
 const MAX_BITS = 32;
 const BITS_PER_PASS = 8;
 const MASK = 0xff;
-const count = new Uint32Array(COUN_MAX);
 
 export class DepthQueue {
 
+    protected _counters: Uint32Array;
     protected _tempIndices1: Uint32Array;
     protected _tempIndices2: Uint32Array;
 
@@ -28,6 +27,7 @@ export class DepthQueue {
     public get max() { return this._max; }
 
     public constructor(capacity: number) {
+        this._counters = new Uint32Array(256);
         this._tempIndices1 = new Uint32Array(capacity);
         this._tempIndices2 = new Uint32Array(capacity);
         this._minMaxBuffer = new ArrayBuffer(8);
@@ -84,7 +84,7 @@ export class DepthQueue {
 
         if (range > 0) {
 
-            const maxBit = Math.ceil(Math.log2(range + 1));
+            const maxBit = range === 0 ? 0 : 32 - Math.clz32(range);
             const neededPasses = Math.ceil(maxBit / BITS_PER_PASS);
 
             // Applying optimization to ignore high-order bytes.
@@ -110,6 +110,7 @@ export class DepthQueue {
 
         const n = this._count;
         const values = this._dataU;
+        const counters = this._counters;
         const tempIndices1 = this._tempIndices1;
         const tempIndices2 = this._tempIndices2;
         const maxBits = this._optimizationForMaxBits();
@@ -127,26 +128,38 @@ export class DepthQueue {
 
         for (let shift = 0; shift < maxBits; shift += BITS_PER_PASS) {
 
-            count.fill(0);
+            for (let i = 0; i < 256; i++) counters[i] = 0;
 
             for (let i = 0; i < n; i++) {
                 const idx = src[i];
                 const byte = (values[idx] >> shift) & MASK;
-                count[byte]++;
+                counters[byte]++;
             }
 
             let summ = 0;
-            for (let i = 0; i < 256; i++) {
-                const c = count[i];
-                count[i] = summ;
-                summ += c;
+
+            if (reversed) {
+
+                for (let i = 255; i > -1; i--) {
+                    const c = counters[i];
+                    counters[i] = summ;
+                    summ += c;
+                }
+            }
+            else {
+
+                for (let i = 0; i < 256; i++) {
+                    const c = counters[i];
+                    counters[i] = summ;
+                    summ += c;
+                }
             }
 
             for (let i = 0; i < n; i++) {
                 const idx = src[i];
                 const byte = (values[idx] >> shift) & MASK;
-                dst[count[byte]] = idx;
-                count[byte]++;
+                dst[counters[byte]] = idx;
+                counters[byte]++;
             }
 
             const tmp = src;
@@ -154,18 +167,10 @@ export class DepthQueue {
             dst = tmp;
         }
 
-        if (reversed) {
-            const last = n - 1;
-            for (let i = last; i > -1; i--) {
-                dst[last - i] = src[i];
-            }
-            return dst;
-        }
-
         return src;
     }
 
-    public sortQueueSingle(queue: Uint32Array, reversed: boolean = false): void {
+    public sortQueueSingle<T>(queue: T[] | Uint32Array, reversed: boolean = false): void {
 
         const n   = this._count;
         const src = this.sort(reversed);
@@ -199,7 +204,7 @@ export class DepthQueue {
 
         const n   = this._count;
         const src = this.sort(reversed);
-        const tmp = count;
+        const tmp = this._counters;
 
         for (let i = 0; i < n; i++) {
 
@@ -242,30 +247,7 @@ export class DepthQueue {
     }
 
     public sortQueueObjects<T>(objects: T[], reversed: boolean = false): void {
-
-        const n = this._count;
-        const src = this.sort(reversed);
-
-        for (let i = 0; i < n; i++) {
-
-            let cur  = i;
-            let next = src[i];
-
-            if (next === cur) continue;
-
-            let tmp = objects[cur];
-
-            while (next !== i) {
-                objects[cur] = objects[next];
-                const newNext = src[next];
-                src[next] = next;
-                cur = next;
-                next = newNext;
-            }
-
-            objects[cur] = tmp;
-            src[i] = i;
-        }
+        return this.sortQueueSingle(objects, reversed);
     }
 }
 
