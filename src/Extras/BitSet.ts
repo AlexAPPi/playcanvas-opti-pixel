@@ -1,21 +1,22 @@
 export class BitSet {
 
     private _array: Uint32Array;
-    private _zeroed: boolean;
+    private _clean: boolean;
+    private _cleanValue: boolean;
 
-    constructor(size: number) {
+    constructor(size: number, clearValue: boolean = false) {
         this._array = new Uint32Array(Math.ceil(size / 32));
-        this._zeroed = true;
+        this._cleanValue = clearValue;
+        this._clean = false;
+        this.clear();
     }
 
     public clear() {
-
-        if (!this._zeroed) {
-
-            this._zeroed = true;
-
+        if (this._clean === false) {
+            this._clean = true;
+            const value = this._cleanValue ? 0xffffffff : 0;
             for (let i = 0; i < this._array.length; i++) {
-                this._array[i] = 0;
+                this._array[i] = value;
             }
         }
     }
@@ -31,14 +32,13 @@ export class BitSet {
         const word = index >>> 5;
         const bit = index & 31;
 
+        // unsafe eq for type
+        if (this._cleanValue != value) {
+            this._clean = false;
+        }
+
         if (value) {
-
             this._array[word] |= (1 << bit);
-
-            if (this._zeroed) {
-                this._zeroed = false;
-            }
-
         } else {
             this._array[word] &= ~(1 << bit);
         }
