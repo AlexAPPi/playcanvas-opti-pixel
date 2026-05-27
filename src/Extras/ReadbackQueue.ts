@@ -116,7 +116,8 @@ export abstract class ReadbackQueue<TReader extends IReadbackQueueItemReader> {
 
                 this._finishedReader = reader;
 
-                // Skip test for prev frames states
+                // Skip read for prev frames states
+                // Outdated data can be ignored.
                 if (i > 0) {
 
                     for (let j = 0; j < i; j++) {
