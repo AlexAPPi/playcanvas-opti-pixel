@@ -2,11 +2,11 @@ import { TypedArrayType, TypedArrayConstructorType } from "./TypedArray";
 
 export abstract class AbsNumberQueue<TArray extends TypedArrayType> {
 
-    private _dirty: boolean;
-    private _count: number;
-    private _itemSize: number;
-    private _queue: TArray;
-    private _arrayConstructor: TypedArrayConstructorType<TArray>;
+    protected _dirty: boolean;
+    protected _count: number;
+    protected _itemSize: number;
+    protected _queue: TArray;
+    protected _arrayConstructor: TypedArrayConstructorType<TArray>;
 
     public get dirty() { return this._dirty; }
     public get count() { return this._count; }
@@ -53,7 +53,7 @@ export abstract class AbsNumberQueue<TArray extends TypedArrayType> {
             this._dirty = true;
         }
 
-        for (let i = 0; i < this.extraSize; i++) {
+        for (let i = 0; i < this._itemSize; i++) {
             const tmp = this._queue[i + index1];
             this._queue[i + index1] = this._queue[i + index2];
             this._queue[i + index2] = tmp;
