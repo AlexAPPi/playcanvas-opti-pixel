@@ -172,7 +172,7 @@ export class DepthQueue {
 
         for (let i = 0; i < n; i++) {
 
-            let cur = i;
+            let cur  = i;
             let next = src[i];
 
             if (next === cur) continue;
@@ -197,7 +197,7 @@ export class DepthQueue {
         // TODO: itemSize more 256 ?
         // use count buffer for copy items
 
-        const n = this._count;
+        const n   = this._count;
         const src = this.sort(reversed);
         const tmp = count;
 
@@ -238,6 +238,33 @@ export class DepthQueue {
         }
         else {
             this.sortQueueComplicated(queue, itemSize, reversed);
+        }
+    }
+
+    public sortQueueObjects<T>(objects: T[], reversed: boolean = false): void {
+
+        const n = this._count;
+        const src = this.sort(reversed);
+
+        for (let i = 0; i < n; i++) {
+
+            let cur  = i;
+            let next = src[i];
+
+            if (next === cur) continue;
+
+            let tmp = objects[cur];
+
+            while (next !== i) {
+                objects[cur] = objects[next];
+                const newNext = src[next];
+                src[next] = next;
+                cur = next;
+                next = newNext;
+            }
+
+            objects[cur] = tmp;
+            src[i] = i;
         }
     }
 }
