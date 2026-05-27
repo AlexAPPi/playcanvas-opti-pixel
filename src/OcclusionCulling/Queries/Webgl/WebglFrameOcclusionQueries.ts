@@ -184,7 +184,6 @@ export class WebglFrameOcclusionQueries<TKey = number> {
         // We don't need check gl.QUERY_RESULT_AVAILABLE because last query result ready
         /*
         if (!this.gl.getQueryParameter(scope.query, this.gl.QUERY_RESULT_AVAILABLE)) {
-            console.log("HM,HM,HM");
             return false;
         }
         */
