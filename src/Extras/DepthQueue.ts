@@ -74,6 +74,10 @@ export class DepthQueue {
             return this._maxBits;
         }
 
+        if (this._count < 2) {
+            return 0;
+        }
+
         const min = this._minMaxDataU[0];
         const max = this._minMaxDataU[1];
         const range = max - min;
@@ -163,7 +167,7 @@ export class DepthQueue {
 
     public sortQueueSingle(queue: Uint32Array, reversed: boolean = false): void {
 
-        const n = this._count;
+        const n   = this._count;
         const src = this.sort(reversed);
 
         for (let i = 0; i < n; i++) {
@@ -174,7 +178,7 @@ export class DepthQueue {
             if (next === cur) continue;
 
             let tmp = queue[cur];
-            
+
             while (next !== i) {
                 queue[cur] = queue[next];
                 const newNext = src[next];
@@ -190,9 +194,12 @@ export class DepthQueue {
 
     public sortQueueComplicated(queue: Uint32Array, itemSize: number = 1, reversed: boolean = false) {
 
+        // TODO: itemSize more 256 ?
+        // use count buffer for copy items
+
         const n = this._count;
         const src = this.sort(reversed);
-        const tmp = src === this._tempIndices1 ? this._tempIndices2 : this._tempIndices1; // use 2 buffer for copy
+        const tmp = count;
 
         for (let i = 0; i < n; i++) {
 
