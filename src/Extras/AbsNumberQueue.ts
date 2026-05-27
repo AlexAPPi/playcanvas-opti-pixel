@@ -54,9 +54,11 @@ export abstract class AbsNumberQueue<TArray extends TypedArrayType> {
         }
 
         for (let i = 0; i < this._itemSize; i++) {
-            const tmp = this._queue[i + index1];
-            this._queue[i + index1] = this._queue[i + index2];
-            this._queue[i + index2] = tmp;
+            const get = i + index1;
+            const set = i + index2;
+            const tmp = this._queue[get];
+            this._queue[get] = this._queue[set];
+            this._queue[set] = tmp;
         }
     }
 
