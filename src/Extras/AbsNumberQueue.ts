@@ -47,6 +47,19 @@ export abstract class AbsNumberQueue<TArray extends TypedArrayType> {
         this._count = 0;
     }
 
+    public swap(index1: number, index2: number, markDirty: boolean = true): void {
+
+        if (markDirty) {
+            this._dirty = true;
+        }
+
+        for (let i = 0; i < this.extraSize; i++) {
+            const tmp = this._queue[i + index1];
+            this._queue[i + index1] = this._queue[i + index2];
+            this._queue[i + index2] = tmp;
+        }
+    }
+
     public enqueue(index: number, extra?: number | number[] | TArray): number {
 
         const queueIndex = this._count++;
