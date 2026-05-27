@@ -6,6 +6,7 @@ export class IndexQueueEx extends AbsNumberQueue<Uint32Array<ArrayBuffer> | Uint
     private _indexManager: IndexManager;
 
     public get indexes() { return this._store; }
+    public get itemSize() { return this._itemSize; }
     public get capacity() { return this._indexManager.capacity; }
     public get isUint32() { return this._indexManager.isUint32 }
     public get indexManager() { return this._indexManager; }

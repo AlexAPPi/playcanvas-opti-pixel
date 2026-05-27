@@ -21,6 +21,7 @@ export class GPUIndexQueue {
     public get dirty() { return this._indexQueue.dirty; }
     public get count() { return this._indexQueue.count; }
     public get indexes() { return this._indexQueue.indexes; }
+    public get itemSize() { return this._indexQueue.itemSize; }
     public get extraSize() { return this._indexQueue.extraSize; }
     public get capacity() { return this._indexQueue.capacity; }
     public get isUint32() { return this._indexQueue.isUint32 }
