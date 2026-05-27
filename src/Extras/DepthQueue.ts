@@ -2,6 +2,10 @@ const MAX_BITS = 32;
 const BITS_PER_PASS = 8;
 const MASK = 0xff;
 
+export type TEditableArray<T> = {
+    [index: number]: T;
+}
+
 export class DepthQueue {
 
     protected _counters: Uint32Array;
@@ -170,7 +174,7 @@ export class DepthQueue {
         return src;
     }
 
-    public sortQueueSingle<T>(queue: T[] | Uint32Array, reversed: boolean = false): void {
+    public sortQueueSingle<T>(queue: TEditableArray<T>, reversed: boolean = false): void {
 
         const n   = this._count;
         const src = this.sort(reversed);
