@@ -122,23 +122,59 @@ export class DepthQueue {
         let src: Uint32Array = tempIndices1;
         let dst: Uint32Array = tempIndices2;
 
-        for (let i = 0; i < n; i++) {
-            src[i] = i;
-        }
-
-        if (n < 2) {
+        if (maxBits < BITS_PER_PASS || n < 2) {
+            for (let i = 0; i < n; i++) {
+                src[i] = i;
+            }
             return src;
         }
 
-        for (let shift = 0; shift < maxBits; shift += BITS_PER_PASS) {
+        let shift = 0;
+        resolveZeroStep();
+        resolveCounters();
+        resolveIndexes();
 
+        while (shift < maxBits) {
+            shift += BITS_PER_PASS;
+            resolveNextStep();
+            resolveCounters();
+            resolveIndexes();
+        }
+
+        function resolveZeroStep() {
             for (let i = 0; i < 256; i++) counters[i] = 0;
+            for (let i = 0; i < n; i++) {
+                const byte = (values[i] >> shift) & MASK;
+                counters[byte]++;
+                src[i] = i;
+            }
+        }
 
+        function resolveNextStep() {
+            for (let i = 0; i < 256; i++) counters[i] = 0;
             for (let i = 0; i < n; i++) {
                 const idx = src[i];
                 const byte = (values[idx] >> shift) & MASK;
                 counters[byte]++;
             }
+        }
+
+        function resolveIndexes() {
+
+            for (let i = 0; i < n; i++) {
+                const idx = src[i];
+                const byte = (values[idx] >> shift) & MASK;
+                dst[counters[byte]] = idx;
+                counters[byte]++;
+            }
+
+            // Swap indexes
+            const tmp = src;
+            src = dst;
+            dst = tmp;
+        }
+
+        function resolveCounters() {
 
             let summ = 0;
 
@@ -158,17 +194,6 @@ export class DepthQueue {
                     summ += c;
                 }
             }
-
-            for (let i = 0; i < n; i++) {
-                const idx = src[i];
-                const byte = (values[idx] >> shift) & MASK;
-                dst[counters[byte]] = idx;
-                counters[byte]++;
-            }
-
-            const tmp = src;
-            src = dst;
-            dst = tmp;
         }
 
         return src;
