@@ -201,15 +201,16 @@ export class SquareDataTexture<TArray extends TypedArrayType> {
     protected _getUpdateRowsInfo(): IUpdateRowInfo[] {
 
         const rowsToUpdate = this._rowToUpdate;
+        const numRowsToUpdate = rowsToUpdate.length;
         const result: IUpdateRowInfo[] = [];
 
-        for (let i = 0, l = rowsToUpdate.length; i < l; i++) {
+        for (let i = 0; i < numRowsToUpdate; i++) {
 
             if (rowsToUpdate[i]) {
 
                 const row = i;
 
-                for (; i < l; i++) {
+                for (; i < numRowsToUpdate; i++) {
                     if (!rowsToUpdate[i]) break;
                 }
 
