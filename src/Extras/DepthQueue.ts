@@ -1,5 +1,7 @@
 const MAX_BITS = 32;
 const BITS_PER_PASS = 8;
+const RADIX = 256;
+const RADIX_REV = RADIX - 2;
 const MASK = 0xff;
 
 export type TEditableArray<T> = {
@@ -8,7 +10,7 @@ export type TEditableArray<T> = {
 
 export class DepthQueue {
 
-    protected _counters: Uint32Array;
+    protected _countArr: Uint32Array;
     protected _tempIndices1: Uint32Array;
     protected _tempIndices2: Uint32Array;
 
@@ -31,7 +33,7 @@ export class DepthQueue {
     public get max() { return this._max; }
 
     public constructor(capacity: number) {
-        this._counters = new Uint32Array(256);
+        this._countArr = new Uint32Array(256);
         this._tempIndices1 = new Uint32Array(capacity);
         this._tempIndices2 = new Uint32Array(capacity);
         this._minMaxBuffer = new ArrayBuffer(8);
@@ -114,7 +116,7 @@ export class DepthQueue {
 
         const n = this._count;
         const values = this._dataU;
-        const counters = this._counters;
+        const count = this._countArr;
         const tempIndices1 = this._tempIndices1;
         const tempIndices2 = this._tempIndices2;
         const maxBits = this._optimizationForMaxBits();
@@ -123,77 +125,48 @@ export class DepthQueue {
         let dst: Uint32Array = tempIndices2;
 
         if (maxBits < BITS_PER_PASS || n < 2) {
-            for (let i = 0; i < n; i++) {
-                src[i] = i;
-            }
+            if (reversed) for (let i = 0; i < n; i++) src[i] = n - i - 1;
+            else          for (let i = 0; i < n; i++) src[i] = i;
             return src;
         }
 
-        let shift = 0;
-        resolveZeroStep();
-        resolveCounters();
-        resolveIndexes();
+        count.fill(0);
 
-        while (shift < maxBits) {
-            shift += BITS_PER_PASS;
-            resolveNextStep();
-            resolveCounters();
-            resolveIndexes();
+        for (let i = 0; i < n; i++) {
+            src[i] = i;
+            count[(values[i] >>> 0) & MASK]++;
         }
 
-        function resolveZeroStep() {
-            for (let i = 0; i < 256; i++) counters[i] = 0;
-            for (let i = 0; i < n; i++) {
-                const byte = (values[i] >> shift) & MASK;
-                counters[byte]++;
-                src[i] = i;
+        for (let shift = 0; shift < maxBits; shift += BITS_PER_PASS) {
+
+            if (shift > 0) {
+
+                count.fill(0);
+
+                for (let i = 0; i < n; i++) {
+                    count[(values[src[i]] >>> shift) & MASK]++;
+                }
             }
-        }
-
-        function resolveNextStep() {
-            for (let i = 0; i < 256; i++) counters[i] = 0;
-            for (let i = 0; i < n; i++) {
-                const idx = src[i];
-                const byte = (values[idx] >> shift) & MASK;
-                counters[byte]++;
-            }
-        }
-
-        function resolveIndexes() {
-
-            for (let i = 0; i < n; i++) {
-                const idx = src[i];
-                const byte = (values[idx] >> shift) & MASK;
-                dst[counters[byte]] = idx;
-                counters[byte]++;
-            }
-
-            // Swap indexes
-            const tmp = src;
-            src = dst;
-            dst = tmp;
-        }
-
-        function resolveCounters() {
-
-            let summ = 0;
 
             if (reversed) {
-
-                for (let i = 255; i > -1; i--) {
-                    const c = counters[i];
-                    counters[i] = summ;
-                    summ += c;
+                for (let i = RADIX_REV; i > -1; i--) {
+                    count[i] += count[i + 1];
                 }
             }
             else {
-
-                for (let i = 0; i < 256; i++) {
-                    const c = counters[i];
-                    counters[i] = summ;
-                    summ += c;
+                for (let i = 1; i < RADIX; i++) {
+                    count[i] += count[i - 1];
                 }
             }
+
+            for (let i = n - 1; i > -1; i--) {
+                const idx = src[i];
+                dst[--count[(values[idx] >>> shift) & MASK]] = idx;
+            }
+
+            const tmp = src;
+            /* */ src = dst;
+            /* */ dst = tmp;
         }
 
         return src;
@@ -233,7 +206,7 @@ export class DepthQueue {
 
         const n   = this._count;
         const src = this.sort(reversed);
-        const tmp = this._counters;
+        const tmp = this._countArr;
 
         for (let i = 0; i < n; i++) {
 
