@@ -8,7 +8,7 @@ export const positionSemantic = pc.SEMANTIC_POSITION;
 export const instancingIndexSemantic = pc.SEMANTIC_ATTR11;
 export const instancingExtraSemantic = pc.SEMANTIC_ATTR12;
 
-export class GPUIndexQueue { 
+export class GPUIndexQueue {
 
     protected _device: pc.GraphicsDevice;
     protected _instancing: boolean;
