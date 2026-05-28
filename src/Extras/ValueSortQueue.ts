@@ -8,7 +8,7 @@ export type TEditableArray<T> = {
     [index: number]: T;
 }
 
-export class DepthQueue {
+export class ValueSortQueue {
 
     protected _countArr: Uint32Array;
     protected _tempIndices1: Uint32Array;
@@ -53,22 +53,41 @@ export class DepthQueue {
         this._maxBits = MAX_BITS;
     }
 
-    public enqueue(depth: number) {
+    public enqueueUint(value: number) {
 
         // ignore negative values
-        depth = Math.max(depth, 0);
+        value = Math.max(value, 0);
 
         const queueIndex = this._count++;
-        this._dataF[queueIndex] = depth;
+        this._dataU[queueIndex] = value;
 
-        if (this._min > depth) {
-            this._min = depth;
-            this._minMaxDataF[0] = depth;
+        if (this._min > value) {
+            this._min = value;
+            this._minMaxDataU[0] = value;
         }
 
-        if (this._max < depth) {
-            this._max = depth;
-            this._minMaxDataF[1] = depth;
+        if (this._max < value) {
+            this._max = value;
+            this._minMaxDataU[1] = value;
+        }
+    }
+
+    public enqueueFloat(value: number) {
+
+        // ignore negative values
+        value = Math.max(value, 0);
+
+        const queueIndex = this._count++;
+        this._dataF[queueIndex] = value;
+
+        if (this._min > value) {
+            this._min = value;
+            this._minMaxDataF[0] = value;
+        }
+
+        if (this._max < value) {
+            this._max = value;
+            this._minMaxDataF[1] = value;
         }
     }
 
@@ -137,16 +156,9 @@ export class DepthQueue {
             count[(values[i] >>> 0) & MASK]++;
         }
 
-        for (let shift = 0; shift < maxBits; shift += BITS_PER_PASS) {
+        let shift = 0;
 
-            if (shift > 0) {
-
-                count.fill(0);
-
-                for (let i = 0; i < n; i++) {
-                    count[(values[src[i]] >>> shift) & MASK]++;
-                }
-            }
+        while (true) {
 
             if (reversed) {
                 for (let i = RADIX_REV; i > -1; i--) {
@@ -167,6 +179,18 @@ export class DepthQueue {
             const tmp = src;
             /* */ src = dst;
             /* */ dst = tmp;
+
+            shift += BITS_PER_PASS;
+
+            if (shift >= maxBits) {
+                break;
+            }
+
+            count.fill(0);
+
+            for (let i = 0; i < n; i++) {
+                count[(values[src[i]] >>> shift) & MASK]++;
+            }
         }
 
         return src;
@@ -199,14 +223,11 @@ export class DepthQueue {
         }
     }
 
-    public sortQueueComplicated(queue: Uint32Array, itemSize: number = 1, reversed: boolean = false) {
-
-        // TODO: itemSize more 256 ?
-        // use count buffer for copy items
+    public sortQueueComplicated<T>(queue: TEditableArray<T>, itemSize: number = 1, reversed: boolean = false, itemBuffer?: TEditableArray<T>) {
 
         const n   = this._count;
         const src = this.sort(reversed);
-        const tmp = this._countArr;
+        const tmp = itemBuffer ?? new Array<T>(itemSize);
 
         for (let i = 0; i < n; i++) {
 
@@ -239,24 +260,20 @@ export class DepthQueue {
         }
     }
 
-    public sortQueue(queue: Uint32Array<ArrayBuffer>, itemSize: number = 1, reversed: boolean = false): void {
+    public sortQueue<T>(queue: TEditableArray<T>, itemSize: number = 1, reversed: boolean = false, itemBuffer?: TEditableArray<T>): void {
         if (itemSize === 1) {
             this.sortQueueSingle(queue, reversed);
         }
         else {
-            this.sortQueueComplicated(queue, itemSize, reversed);
+            this.sortQueueComplicated(queue, itemSize, reversed, itemBuffer);
         }
-    }
-
-    public sortQueueObjects<T>(objects: T[], reversed: boolean = false): void {
-        return this.sortQueueSingle(objects, reversed);
     }
 }
 
 // @ts-ignore
-window.testDepthQueue = (min: number = 1, max: number = 100, length: number = 300, count: number = 22) => {
+window.testValueSortQueue = (min: number = 1, max: number = 100, length: number = 300, count: number = 22) => {
     const random = (min: number, max: number) => Math.random() * (max - min) + min;
-    const tmp = new DepthQueue(count);
+    const tmp = new ValueSortQueue(count);
     const tmpArray = new Array(length);
     for (let i = 0; i < length; i++) {
         tmpArray[i] = random(min, max);
@@ -265,7 +282,7 @@ window.testDepthQueue = (min: number = 1, max: number = 100, length: number = 30
     console.log(tmpArray);
     tmp.clear();
     for (let i = 0; i < count; i++) {
-        tmp.enqueue(tmpArray[i]);
+        tmp.enqueueFloat(tmpArray[i]);
     }
     console.log(tmp);
     console.log(tmp.min);
