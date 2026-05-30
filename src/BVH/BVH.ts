@@ -18,12 +18,17 @@ export interface LODLevel {
     hysteresis: number;
 }
 
+export interface BoxDistance {
+    min: number,
+    max: number,
+}
+
 export type onTraverseCallback<N, L, B extends BoxType> = (node: BVHNode<N, L, B>, depth: number) => boolean;
 export type onIntersectionCallback<L> = (obj: L) => boolean;
 export type onClosestDistanceCallback<L> = (obj: L) => number;
 export type onIntersectionRayCallback<L> = (obj: L) => void;
 export type onFrustumIntersectionCallback<N, L, B extends BoxType> = (node: BVHNode<N, L, B>, frustum: pc.Frustum, mask: number) => void;
-export type onFrustumIntersectionLODCallback<N, L, B extends BoxType> = (node: BVHNode<N, L, B>, level: number | null, frustum: pc.Frustum, mask: number) => void;
+export type onFrustumIntersectionLODCallback<N, L, B extends BoxType> = (node: BVHNode<N, L, B>, level: number | null, min: number, max: number, frustum: pc.Frustum, mask: number) => void;
 
 export class BVH<N, L, B extends BoxType> {
 
@@ -246,20 +251,23 @@ export class BVH<N, L, B extends BoxType> {
     public frustumCullingLOD(frustum: pc.Frustum, cameraPosition: FloatArray, levels: LODLevel[], onIntersection: onFrustumIntersectionLODCallback<N, L, B>): void {
         if (this.root === null) return;
 
-        _frustumCullingLOD(this.root, 0b111111, null);
+        _frustumCullingLOD(this.root, 0b111111, null, -Infinity, Infinity);
 
-        function _frustumCullingLOD(node: BVHNode<N, L, B>, mask: number, level: number | null): void {
+        function _frustumCullingLOD(node: BVHNode<N, L, B>, mask: number, level: number | null, min: number, max: number): void {
+
             const nodeBox = node.box;
 
             if (level === null) { // TODO trying use mask here?
-                level = getLevel(nodeBox);
+                const distance = minMaxDistanceSqPointToBox(nodeBox, cameraPosition);
+                min = distance.min;
+                max = distance.max;
+                level = getLevel(min, max);
             }
 
             if (node.object !== undefined) {
                 if (isIntersected(frustum, nodeBox, mask)) {
-                    onIntersection(node, level, frustum, mask);
+                    onIntersection(node, level, min, max, frustum, mask);
                 }
-
                 return;
             }
 
@@ -268,30 +276,36 @@ export class BVH<N, L, B extends BoxType> {
             if (mask < 0) return; // -1 = out
 
             if (mask === 0) { // 0 = in
-                showAll(node.left, level);
-                showAll(node.right, level);
+                showAll(node.left, level, min, max);
+                showAll(node.right, level, min, max);
                 return;
             }
 
-            _frustumCullingLOD(node.left, mask, level);
-            _frustumCullingLOD(node.right, mask, level);
+            _frustumCullingLOD(node.left, mask, level, min, max);
+            _frustumCullingLOD(node.right, mask, level, min, max);
         }
 
-        function showAll(node: BVHNode<N, L, B>, level: number | null): void {
+        function showAll(node: BVHNode<N, L, B>, level: number | null, min: number, max: number): void {
+
+            const nodeBox = node.box;
+
             if (level === null) {
-                level = getLevel(node.box);
+                const distance = minMaxDistanceSqPointToBox(nodeBox, cameraPosition);
+                min = distance.min;
+                max = distance.max;
+                level = getLevel(min, max);
             }
+
             if (node.object !== undefined) {
-                onIntersection(node, level, frustum, 0);
+                onIntersection(node, level, min, max, frustum, 0);
                 return;
             }
-            showAll(node.left, level);
-            showAll(node.right, level);
+
+            showAll(node.left, level, min, max);
+            showAll(node.right, level, min, max);
         }
 
-        function getLevel(nodeBox: BoxType): number | null {
-
-            const { min, max } = minMaxDistanceSqPointToBox(nodeBox, cameraPosition);
+        function getLevel(min: number, max: number): number | null {
 
             for (let i = levels.length - 1; i > 0; i--) {
                 // if we want to add hysteresis -> const levelDistance = level - (level * hysteresis);
