@@ -5,15 +5,13 @@ const BIN_SIZE = 1 << BIN_BITS;
 const BIN_MAX = BIN_SIZE - 1;
 const ITERATIONS = BIT_MAX / BIN_BITS;
 
-const bins = new Array<Uint32Array>( ITERATIONS );
-const bins_buffer = new ArrayBuffer( ( ITERATIONS + 1 ) * BIN_SIZE * 4 );
+const bins = new Array<Uint32Array>(ITERATIONS);
+const bins_buffer = new ArrayBuffer((ITERATIONS + 1) * BIN_SIZE * 4);
 
 let c = 0;
-for ( let i = 0; i < ( ITERATIONS + 1 ); i ++ ) {
-
-	bins[ i ] = new Uint32Array( bins_buffer, c, BIN_SIZE );
+for (let i = 0; i < (ITERATIONS + 1); i++) {
+	bins[i] = new Uint32Array(bins_buffer, c, BIN_SIZE);
 	c += BIN_SIZE * 4;
-
 }
 
 const defaultGet = ( el: any ) => el;
