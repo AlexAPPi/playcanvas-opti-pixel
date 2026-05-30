@@ -1,8 +1,21 @@
-const MAX_BITS = 32;
-const BITS_PER_PASS = 8;
-const RADIX = 256;
-const RADIX_REV = RADIX - 2;
-const MASK = 0xff;
+const POWER = 3;
+const BIT_MAX = 32;
+const BIN_BITS = 1 << POWER;
+const BIN_SIZE = 1 << BIN_BITS;
+const BIN_SIZE_REV = BIN_SIZE - 2;
+const BIN_MAX = BIN_SIZE - 1;
+const ITERATIONS = BIT_MAX / BIN_BITS;
+
+const bins = new Array<Uint32Array>(ITERATIONS);
+const binsLen = (ITERATIONS + 1) * BIN_SIZE; 
+const binsBuffer = new ArrayBuffer(binsLen * 4);
+const binsMainArr = new Uint32Array(binsBuffer, 0, binsLen);
+
+let c = 0;
+for (let i = 0; i < (ITERATIONS + 1); i++) {
+    bins[i] = new Uint32Array(binsBuffer, c, BIN_SIZE);
+    c += BIN_SIZE * 4;
+}
 
 export type TEditableArray<T> = {
     [index: number]: T;
@@ -10,7 +23,6 @@ export type TEditableArray<T> = {
 
 export class ValueSortQueue {
 
-    protected _countArr: Uint32Array;
     protected _tempIndices1: Uint32Array;
     protected _tempIndices2: Uint32Array;
 
@@ -32,10 +44,9 @@ export class ValueSortQueue {
     public get min() { return this._min; }
     public get max() { return this._max; }
 
-    public constructor(capacity: number) {
-        this._countArr = new Uint32Array(256);
-        this._tempIndices1 = new Uint32Array(capacity);
-        this._tempIndices2 = new Uint32Array(capacity);
+    public constructor(capacity: number, indices1?: Uint32Array, indices2?: Uint32Array) {
+        this._tempIndices1 = indices1 ?? new Uint32Array(capacity);
+        this._tempIndices2 = indices2 ?? new Uint32Array(capacity);
         this._minMaxBuffer = new ArrayBuffer(8);
         this._minMaxDataF = new Float32Array(this._minMaxBuffer);
         this._minMaxDataU = new Uint32Array(this._minMaxBuffer);
@@ -50,7 +61,7 @@ export class ValueSortQueue {
         this._min = Infinity;
         this._max = -Infinity;
         this._optimizationMaxBitsReady = false;
-        this._maxBits = MAX_BITS;
+        this._maxBits = BIT_MAX;
     }
 
     public enqueueUint(value: number) {
@@ -110,7 +121,7 @@ export class ValueSortQueue {
         if (range > 0) {
 
             const maxBit = range === 0 ? 0 : 32 - Math.clz32(range);
-            const neededPasses = Math.ceil(maxBit / BITS_PER_PASS);
+            const neededPasses = Math.ceil(maxBit / BIN_BITS);
 
             // Applying optimization to ignore high-order bytes.
             if (neededPasses < 4) {
@@ -120,7 +131,7 @@ export class ValueSortQueue {
                 }
             }
 
-            this._maxBits = neededPasses * BITS_PER_PASS;
+            this._maxBits = neededPasses * BIN_BITS;
         }
         else {
             this._maxBits = 0; // all equals
@@ -135,7 +146,6 @@ export class ValueSortQueue {
 
         const n = this._count;
         const values = this._dataU;
-        const count = this._countArr;
         const tempIndices1 = this._tempIndices1;
         const tempIndices2 = this._tempIndices2;
         const maxBits = this._optimizationForMaxBits();
@@ -143,53 +153,56 @@ export class ValueSortQueue {
         let src: Uint32Array = tempIndices1;
         let dst: Uint32Array = tempIndices2;
 
-        if (maxBits < BITS_PER_PASS || n < 2) {
+        if (maxBits < BIN_BITS || n < 2) {
             if (reversed) for (let i = 0; i < n; i++) src[i] = n - i - 1;
             else          for (let i = 0; i < n; i++) src[i] = i;
             return src;
         }
 
-        count.fill(0);
+        binsMainArr.fill(0);
+
+        let shift = 0;
+        let step = 0;
+        let bin = bins[step];
 
         for (let i = 0; i < n; i++) {
             src[i] = i;
-            count[(values[i] >>> 0) & MASK]++;
+            bin[(values[i] >>> shift) & BIN_MAX]++;
         }
-
-        let shift = 0;
 
         while (true) {
 
             if (reversed) {
-                for (let i = RADIX_REV; i > -1; i--) {
-                    count[i] += count[i + 1];
+                for (let i = BIN_SIZE_REV; i > -1; i--) {
+                    bin[i] += bin[i + 1];
                 }
             }
             else {
-                for (let i = 1; i < RADIX; i++) {
-                    count[i] += count[i - 1];
+                for (let i = 1; i < BIN_SIZE; i++) {
+                    bin[i] += bin[i - 1];
                 }
             }
 
             for (let i = n - 1; i > -1; i--) {
                 const idx = src[i];
-                dst[--count[(values[idx] >>> shift) & MASK]] = idx;
+                dst[--bin[(values[idx] >>> shift) & BIN_MAX]] = idx;
             }
+
+            shift += BIN_BITS;
+            step++;
 
             const tmp = src;
             /* */ src = dst;
             /* */ dst = tmp;
 
-            shift += BITS_PER_PASS;
-
             if (shift >= maxBits) {
                 break;
             }
 
-            count.fill(0);
+            bin = bins[step];
 
             for (let i = 0; i < n; i++) {
-                count[(values[src[i]] >>> shift) & MASK]++;
+                bin[(values[src[i]] >>> shift) & BIN_MAX]++;
             }
         }
 
@@ -268,34 +281,4 @@ export class ValueSortQueue {
             this.sortQueueComplicated(queue, itemSize, reversed, itemBuffer);
         }
     }
-}
-
-// @ts-ignore
-window.testValueSortQueue = (min: number = 1, max: number = 100, length: number = 300, count: number = 22) => {
-    const random = (min: number, max: number) => Math.random() * (max - min) + min;
-    const tmp = new ValueSortQueue(count);
-    const tmpArray = new Array(length);
-    for (let i = 0; i < length; i++) {
-        tmpArray[i] = random(min, max);
-    }
-    const queue = new Uint32Array(tmpArray);
-    console.log(tmpArray);
-    tmp.clear();
-    for (let i = 0; i < count; i++) {
-        tmp.enqueueFloat(tmpArray[i]);
-    }
-    console.log(tmp);
-    console.log(tmp.min);
-    console.log(tmp.max);
-    console.log(tmp.sort().slice());
-    console.log(tmp.sort(true).slice());
-    const queue1 = queue.slice(0, count);
-    const queue2 = queue.slice(0, count);
-    const queue3 = queue.slice(0, count);
-    const queue4 = queue.slice(0, count);
-    tmp.sortQueueSingle(queue1);
-    tmp.sortQueueSingle(queue2, true);
-    tmp.sortQueueComplicated(queue3, 1);
-    tmp.sortQueueComplicated(queue4, 1, true);
-    console.log(queue1, queue2, queue3, queue4);
 }
