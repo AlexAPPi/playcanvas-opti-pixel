@@ -80,6 +80,7 @@ export class SquareDataTexture<TArray extends TypedArrayType> {
     protected _stride: number;
     protected _channels: TChannelSize;
     protected _pixelsPerInstance: number;
+    protected _pixelFormat: number | undefined;
     protected _rowToUpdate: boolean[];
 
     public get pixelsPerInstance() { return this._pixelsPerInstance; }
@@ -87,11 +88,12 @@ export class SquareDataTexture<TArray extends TypedArrayType> {
     public get texture() { return this._texture; }
     public get data() { return this._data; }
 
-    constructor(device: pc.GraphicsDevice, arrayConstructor: TypedArrayConstructorType<TArray>, channels: TChannelSize, pixelsPerInstance: number, capacity: number = 512) {
+    constructor(device: pc.GraphicsDevice, arrayConstructor: TypedArrayConstructorType<TArray>, channels: TChannelSize, pixelsPerInstance: number, capacity: number = 512, pixelFormat?: number) {
         this._device = device;
         this._channels = channels;
         this._arrayConstructor = arrayConstructor;
         this._pixelsPerInstance = pixelsPerInstance;
+        this._pixelFormat = pixelFormat;
         this._stride = pixelsPerInstance * channels;
         this._createOrResizeTexture(capacity);
     }
@@ -134,12 +136,14 @@ export class SquareDataTexture<TArray extends TypedArrayType> {
                 this._capacity
             );
 
+            const finalPixelFormat = this._pixelFormat ?? pixelFormat;
+
             this._data = array;
             this._rowToUpdate = new Array(size);
             this._texture = new pc.Texture(this._device, {
                 width: size,
                 height: size,
-                format: pixelFormat,
+                format: finalPixelFormat,
                 mipmaps: false,
                 minFilter: pc.FILTER_NEAREST,
                 magFilter: pc.FILTER_NEAREST,

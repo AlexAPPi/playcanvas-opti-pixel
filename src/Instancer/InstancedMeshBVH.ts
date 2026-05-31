@@ -1,0 +1,319 @@
+import pc from "../engine.js";
+import { BVH, LODLevel, onFrustumIntersectionCallback, onFrustumIntersectionLODCallback, onIntersectionCallback, onIntersectionRayCallback } from "../BVH/BVH.js";
+import { BoxType, BVHNode, TypedArrayConstructor } from "../BVH/BVHNode.js";
+import { HybridBuilder } from "../BVH/HybridBuilder.js";
+import { isIntersectedMargin } from "../BVH/Utils/FrustumUtils.js";
+import { convertBoxToArray } from "../BVH/Utils/ConvertBoxUtils.js";
+import { vec3ToArr } from "./Utils/ConvertVecUtils.js";
+import { SquareDataTexture } from "../Extras/SquareDataTexture.js";
+import { IInstancer } from "./IInstancer.js";
+
+// TODO getBoxFromSphere updated if change geometry (and create accessor)
+// TODO accurateCulling in bvh.js?
+// TODO use params in constructor
+// TODO: intersectBox optional intersectCallback
+
+/**
+ * Parameters for configuring the BVH (Bounding Volume Hierarchy).
+ */
+export interface BVHParams {
+
+    /**
+     * Margin applied to accommodate animated or moving objects.
+     * Improves BVH update performance but slows down frustum culling and raycasting.
+     * For static objects, set to 0 to optimize culling and raycasting efficiency.
+     * @default 0
+     */
+    margin?: number;
+
+    /**
+     * Uses the geometry bounding sphere to compute instance bounding boxes.
+     * Otherwise it's calculated by applying the object's matrix to all 8 bounding box points.
+     * This is faster but less precise. Useful for moving objects.
+     * Only works if the geometry's bounding sphere is centered at the origin.
+     * @default false
+     */
+    getBBoxFromBSphere?: boolean;
+
+    /**
+     * Enables accurate frustum culling by checking intersections without applying margin to the bounding box.
+     * @default true
+     */
+    accurateCulling?: boolean;
+}
+
+interface SphereTarget {
+    centerX: number;
+    centerY: number;
+    centerZ: number;
+    maxScale: number;
+}
+
+/**
+ * Class to manage BVH (Bounding Volume Hierarchy) for `InstancedMesh`.
+ * Provides methods for managing bounding volumes, frustum culling, raycasting, and bounding box computation.
+ */
+export class InstancedMeshBVH<TObject, TBoxType extends BoxType> {
+
+    /**
+     * The instanced mesh object that the BVH is managing.
+     */
+    public target: IInstancer;
+
+    /**
+     * The geometry bounding box of the target.
+     */
+    public geoBoundingBox: pc.BoundingBox;
+
+    /**
+     * The BVH instance used to organize bounding volumes.
+     */
+    public bvh: BVH<TObject, number, TBoxType>;
+
+    /**
+     * A map that stores the BVH nodes for each instance.
+     */
+    public nodesMap = new Map<number, BVHNode<TObject, number, TBoxType>>();
+
+    /**
+     * Enables accurate frustum culling by checking intersections without applying margin to the bounding box.
+     */
+    public accurateCulling: boolean;
+
+    protected _margin: number;
+    protected _cameraPos: Float32Array;
+    protected _origin: Float32Array;
+    protected _dir: Float32Array;
+    protected _boxArray: Float32Array;
+    protected _getBoxFromSphere: boolean;
+    protected _geoBoundingSphere: pc.BoundingSphere | undefined;
+    protected _sphereTarget: SphereTarget | undefined;
+
+    /**
+     * @param target The target instanced mesh.
+     * @param boxTypeConstructor The bounding box type instanced mesh.
+     * @param margin The margin applied for bounding box calculations (default is 0).
+     * @param getBBoxFromBSphere Flag to determine if instance bounding boxes should be computed from the geometry bounding sphere. Faster but less precise (default is false).
+     * @param accurateCulling Flag to enable accurate frustum culling without considering margin (default is true).
+     */
+    constructor(target: IInstancer, boxTypeConstructor: TypedArrayConstructor<TBoxType>, margin = 0, getBBoxFromBSphere = false, accurateCulling = true) {
+
+        this.target = target;
+        this.accurateCulling = accurateCulling;
+        this.geoBoundingBox = this.target.computeInstanceMaxBoundingBox();
+
+        this._margin = margin;
+
+        if (getBBoxFromBSphere) {
+
+            const center = this.geoBoundingBox.center.clone();
+            const radius = this.geoBoundingBox.halfExtents.length();
+
+            if (center.x === 0 && center.y === 0 && center.z === 0) {
+                this._geoBoundingSphere = new pc.BoundingSphere(center, radius);
+                this._sphereTarget = { centerX: 0, centerY: 0, centerZ: 0, maxScale: 0 };
+            } else {
+                console.warn('"getBoxFromSphere" is ignored because geometry is not centered.');
+                getBBoxFromBSphere = false;
+            }
+        }
+
+        this.bvh = new BVH(new HybridBuilder(boxTypeConstructor));
+        this._origin = new Float32Array(3);
+        this._dir = new Float32Array(3);
+        this._cameraPos = new Float32Array(3);
+        this._boxArray = new Float32Array(6);
+        this._getBoxFromSphere = getBBoxFromBSphere;
+    }
+
+    /**
+     * Builds the BVH from the target mesh's instances using a top-down construction method.
+     * This approach is more efficient and accurate compared to incremental methods, which add one instance at a time.
+     */
+    public create(): void {
+        const count = this.target.instancesCount;
+        const instancesArrayCount = this.target.instancesArrayCount;
+        const boxes: Float32Array[] = new Array(count); // test if single array and recreation inside node creation is faster due to memory location
+        const objects = new Uint32Array(count);
+        let index = 0;
+
+        this.clear();
+
+        for (let i = 0; i < instancesArrayCount; i++) {
+            if (!this.target.getActiveAt(i)) continue;
+            boxes[index] = this.getBox(i, new Float32Array(6));
+            objects[index] = i;
+            index++;
+        }
+
+        this.bvh.createFromArray(objects as unknown as number[], boxes, (node) => {
+            this.nodesMap.set(node.object, node);
+        }, this._margin);
+    }
+
+    /**
+     * Inserts an instance into the BVH.
+     * @param id The id of the instance to insert.
+     */
+    public insert(id: number): void {
+        const node = this.bvh.insert(id, this.getBox(id, new Float32Array(6)), this._margin);
+        this.nodesMap.set(id, node);
+    }
+
+    /**
+     * Inserts a range of instances into the BVH.
+     * @param ids An array of ids to insert.
+     */
+    public insertRange(ids: number[]): void {
+        const count = ids.length;
+        const boxes: Float32Array[] = new Array(count);
+
+        for (let i = 0; i < count; i++) {
+            boxes[i] = this.getBox(ids[i], new Float32Array(6));
+        }
+
+        this.bvh.insertRange(ids, boxes, this._margin, (node) => {
+            this.nodesMap.set(node.object, node);
+        });
+    }
+
+    /**
+     * Moves an instance within the BVH.
+     * @param id The id of the instance to move.
+     */
+    public move(id: number): void {
+        const node = this.nodesMap.get(id);
+        if (!node) return;
+        this.getBox(id, _boxArray); // this also updates box
+        this.bvh.builder.boxConverter(_boxArray, this.bvh.builder.typeArray, node.box); // convert for box type
+        this.bvh.move(node, this._margin);
+    }
+
+    /**
+     * Deletes an instance from the BVH.
+     * @param id The id of the instance to delete.
+     */
+    public delete(id: number): void {
+        const node = this.nodesMap.get(id);
+        if (!node) return;
+        this.bvh.delete(node);
+        this.nodesMap.delete(id);
+    }
+
+    /**
+     * Clears the BVH.
+     */
+    public clear(): void {
+        this.bvh.clear();
+        this.nodesMap.clear();
+    }
+
+    /**
+     * Performs frustum culling to determine which instances are visible based on the provided projection matrix.
+     * @param frustum The frustum shape.
+     * @param onFrustumIntersection Callback function invoked when an instance intersects the frustum.
+     */
+    public frustumCulling(frustum: pc.Frustum, onFrustumIntersection: onFrustumIntersectionCallback<TObject, number, TBoxType>): void {
+        if (this._margin > 0 && this.accurateCulling) {
+            this.bvh.frustumCulling(frustum, (node, frustum, mask) => {
+                if (isIntersectedMargin(frustum, node.box, mask, this._margin)) {
+                    onFrustumIntersection(node, frustum, mask);
+                }
+            });
+        } else {
+            this.bvh.frustumCulling(frustum, onFrustumIntersection);
+        }
+    }
+
+    /**
+     * Performs frustum culling with Level of Detail (LOD) consideration.
+     * @param frustum The frustum shape.
+     * @param cameraPosition The camera's position used for LOD calculations.
+     * @param levels An array of LOD levels.
+     * @param onFrustumIntersection Callback function invoked when an instance intersects the frustum.
+     */
+    public frustumCullingLOD(frustum: pc.Frustum, cameraPosition: pc.Vec3, levels: LODLevel[], onFrustumIntersection: onFrustumIntersectionLODCallback<TObject, number, TBoxType>): void {
+        const cameraPos = vec3ToArr(cameraPosition, this._cameraPos);
+        if (this._margin > 0 && this.accurateCulling) {
+            this.bvh.frustumCullingLOD(frustum, cameraPos, levels, (node, level, min, max, frustum, mask) => {
+                if (isIntersectedMargin(frustum, node.box, mask, this._margin)) {
+                    onFrustumIntersection(node, level, min, max, frustum, mask);
+                }
+            });
+        } else {
+            this.bvh.frustumCullingLOD(frustum, cameraPos, levels, onFrustumIntersection);
+        }
+    }
+
+    /**
+     * Performs raycasting to check if a ray intersects any instances.
+     * @param ray The ray used for raycasting.
+     * @param onIntersection Callback function invoked when a ray intersects an instance.
+     * @param near The near distance
+     * @param far The far distance
+     */
+    public raycast(ray: pc.Ray, onIntersection: onIntersectionRayCallback<number>, near: number = 0, far: number = Infinity): void {
+        // TODO should we add margin check? maybe is not worth it
+        this.bvh.rayIntersections(ray, onIntersection, near, far);
+    }
+
+    /**
+     * Checks if a given box intersects with any instance bounding box.
+     * @param target The target bounding box.
+     * @param onIntersection Callback function invoked when an intersection occurs.
+     * @returns `True` if there is an intersection, otherwise `false`.
+     */
+    public intersectBox(target: pc.BoundingBox, onIntersection: onIntersectionCallback<number>): boolean {
+        convertBoxToArray(target, this._boxArray);
+        return this.bvh.intersectsBox(this._boxArray, onIntersection);
+    }
+
+    protected getBox(id: number, array: Float32Array): Float32Array {
+
+        if (this._getBoxFromSphere && this._geoBoundingSphere && this._sphereTarget) {
+            const matrixArray = this.target.matricesTexture.data;
+            const { centerX, centerY, centerZ, maxScale } = this.getSphereFromMatrix_centeredGeometry(id, matrixArray, this._sphereTarget);
+            const radius = this._geoBoundingSphere.radius * maxScale;
+            array[0] = centerX - radius;
+            array[1] = centerX + radius;
+            array[2] = centerY - radius;
+            array[3] = centerY + radius;
+            array[4] = centerZ - radius;
+            array[5] = centerZ + radius;
+        } else {
+            _box.setFromTransformedAabb(this.geoBoundingBox, this.target.getMatrixAt(id), false);
+            convertBoxToArray(_box, array);
+        }
+
+        return array;
+    }
+
+    protected getSphereFromMatrix_centeredGeometry(id: number, array: Float32Array, target: SphereTarget): SphereTarget {
+        const offset = id * 16;
+
+        const m0 = array[offset + 0];
+        const m1 = array[offset + 1];
+        const m2 = array[offset + 2];
+        const m4 = array[offset + 4];
+        const m5 = array[offset + 5];
+        const m6 = array[offset + 6];
+        const m8 = array[offset + 8];
+        const m9 = array[offset + 9];
+        const m10 = array[offset + 10];
+
+        const scaleXSq = m0 * m0 + m1 * m1 + m2 * m2;
+        const scaleYSq = m4 * m4 + m5 * m5 + m6 * m6;
+        const scaleZSq = m8 * m8 + m9 * m9 + m10 * m10;
+
+        target.maxScale = Math.sqrt(Math.max(scaleXSq, scaleYSq, scaleZSq));
+
+        target.centerX = array[offset + 12];
+        target.centerY = array[offset + 13];
+        target.centerZ = array[offset + 14];
+
+        return target;
+    }
+}
+
+const _box = new pc.BoundingBox();
+const _boxArray = new Float32Array(6);

@@ -1,5 +1,8 @@
+import { BVH } from "./BVH/BVH.js";
+import { HybridBuilder } from "./BVH/HybridBuilder.js";
 import { AABBDataTexture } from "./Extras/AABBDataTexture.js";
 import { BitSet } from "./Extras/BitSet.js";
+import { ValueSortQueue } from "./Extras/ValueSortQueue.js";
 import { GPUAABBStore } from "./Extras/GPUAABBStore.js";
 import { GPUBufferTool } from "./Extras/GPUBufferTool.js";
 import { GPUElementQueue } from "./Extras/GPUElementQueue.js";
@@ -12,6 +15,7 @@ import { Random } from "./Extras/Random.js";
 import { ReadbackQueue } from "./Extras/ReadbackQueue.js";
 import { SquareDataTexture } from "./Extras/SquareDataTexture.js";
 import { WebglReadbackBuffer } from "./Extras/WebglReadbackBuffer.js";
+import { HierarchicalInstancer } from "./Instancer/HierarchicalInstancer.js";
 import { HierarchicalZBufferDebugger } from "./OcclusionCulling/HZB/HierarchicalZBufferDebugger.js";
 import { IHierarchicalZBufferTester } from "./OcclusionCulling/HZB/IHierarchicalZBufferTester.js";
 import { WebgpuHZBTester } from "./OcclusionCulling/HZB/Webgpu/WebgpuHZBTester.js";
@@ -35,6 +39,7 @@ export {
     GPUBufferTool,
     GPUElementQueue,
     GPUIndexQueue,
+    ValueSortQueue,
     IndexManager,
     IndexQueue,
     IndexQueueEx,
@@ -67,7 +72,12 @@ export {
 
     OcclusionCullingSystem,
     WebgpuHZBTester,
-    HierarchicalZBufferDebugger
+    HierarchicalZBufferDebugger,
+
+    BVH,
+    HybridBuilder,
+
+    HierarchicalInstancer,
 };
 
 export type {
