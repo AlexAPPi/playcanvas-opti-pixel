@@ -10,17 +10,11 @@ export default `
         16.0, 8.0, 14.0, 6.0
     );
 
-    float getDither() {
-        ivec2 screenPos = ivec2(gl_FragCoord.xy);
-        int idx = (screenPos.y & 3) * 4 + (screenPos.x & 3);
-        return dither4x4[idx] / 16.0; // 0.0625..1.0
-    }
-
     void getOpacity() {
         dAlpha = material_opacity;
 
         #if INSTANCER_USE_CROSSFADE
-        dAlpha *= vInstancerCrossFade * getDither();
+        dAlpha *= vInstancerCrossFade;
         #endif
 
         #if INSTANCER_USE_CUSTOM_COLOR

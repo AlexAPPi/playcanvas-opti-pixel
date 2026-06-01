@@ -933,36 +933,41 @@ export class HierarchicalInstancer implements IInstancer {
         distance: number
     ): { index: number; weight: number; nextWeight: number; nextIndex: number | null } {
 
-        let activeLevel = 0;
+        for (let i = 1, l = lods.length; i < l; i++) {
 
-        for (let i = lods.length - 1; i > 0; i--) {
             const level = lods[i];
-            const levelDistance = level.distance - (level.distance * level.hysteresis);
-            if (distance >= levelDistance) {
-                activeLevel = i;
-                break;
-            }
-        }
 
-        const activeLod = lods[activeLevel];
+            if (distance < level.distance) {
 
-        if (activeLevel > 0 && distance < activeLod.distance) {
-            const blendStart = activeLod.distance - (activeLod.distance * activeLod.hysteresis);
-            const blendEnd = activeLod.distance;
-            const t = (distance - blendStart) / (blendEnd - blendStart);
-            return {
-                index: activeLevel,
-                weight: t,
-                nextWeight: 1 - t,
-                nextIndex: activeLevel - 1
+                const levelDistance = level.distance - (level.distance * level.hysteresis);
+
+                if (distance < levelDistance) {
+
+                    return {
+                        index: i - 1,
+                        weight: 1,
+                        nextWeight: 0,
+                        nextIndex: null
+                    };
+                }
+
+                const t = (distance - levelDistance) / (level.distance * level.hysteresis);
+                const weight = Math.min(Math.max(0, t), 1);
+
+                return {
+                    index: i - 1,
+                    weight: 1 - weight,
+                    nextWeight: weight,
+                    nextIndex: i
+                }
             }
         }
 
         return {
-            index: activeLevel,
+            index: lods.length - 1,
             weight: 1,
-            nextIndex: null,
-            nextWeight: 0
+            nextWeight: 0,
+            nextIndex: null
         };
     }
 }
