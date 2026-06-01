@@ -6,6 +6,7 @@ import { GPUInstancedList, instancingIndexSemantic } from "./InstancedList.js";
 import { BVHParams, InstancedMeshBVH } from "./InstancedMeshBVH.js";
 
 import instancerInstanceVS from "./ShaderChunks/Vert/instance.js";
+import instancerInstaceCrossFadeVS from "./ShaderChunks/Vert/instanceCrossFade.js";
 import instancerInstanceMatrixVS from "./ShaderChunks/Vert/instanceMatrix.js";
 import instancerInstanceColorVS from "./ShaderChunks/Vert/instanceColor.js";
 import transformInstancingVS from "./ShaderChunks/Vert/transformInstancing.js";
@@ -13,6 +14,7 @@ import instancerDeclarationVS from "./ShaderChunks/Vert/instancerDeclaration.js"
 import instancerMainEndVS from "./ShaderChunks/Vert/instancerMainEnd.js";
 
 import instancerDeclarationPS from "./ShaderChunks/Frag/instancerDeclaration.js";
+import instancerMainStartPS from "./ShaderChunks/Frag/instancerMainStart.js";
 import instancerDiffusePS from "./ShaderChunks/Frag/diffuse.js";
 import instancerOpacityPS from "./ShaderChunks/Frag/opacity.js";
 
@@ -33,6 +35,9 @@ export interface InstancedMeshParams {
 }
 
 export class LODRender {
+
+    private _minZ: number =  Infinity;
+    private _maxZ: number = -Infinity;
 
     /**
      * The gpu instanced list
@@ -79,10 +84,15 @@ export class LODRender {
 
     public start() {
         this.list.clear();
+        this._minZ =  Infinity;
+        this._maxZ = -Infinity;
     }
 
-    public enqueue(index: number, depth: number) {
-        this.list.push(index, depth);
+    public enqueue(index: number, depth: number, opacity: number) {
+        opacity = Math.min(255, Math.max(0, opacity * 255));
+        this.list.push(index, opacity);
+        if (this._minZ > depth) this._minZ = depth;
+        if (this._maxZ < depth) this._maxZ = depth;
     }
 
     public end() {
@@ -192,8 +202,8 @@ export class HierarchicalInstancer implements IInstancer {
         this._activibility = new BitSet(capacity, true);
 
         this._initMatricesTexture();
-        this._initColorsTexture();
-        this._useOpacity = true;
+        //this._initColorsTexture();
+        //this._useOpacity = true;
     }
 
     protected _initMatricesTexture(): void {
@@ -249,33 +259,6 @@ export class HierarchicalInstancer implements IInstancer {
             if (distance >= levelDistance) return i;
         }
         return 0;
-    }
-
-    public getObjectLODWithHysteresis(lods: ILODLevel[], distance: number, current: number): number {
-
-        let target = 0;
-
-        const maxLod = lods.length - 1;
-        const hysteresis = lods[current].hysteresis;
-
-        for (let i = 0; i < maxLod; i++) {
-
-            const threshold = lods[i].distance;
-            const hysteresisAmount = threshold * hysteresis;
-
-            if (distance > threshold) {
-                if (current <= i && distance > threshold + hysteresisAmount) {
-                    target = i + 1;
-                }
-            }
-            else if (distance < threshold) {
-                if (current > i && distance < threshold - hysteresisAmount) {
-                    target = i;
-                }
-            }
-        }
-
-        return Math.min(target, maxLod);
     }
 
     public addLOD(mesh: pc.Mesh | null, material: pc.StandardMaterial | null, distance: number = 0, hysteresis: number = 0) {
@@ -426,6 +409,11 @@ export class HierarchicalInstancer implements IInstancer {
             originalLitUserDeclarationPS = glslChunks.get("instancerUserDeclarationPS") ?? "/**/";
         }
 
+        let originalLitUserStartMainPS = glslChunks.get("litUserMainStartPS") ?? "/**/";
+        if (originalLitUserStartMainPS === instancerMainStartPS) {
+            originalLitUserDeclarationPS = glslChunks.get("instancerUserMainStartPS") ?? "/**/";
+        }
+
         material.shaderChunksVersion = "2.8";
 
         glslChunks
@@ -436,11 +424,13 @@ export class HierarchicalInstancer implements IInstancer {
 
             // Lit shader PS
             .set("litUserDeclarationPS", instancerDeclarationPS)
+            .set("litUserMainStartPS", instancerMainStartPS)
             .set("diffusePS", instancerDiffusePS)
             .set("opacityPS", instancerOpacityPS)
 
             // Instancer
             .set("instancerInstanceVS", instancerInstanceVS)
+            .set("instancerInstanceCrossFadeVS", instancerInstaceCrossFadeVS)
             .set("instancerInstanceMatrixVS", instancerInstanceMatrixVS)
             .set("instancerInstanceColorVS", instancerInstanceColorVS)
 
@@ -449,10 +439,14 @@ export class HierarchicalInstancer implements IInstancer {
             .set("instancerUserMainEndVS", originalLitUserMainEndVS)
 
             // Instancer user PS
-            .set("instancerUserDeclarationPS", originalLitUserDeclarationPS);
+            .set("instancerUserDeclarationPS", originalLitUserDeclarationPS)
+            .set("instancerMainStartPS", originalLitUserDeclarationPS)
+        ;
 
         material.setAttribute("aInstanceIndex", instancingIndexSemantic);
         material.setParameter("uMatricesTexture", this.matricesTexture.texture);
+
+        material.setDefine("INSTANCER_USE_CROSSFADE", true);
 
         if (this.colorsTexture) {
             material.setDefine("INSTANCER_USE_CUSTOM_COLOR", true);
@@ -796,7 +790,7 @@ export class HierarchicalInstancer implements IInstancer {
         else          this._frustumCullingLODLinear(camera, cameraPosition, onFrustumEnter);
     }
 
-    public update(camera: pc.Camera, cameraPosition: pc.Vec3, cameraForward: pc.Vec3, onFrustumEnter?: TOnFrustumEnterThenUpdate) {
+    public update(dt: number, camera: pc.Camera, cameraPosition: pc.Vec3, cameraForward: pc.Vec3, onFrustumEnter?: TOnFrustumEnterThenUpdate) {
 
         this.matricesTexture?.update();
         this.colorsTexture?.update();
@@ -824,14 +818,15 @@ export class HierarchicalInstancer implements IInstancer {
             if (!this.getActiveAndVisibilityAt(i)) continue;
 
             const maxScale = this.getPositionAndMaxScaleOnAxisAt(i, _sphere.center);
-            const relativeCenterOfCamera = _tmpVec3.sub2(_sphere.center, cameraPosition);
-            const distance = relativeCenterOfCamera.lengthSq();
-            const level = this.getObjectLODIndexForDistance(lods, distance);
-            const levelRender = lods[level].render;
 
             _sphere.radius = maxScale;
 
             if (camera.frustum.containsSphere(_sphere) > 0) {
+
+                const relativeCenterOfCamera = _tmpVec3.sub2(_sphere.center, cameraPosition);
+                const distance = relativeCenterOfCamera.lengthSq();
+                const level = this.getLODIndexAndWeight(lods, distance);
+                const levelRender = lods[level.index].render;
 
                 let depth = Infinity;
 
@@ -839,7 +834,7 @@ export class HierarchicalInstancer implements IInstancer {
                     depth = relativeCenterOfCamera.dot(cameraForward);
                 }
 
-                if (!onFrustumEnter || onFrustumEnter(i, camera, level, depth)) {
+                if (!onFrustumEnter || onFrustumEnter(i, camera, level.index, depth)) {
 
                     // add 0.1 for safe off negative
                     this._sharedDepthStore[i] = depth + 0.1;
@@ -847,7 +842,16 @@ export class HierarchicalInstancer implements IInstancer {
                     if (maxZ < depth) maxZ = depth;
                     if (maxIndex < i) maxIndex = i;
 
-                    levelRender?.enqueue(i, depth);
+                    levelRender?.enqueue(i, depth, level.weight);
+
+                    if (level.nextIndex !== null) {
+
+                        const nextLevelRender = lods[level.nextIndex].render;
+
+                        if (nextLevelRender) {
+                            nextLevelRender.enqueue(i, depth, level.nextWeight);
+                        }
+                    }
                 }
             }
         }
@@ -922,6 +926,44 @@ export class HierarchicalInstancer implements IInstancer {
                 render.end();
             }
         }
+    }
+
+    public getLODIndexAndWeight(
+        lods: ILODLevel[],
+        distance: number
+    ): { index: number; weight: number; nextWeight: number; nextIndex: number | null } {
+
+        let activeLevel = 0;
+
+        for (let i = lods.length - 1; i > 0; i--) {
+            const level = lods[i];
+            const levelDistance = level.distance - (level.distance * level.hysteresis);
+            if (distance >= levelDistance) {
+                activeLevel = i;
+                break;
+            }
+        }
+
+        const activeLod = lods[activeLevel];
+
+        if (activeLevel > 0 && distance < activeLod.distance) {
+            const blendStart = activeLod.distance - (activeLod.distance * activeLod.hysteresis);
+            const blendEnd = activeLod.distance;
+            const t = (distance - blendStart) / (blendEnd - blendStart);
+            return {
+                index: activeLevel,
+                weight: t,
+                nextWeight: 1 - t,
+                nextIndex: activeLevel - 1
+            }
+        }
+
+        return {
+            index: activeLevel,
+            weight: 1,
+            nextIndex: null,
+            nextWeight: 0
+        };
     }
 }
 

@@ -3,8 +3,9 @@ export default `
     uniform highp sampler2D uMatricesTexture;
 
     mat4 getInstanceMatrix() {
+        int id = int(getInstanceId());
         int size = textureSize(uMatricesTexture, 0).x;
-        int j = int(aInstanceIndex) * 4;
+        int j = id * 4;
         int x = j % size;
         int y = j / size;
         vec4 v1 = texelFetch(uMatricesTexture, ivec2(x, y), 0);

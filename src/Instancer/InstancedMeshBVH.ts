@@ -5,7 +5,6 @@ import { HybridBuilder } from "../BVH/HybridBuilder.js";
 import { isIntersectedMargin } from "../BVH/Utils/FrustumUtils.js";
 import { convertBoxToArray } from "../BVH/Utils/ConvertBoxUtils.js";
 import { vec3ToArr } from "./Utils/ConvertVecUtils.js";
-import { SquareDataTexture } from "../Extras/SquareDataTexture.js";
 import { IInstancer } from "./IInstancer.js";
 
 // TODO getBoxFromSphere updated if change geometry (and create accessor)
