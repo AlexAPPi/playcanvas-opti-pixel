@@ -42,28 +42,63 @@ export class LODRender {
     /**
      * The gpu instanced list
      */
-    readonly list: GPUInstancedList;
+    public readonly list: GPUInstancedList;
+
+    /**
+     * The root of mesh instances
+     */
+    public readonly root: pc.Entity | null = null;
 
     /**
      * The mesh instances
      */
-    readonly meshes: pc.MeshInstance[];
+    public readonly meshes: pc.MeshInstance[];
+
+    /**
+     * The mesh instances matrix
+     */
+    public readonly meshesMatrix: pc.Mat4[];
 
     /**
      * Sort object flag
      */
     public sortObjects: boolean = false;
 
-    constructor(list: GPUInstancedList, meshes: pc.MeshInstance[]) {
+    constructor(list: GPUInstancedList, meshes: pc.MeshInstance[], root: pc.Entity | null = null) {
         this.list = list;
-        this.meshes = meshes;
+        this.root = root;
+        this.meshes = [...meshes];
+        this.meshesMatrix = [];
+        this.initMatrixes();
+        this.patchMeshes();
         this.checkNeedSortObjects();
+    }
+
+    public initMatrixes() {
+        const numMeshes = this.meshes.length;
+        this.meshesMatrix.length = 0;
+        for (let i = 0; i < numMeshes; i++) {
+            this.meshesMatrix.push(new pc.Mat4());
+        }
+    }
+
+    public patchMeshes() {
+        const meshes = this.meshes;
+        const numMeshes = meshes.length;
+        const instancingBuffer = this.list.instancingBuffer;
+        for (let i = 0; i < numMeshes; i++) {
+            const mesh = meshes[i];
+            mesh.setInstancing(instancingBuffer, false);
+            mesh.instancingCount = 0;
+        }
     }
 
     public checkNeedSortObjects() {
         let needSortObjects = false;
-        for (let i = 0; i < this.meshes.length; i++) {
-            const mesh = this.meshes[i];
+        const meshes = this.meshes;
+        const numMeshes = meshes.length;
+        for (let i = 0; i < numMeshes; i++) {
+            const mesh = meshes[i];
             const material = mesh.material;
             if (material.transparent) {
                 needSortObjects = true;
@@ -74,10 +109,11 @@ export class LODRender {
     }
 
     public computeInstanceMaxBoundingBox(): pc.BoundingBox {
-        const aabb = this.meshes[0].aabb.clone();
-        const numMeshes = this.meshes.length;
+        const meshes = this.meshes;
+        const numMeshes = meshes.length;
+        const aabb = meshes[0].aabb.clone();
         for (let i = 1; i < numMeshes; i++) {
-            aabb.add(this.meshes[i].aabb);
+            aabb.add(meshes[i].aabb);
         }
         return aabb;
     }
@@ -99,13 +135,27 @@ export class LODRender {
 
         const count = this.list.count;
         const meshes = this.meshes;
+        const matrixes = this.meshesMatrix;
         const numMeshes = meshes.length;
+        const needUpdateMatrix  = count > 0 && this.root;
 
         this.list.update();
 
+        if (needUpdateMatrix) {
+            _tempMat41.copy(this.root.getWorldTransform()).invert();
+        }
+
         for (let i = 0; i < numMeshes; i++) {
+
             const mesh = meshes[i];
             mesh.instancingCount = count;
+
+            if (needUpdateMatrix) {
+                const meshWorldMatrix = mesh.node.getWorldTransform();
+                const meshLocalMatrix = matrixes[i];
+                meshLocalMatrix.mul2(_tempMat41, meshWorldMatrix);
+                mesh.setParameter("local_matrix_instance", meshLocalMatrix.data);
+            }
         }
     }
 }
@@ -214,9 +264,7 @@ export class HierarchicalInstancer implements IInstancer {
 
     protected _initColorsTexture(): void {
         this.colorsTexture?.destroy();
-        this.colorsTexture = new SquareDataTexture(this.device, Uint8Array, 4, 1, this.capacity, pc.PIXELFORMAT_RGBA8);
-        this.colorsTexture.data.fill(255);
-        this.colorsTexture.texture.dirtyAll();
+        this.colorsTexture = new SquareDataTexture(this.device, Uint8Array, 4, 1, this.capacity, pc.PIXELFORMAT_RGBA8, 255);
         this._needUpdateMaterials = true;
     }
 
@@ -261,8 +309,8 @@ export class HierarchicalInstancer implements IInstancer {
         return 0;
     }
 
-    public addLOD(mesh: pc.Mesh | null, material: pc.StandardMaterial | null, distance: number = 0, hysteresis: number = 0) {
-        this._addLevel(this.LODs, mesh, material, distance, hysteresis);
+    public addLOD(meshInstanceList: pc.MeshInstance[] | null, root: pc.Entity | null, distance: number = 0, hysteresis: number = 0) {
+        this._addLevel(this.LODs, meshInstanceList, root, distance, hysteresis);
     }
 
     public updateLOD(levelIndex: number, distance: number, hysteresis: number) {
@@ -279,8 +327,8 @@ export class HierarchicalInstancer implements IInstancer {
         return this._removeLevel(this.LODs, levelIndex, destroyObject);
     }
 
-    public addShadowLOD(mesh: pc.Mesh, material: pc.StandardMaterial, distance: number = 0, hysteresis: number = 0) {
-        this._addLevel(this.shadowLODs, mesh, material, distance, hysteresis);
+    public addShadowLOD(meshInstanceList: pc.MeshInstance[] | null, root: pc.Entity | null, distance: number = 0, hysteresis: number = 0) {
+        this._addLevel(this.shadowLODs, meshInstanceList, root, distance, hysteresis);
     }
 
     public updateShadowLOD(levelIndex: number, distance: number, hysteresis: number) {
@@ -291,16 +339,12 @@ export class HierarchicalInstancer implements IInstancer {
         return this._removeLevel(this.shadowLODs, levelIndex, destroyObject);
     }
 
-    protected _addLevel(lods: ILODLevel[], mesh: pc.Mesh | null, material: pc.StandardMaterial | null, distance: number, hysteresis: number) {
+    protected _addLevel(lods: ILODLevel[], meshInstanceList: pc.MeshInstance[] | null, root: pc.Entity | null, distance: number, hysteresis: number) {
 
         // to avoid to use Math.sqrt every time
         distance = distance ** 2;
 
         let index: number;
-
-        if (mesh && !material) {
-            console.warn("The material must be handed over for the mesh.");
-        }
 
         for (index = 0; index < lods.length; index++) {
             if (distance < lods[index].distance) break;
@@ -308,11 +352,10 @@ export class HierarchicalInstancer implements IInstancer {
 
         let render: LODRender | undefined;
 
-        if (mesh && material) {
-            const meshInstance = new pc.MeshInstance(mesh, material);
+        if (meshInstanceList && meshInstanceList.length > 0) {
             const instancedList = new GPUInstancedList(this.device, this.capacity);
-            meshInstance.setInstancing(instancedList.instancingBuffer, false);
-            render = new LODRender(instancedList, [meshInstance]);
+            render = new LODRender(instancedList, meshInstanceList, root);
+            this.patchMeshInstancesMaterials(meshInstanceList);
         }
 
         lods.splice(index, 0, {
@@ -320,10 +363,6 @@ export class HierarchicalInstancer implements IInstancer {
             hysteresis,
             render
         });
-
-        if (material) {
-            this._patchMaterial(material);
-        }
     }
 
     protected _updateLevel(lods: ILODLevel[], levelIndex: number, distance: number | null = null, hysteresis: number | null = null) {
@@ -362,26 +401,26 @@ export class HierarchicalInstancer implements IInstancer {
         return removedObj;
     }
 
-    public updateMaterials() {
+    public patchMeshInstancesMaterials(meshInstanceList: pc.MeshInstance[]) {
+        const numMeshes = meshInstanceList.length;
+        for (let i = 0; i < numMeshes; i++) {
+            const mesh = meshInstanceList[i];
+            const material = mesh.material;
+            if (material instanceof pc.StandardMaterial) {
+                this._patchMaterial(material);
+                mesh.material = material;
+            }
+        }
+    }
 
+    public updateMaterials() {
         const levels = this.LODs;
         const numLevels = levels.length;
-
         for (let levelIndex = 0; levelIndex < numLevels; levelIndex++) {
-
-            const level = levels[levelIndex];
+            const level  = levels[levelIndex];
             const render = level.render;
-
             if (render) {
-                render.meshes.forEach(x => {
-
-                    const material = x.material as pc.StandardMaterial;
-
-                    // TODO: check is pc.StandardMaterial ?
-                    this._patchMaterial(material);
-
-                    x.material = material;
-                });
+                this.patchMeshInstancesMaterials(render.meshes);
             }
         }
     }
@@ -508,7 +547,7 @@ export class HierarchicalInstancer implements IInstancer {
      * @param matrix Optional `Mat4` to store the result.
      * @returns The transformation matrix of the instance.
      */
-    public getMatrixAt(id: number, matrix = _tempMat4): pc.Mat4 {
+    public getMatrixAt(id: number, matrix = _tempMat42): pc.Mat4 {
         const outData = matrix.data;
         const inData = this.matricesTexture.data;
         const offset = id * 16;
@@ -524,7 +563,7 @@ export class HierarchicalInstancer implements IInstancer {
      * @param target Optional `Vec3` to store the result.
      * @returns The position of the instance as a `Vec3`.
      */
-    public getPositionAt(index: number, target = _position): pc.Vec3 {
+    public getPositionAt(index: number, target = _tempVec31): pc.Vec3 {
         const offset = index * 16;
         const array = this.matricesTexture.data;
         target.x = array[offset + 12];
@@ -747,8 +786,8 @@ export class HierarchicalInstancer implements IInstancer {
                 if (level === null) {
 
                     // distance can be get by BVH, but is not the distance from center
-                    const pos = this.getPositionAt(index, _position);
-                    const tmp = _tmpVec3.sub2(pos, cameraPosition);
+                    const pos = this.getPositionAt(index, _tempVec31);
+                    const tmp = _tempVec32.sub2(pos, cameraPosition);
 
                     distance = tmp.lengthSq();
                     level = this.getObjectLODIndexForDistance(lods, distance);
@@ -772,7 +811,7 @@ export class HierarchicalInstancer implements IInstancer {
             if (!this.getActiveAndVisibilityAt(i)) continue;
 
             const maxScale = this.getPositionAndMaxScaleOnAxisAt(i, _sphere.center);
-            const relativeCenterOfCamera = _tmpVec3.sub2(_sphere.center, cameraPosition);
+            const relativeCenterOfCamera = _tempVec32.sub2(_sphere.center, cameraPosition);
             const distance = relativeCenterOfCamera.lengthSq();
             const level = this.getObjectLODIndexForDistance(lods, distance);
 
@@ -823,7 +862,7 @@ export class HierarchicalInstancer implements IInstancer {
 
             if (camera.frustum.containsSphere(_sphere) > 0) {
 
-                const relativeCenterOfCamera = _tmpVec3.sub2(_sphere.center, cameraPosition);
+                const relativeCenterOfCamera = _tempVec32.sub2(_sphere.center, cameraPosition);
                 const distance = relativeCenterOfCamera.lengthSq();
                 const level = this.getLODIndexAndWeight(lods, distance);
                 const levelRender = lods[level.index].render;
@@ -973,8 +1012,9 @@ export class HierarchicalInstancer implements IInstancer {
 }
 
 const _defaultCapacity = 1000;
-const _tmpVec3 = new pc.Vec3();
 const _sphere = new pc.BoundingSphere();
 const _tempCol = new pc.Color();
-const _tempMat4 = new pc.Mat4();
-const _position = new pc.Vec3();
+const _tempMat41 = new pc.Mat4();
+const _tempMat42 = new pc.Mat4();
+const _tempVec31 = new pc.Vec3();
+const _tempVec32 = new pc.Vec3();
