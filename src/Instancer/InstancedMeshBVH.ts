@@ -99,7 +99,7 @@ export class InstancedMeshBVH<TObject, TBoxType extends BoxType> {
 
         this.target = target;
         this.accurateCulling = accurateCulling;
-        this.geoBoundingBox = this.target.computeInstanceMaxBoundingBox();
+        this.geoBoundingBox = this.target.computeMaxInstanceBoundingBox();
 
         this._margin = margin;
 

@@ -108,14 +108,37 @@ export class LODRender {
         this.sortObjects = needSortObjects;
     }
 
-    public computeInstanceMaxBoundingBox(): pc.BoundingBox {
+    public computeMaxMeshBoundingBox(): pc.BoundingBox | null {
+
         const meshes = this.meshes;
         const numMeshes = meshes.length;
-        const aabb = meshes[0].aabb.clone();
-        for (let i = 1; i < numMeshes; i++) {
-            aabb.add(meshes[i].aabb);
+
+        if (this.root) {
+            _tempMat41.invert(this.root.getWorldTransform());
         }
-        return aabb;
+
+        let result: pc.BoundingBox | null = null;
+
+        for (let i = 0; i < numMeshes; i++) {
+
+            const meshAABB = meshes[i].mesh.aabb;
+
+            // Calculate the bounding box in local space of root,
+            // to be able to use it for frustum culling without update matrixes on cpu
+            if (this.root) {
+                const meshWorldMatrix = meshes[i].node.getWorldTransform();
+                const meshLocalMatrix = _tempMat42.mul2(_tempMat41, meshWorldMatrix);
+                _tempBoundingBox.setFromTransformedAabb(meshAABB, meshLocalMatrix, false);
+                result ??= _tempBoundingBox.clone();
+                result.add(_tempBoundingBox);
+            }
+            else {
+                result ??= meshAABB.clone();
+                result.add(meshAABB);
+            }
+        }
+
+        return result;
     }
 
     public start() {
@@ -142,7 +165,7 @@ export class LODRender {
         this.list.update();
 
         if (needUpdateMatrix) {
-            _tempMat41.copy(this.root.getWorldTransform()).invert();
+            _tempMat41.invert(this.root.getWorldTransform());
         }
 
         for (let i = 0; i < numMeshes; i++) {
@@ -191,6 +214,10 @@ export class HierarchicalInstancer implements IInstancer {
     /** @internal */ _perObjectFrustumCulled = true;
     /** @internal */ _sortObjects = false;
     /** @internal */ _useOpacity = false;
+
+    private _maxInstanceBoundingBox: pc.BoundingBox;
+    private _instanceAABBCenter: pc.Vec3 = new pc.Vec3();
+    private _instanceAABBRadius: number = 0;
 
     private _capacity: number;
     private _sharedDepthStore: Float32Array;
@@ -244,6 +271,7 @@ export class HierarchicalInstancer implements IInstancer {
 
         this.device = device;
 
+        this._maxInstanceBoundingBox = new pc.BoundingBox();
         this._sharedDepthStore = new Float32Array(capacity);
         this._sharedDepthStoreU = new Uint32Array(this._sharedDepthStore.buffer);
         this._sharedIndexes = new Uint32Array(capacity);
@@ -268,7 +296,7 @@ export class HierarchicalInstancer implements IInstancer {
         this._needUpdateMaterials = true;
     }
 
-    public computeInstanceMaxBoundingBox(): pc.BoundingBox {
+    public computeMaxInstanceBoundingBox(src?: pc.BoundingBox): pc.BoundingBox {
 
         // TODO: Ignore shadows ?
         const levels = this.LODs;
@@ -277,21 +305,19 @@ export class HierarchicalInstancer implements IInstancer {
             throw new Error("Lods empty");
         }
 
-        let boundingBox: pc.BoundingBox | undefined;
-
         for (let levelIdx = 0; levelIdx < levels.length; levelIdx++) {
-            const aabb = levels[levelIdx].render?.computeInstanceMaxBoundingBox();
+            const aabb = levels[levelIdx].render?.computeMaxMeshBoundingBox();
             if (aabb) {
-                boundingBox ??= aabb;
-                boundingBox.add(aabb);
+                src ??= aabb;
+                src.add(aabb);
             }
         }
 
-        if (!boundingBox) {
+        if (!src) {
             throw new Error("Failed to compute the bounding box for the mesh.");
         }
 
-        return boundingBox;
+        return src;
     }
 
     /**
@@ -311,6 +337,7 @@ export class HierarchicalInstancer implements IInstancer {
 
     public addLOD(meshInstanceList: pc.MeshInstance[] | null, root: pc.Entity | null, distance: number = 0, hysteresis: number = 0) {
         this._addLevel(this.LODs, meshInstanceList, root, distance, hysteresis);
+        this.updateInstanceBoundingBox();
     }
 
     public updateLOD(levelIndex: number, distance: number, hysteresis: number) {
@@ -324,7 +351,9 @@ export class HierarchicalInstancer implements IInstancer {
     }
 
     public remoteLOD(levelIndex: number, destroyObject: boolean = true) {
-        return this._removeLevel(this.LODs, levelIndex, destroyObject);
+        const removed = this._removeLevel(this.LODs, levelIndex, destroyObject);
+        this.updateInstanceBoundingBox();
+        return removed;
     }
 
     public addShadowLOD(meshInstanceList: pc.MeshInstance[] | null, root: pc.Entity | null, distance: number = 0, hysteresis: number = 0) {
@@ -425,6 +454,12 @@ export class HierarchicalInstancer implements IInstancer {
         }
     }
 
+    public updateInstanceBoundingBox() {
+        this.computeMaxInstanceBoundingBox(this._maxInstanceBoundingBox);
+        this._instanceAABBCenter.copy(this._maxInstanceBoundingBox.center);
+        this._instanceAABBRadius = this._maxInstanceBoundingBox.halfExtents.length();
+    }
+
     protected _patchMaterial(material: pc.StandardMaterial) {
 
         const glslChunks = material.getShaderChunks(pc.SHADERLANGUAGE_GLSL);
@@ -484,6 +519,7 @@ export class HierarchicalInstancer implements IInstancer {
 
         material.setAttribute("aInstanceIndex", instancingIndexSemantic);
         material.setParameter("uMatricesTexture", this.matricesTexture.texture);
+        material.setParameter("local_matrix_instance", pc.Mat4.IDENTITY.data);
 
         material.setDefine("INSTANCER_USE_CROSSFADE", true);
 
@@ -856,9 +892,10 @@ export class HierarchicalInstancer implements IInstancer {
 
             if (!this.getActiveAndVisibilityAt(i)) continue;
 
-            const maxScale = this.getPositionAndMaxScaleOnAxisAt(i, _sphere.center);
+            this.applyMatrixAtToSphere(i, _sphere, this._instanceAABBCenter, this._instanceAABBRadius);
 
-            _sphere.radius = maxScale;
+            //const maxScale = this.getPositionAndMaxScaleOnAxisAt(i, _sphere.center);
+            //_sphere.radius = this._instanceAABBRadius * maxScale;
 
             if (camera.frustum.containsSphere(_sphere) > 0) {
 
@@ -1013,6 +1050,7 @@ export class HierarchicalInstancer implements IInstancer {
 
 const _defaultCapacity = 1000;
 const _sphere = new pc.BoundingSphere();
+const _tempBoundingBox = new pc.BoundingBox();
 const _tempCol = new pc.Color();
 const _tempMat41 = new pc.Mat4();
 const _tempMat42 = new pc.Mat4();

@@ -6,5 +6,5 @@ export interface IInstancer {
     readonly matricesTexture: SquareDataTexture<Float32Array>;
     getActiveAt(id: number): boolean;
     getMatrixAt(id: number): pc.Mat4;
-    computeInstanceMaxBoundingBox(): pc.BoundingBox;
+    computeMaxInstanceBoundingBox(): pc.BoundingBox;
 }
