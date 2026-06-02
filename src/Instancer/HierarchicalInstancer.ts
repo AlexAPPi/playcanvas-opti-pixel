@@ -996,7 +996,7 @@ export class HierarchicalInstancer implements IInstancer {
             if (render) {
 
                 if (render.sortObjects) {
-                    render.list.sort(true, this._sharedIndexes, this._sharedDepthStoreU);
+                    render.list.sort(false, this._sharedIndexes, this._sharedDepthStoreU);
                 }
 
                 render.end();
