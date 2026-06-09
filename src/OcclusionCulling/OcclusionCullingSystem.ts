@@ -9,17 +9,18 @@ import { WebgpuOcclusionQueriesTester } from "./Queries/Webgpu/WebgpuOcclusionQu
 import { isGPU2CPUReadbackOcclusionCullingTester } from "./IOcclusionCullingTester.js";
 import { WebgpuHZBTester } from "./HZB/Webgpu/WebgpuHZBTester.js";
 import { QueriesDebugger } from "./Queries/QueriesDebugger.js";
+import { IAABBStore } from "../Extras/IAABBStore.js";
 
 export class OcclusionCullingSystem extends pc.EventHandler {
 
     public readonly app: pc.AppBase;
+    public readonly aabbStore: IAABBStore;
 
     public get camera() { return this._camera; };
     public set camera(value: pc.Camera | null) { this._camera = value; }
 
     private _camera: pc.Camera | null = null;
     private _active: boolean = false;
-    private _capacity: number = 5000;
     private _hzb: WebglHierarchicalZBuffer | WebgpuHierarchicalZBuffer | null = null;
     private _hzbTester: WebglHZBCPUFBTester | WebgpuHZBTester | null = null;
     private _hzbDebugger: HierarchicalZBufferDebugger | null = null;
@@ -45,15 +46,10 @@ export class OcclusionCullingSystem extends pc.EventHandler {
     public get queriesTester() { return this._queriesTester; }
     public get queriesDebugger() { return this._queriesDebugger; }
 
-    public get capacity() { return this._capacity; }
-    public set capacity(value: number) {
-        this.resize(value);
-    }
-
-    constructor(app: pc.AppBase, capacity: number = 5000) {
+    constructor(app: pc.AppBase, aabbStore: IAABBStore) {
         super();
         this.app = app;
-        this._capacity = capacity;
+        this.aabbStore = aabbStore;
         this._initHZB();
         this._initQueries();
         this._onHandles();
@@ -67,10 +63,9 @@ export class OcclusionCullingSystem extends pc.EventHandler {
         this._queriesTester?.destroy();
     }
 
-    public resize(value: number) {
-        this._capacity = value;
-        this._hzbTester?.resize(value);
-        this._queriesTester?.resize(value);
+    public resize() {
+        this._hzbTester?.resize();
+        this._queriesTester?.resize();
     }
 
     private _initHZB() {
@@ -83,8 +78,8 @@ export class OcclusionCullingSystem extends pc.EventHandler {
         if (this._hzb) {
 
             this._hzbTester =
-                this._hzb instanceof WebglHierarchicalZBuffer ? new WebglHZBCPUFBTester(this._hzb, this._capacity) :
-                this._hzb instanceof WebgpuHierarchicalZBuffer ? new WebgpuHZBTester(this._hzb, this._capacity) :
+                this._hzb instanceof WebglHierarchicalZBuffer ? new WebglHZBCPUFBTester(this._hzb, this.aabbStore) :
+                this._hzb instanceof WebgpuHierarchicalZBuffer ? new WebgpuHZBTester(this._hzb, this.aabbStore) :
                 null;
 
             this._hzbDebugger = new HierarchicalZBufferDebugger(this.app, this._hzbTester ?? this._hzb);
@@ -108,7 +103,7 @@ export class OcclusionCullingSystem extends pc.EventHandler {
 
     private _initQueries() {
         this._queriesTester =
-            this.app.graphicsDevice.isWebGL2 ? new WebglOcclusionQueriesTester(this.app, this._capacity) :
+            this.app.graphicsDevice.isWebGL2 ? new WebglOcclusionQueriesTester(this.app, this.aabbStore) :
             this.app.graphicsDevice.isWebGPU ? null : // TODO: webgpu now not supported
             null;
         

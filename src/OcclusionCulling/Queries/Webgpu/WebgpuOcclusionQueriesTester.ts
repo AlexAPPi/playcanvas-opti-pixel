@@ -1,6 +1,7 @@
 import pc from "../../../engine.js";
-import { IndexManager } from "../../../Extras/IndexManager.js";
+import { IAABBStore } from "../../../Extras/IAABBStore.js";
 import { IGPU2CPUReadbackOcclusionCullingTester, OCCLUSION_UNKNOWN, TOcclusionResult, TUnicalId } from "../../IOcclusionCullingTester.js";
+import { OCCLUSION_ALGORITHM_TYPE, OCCLUSION_ALGORITHM_TYPE_CONSERVATIVE } from "../Types.js";
 import { WebgpuOcclusionBoxMesh } from "./WebgpuOcclusionBoxMesh.js";
 
 export class WebgpuOcclusionQueriesTester implements IGPU2CPUReadbackOcclusionCullingTester {
@@ -10,18 +11,17 @@ export class WebgpuOcclusionQueriesTester implements IGPU2CPUReadbackOcclusionCu
     private _app: pc.AppBase;
     private _device: pc.WebgpuGraphicsDevice;
     private _mesh: WebgpuOcclusionBoxMesh;
-    private _store: pc.BoundingBox[] = [];
-    private _indexManager: IndexManager;
+    private _aabbStore: IAABBStore;
+    private _algorithmType: OCCLUSION_ALGORITHM_TYPE;
 
-    constructor(app: pc.AppBase, capacity: number) {
+    constructor(app: pc.AppBase, aabbStore: IAABBStore, algoritmType: OCCLUSION_ALGORITHM_TYPE = OCCLUSION_ALGORITHM_TYPE_CONSERVATIVE) {
 
         // @ts-ignore
         this._device = app.graphicsDevice;
         this._app = app;
-
-        this._store = new Array(capacity);
-        this._indexManager = new IndexManager(capacity);
-        this._mesh = new WebgpuOcclusionBoxMesh(this._device);
+        this._mesh = new WebgpuOcclusionBoxMesh(this._device, aabbStore);
+        this._aabbStore = aabbStore;
+        this._algorithmType = algoritmType;
     }
 
     public destroy() {
@@ -41,23 +41,14 @@ export class WebgpuOcclusionQueriesTester implements IGPU2CPUReadbackOcclusionCu
         return -1;
     }
 
-    public resize(capacity: number) {
-        this._store.length = capacity;
-        this._indexManager.resize(capacity);
+    public resize() {
     }
 
-    public lock(boundingBox: pc.BoundingBox, matrix?: pc.Mat4): number {
-
-        const index = this._indexManager.reserve();
-        const box = this._store[index] ?? new pc.BoundingBox();
-
-        box.setFromTransformedAabb(boundingBox, matrix ?? pc.Mat4.IDENTITY);
-
-        this._store[index] = box;
-        return index;
+    public lock(boundingBox: pc.BoundingBox, matrix?: pc.Mat4, extra1: number = 0, extra2: number = 0): TUnicalId {
+        return this._aabbStore.lock(boundingBox, matrix, extra1, extra2);
     }
 
-    public unlock(index: number): void {
-        this._indexManager.free(index);
+    public unlock(id: TUnicalId): void {
+        this._aabbStore.unlock(id);
     }
 }

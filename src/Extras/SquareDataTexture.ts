@@ -127,11 +127,14 @@ export class SquareDataTexture<TArray extends TypedArrayType> {
 
             newData.set(subData);
 
-            this._data = newData as any;
+            this._data = newData;
             this._rowToUpdate.length = size;
             this._rowToUpdate.fill(false);
+
+            // Workaround for resize texture
             this._texture._levels[0] = newData;
             this._texture.resize(size, size);
+            this._texture._levels[0] = newData;
         }
         else {
 

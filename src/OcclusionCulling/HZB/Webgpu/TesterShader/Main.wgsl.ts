@@ -1,7 +1,6 @@
 export default `
 
     struct Uniforms {
-        boundingBoxPixelsSizePerInstance: u32,
         metaDataPixelsSizePerInstance: u32,
         viewProjection: mat4x4<f32>,
         hzbUvFactor: vec2<f32>,
@@ -24,10 +23,11 @@ export default `
     @group(0) @binding(0) var<uniform> uniforms: Uniforms;
     @group(0) @binding(1) var hzb: texture_2d<{DEPTH_STORAGE_FORMAT}>;
     @group(0) @binding(2) var hzbSampler: sampler;
-    @group(0) @binding(3) var boundingBoxes: texture_2d<f32>;
-    @group(0) @binding(4) var indirectMetaData: texture_2d<u32>;
-    @group(0) @binding(5) var<storage, read> indirectDrawQueueBuffer: array<IndirectQueueItem>;
-    @group(0) @binding(6) var<storage, read_write> indirectDrawBuffer: array<DrawIndexedIndirectArgs>;
+    @group(0) @binding(3) var boundingBoxCenters: texture_2d<f32>;
+    @group(0) @binding(4) var boundingBoxHalfExtents: texture_2d<f32>;
+    @group(0) @binding(5) var indirectMetaData: texture_2d<u32>;
+    @group(0) @binding(6) var<storage, read> indirectDrawQueueBuffer: array<IndirectQueueItem>;
+    @group(0) @binding(7) var<storage, read_write> indirectDrawBuffer: array<DrawIndexedIndirectArgs>;
 
     @compute @workgroup_size({WORKGROUP_SIZE_X}, {WORKGROUP_SIZE_Y}, 1)
     fn main(@builtin(global_invocation_id) gid: vec3u) {

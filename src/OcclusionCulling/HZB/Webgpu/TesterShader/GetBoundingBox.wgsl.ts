@@ -8,16 +8,17 @@ export default `
 
     fn getBoundingBox(itemIndex: u32) -> BoundingBox {
 
-        let index = i32(itemIndex * uniforms.boundingBoxPixelsSizePerInstance);
-        let width = i32(textureDimensions(boundingBoxes).x);
+        // Textures size must be eq
+        let index = i32(itemIndex);
+        let width = i32(textureDimensions(boundingBoxCenters).x);
 
         let v = index / width;
         let u = index % width;
 
         var box: BoundingBox;
 
-        let data1 = textureLoad(boundingBoxes, vec2<i32>(u    , v), 0);
-        let data2 = textureLoad(boundingBoxes, vec2<i32>(u + 1, v), 0);
+        let data1 = textureLoad(boundingBoxCenters,     vec2<i32>(u, v), 0);
+        let data2 = textureLoad(boundingBoxHalfExtents, vec2<i32>(u, v), 0);
 
         box.center      = data1.xyz;
         box.halfExtents = data2.xyz;

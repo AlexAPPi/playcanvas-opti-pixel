@@ -12,8 +12,7 @@ import { getDebugInfo } from "../TesterDebugInfo.js";
 import type { IHierarchicalZBufferTester } from "../IHierarchicalZBufferTester.js";
 import type { IGPU2CPUReadbackOcclusionCullingTester, TOcclusionResult, TUnicalId } from "../../IOcclusionCullingTester.js";
 import { executeTransformFeedbackShader } from "../../../Extras/TransformFeedbackHelpers.js";
-import { IndexManager } from "../../../Extras/IndexManager.js";
-import { AABBDataTexture } from "../../../Extras/AABBDataTexture.js";
+import { IAABBStore } from "../../../Extras/IAABBStore.js";
 
 export function estimateReadbackDelayMs(
     avgFrameTimeMs: number,
@@ -37,12 +36,11 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
     private _hzbSizeScope: pc.ScopeId;
     private _screenSizeScope: pc.ScopeId;
     private _uHZBUvFactorScope: pc.ScopeId;
-    private _dataTextureScope: pc.ScopeId;
-    private _pixelsSizePerInstanceScope: pc.ScopeId;
+    private _centersTextureScope: pc.ScopeId;
+    private _halfExtentsTextureScope: pc.ScopeId;
     private _matrixViewProjectionScope: pc.ScopeId;
     private _queue: HZBTStateQueue;
-    private _indexManager: IndexManager;
-    private _aabbStore: AABBDataTexture;
+    private _aabbStore: IAABBStore;
     private _modelViewProjection = new pc.Mat4();
 
     private _lastTime: number;
@@ -56,11 +54,10 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
         this._updateShader();
     }
 
-    constructor(hzb: WebglHierarchicalZBuffer, capacity: number = 512) {
+    constructor(hzb: WebglHierarchicalZBuffer, aabbStore: IAABBStore) {
         this._hzb = hzb;
-        this._indexManager = new IndexManager(capacity, true);
-        this._aabbStore = new AABBDataTexture(hzb.device, capacity);
-        this._queue = new HZBTStateQueue(hzb.device, this._indexManager);
+        this._aabbStore = aabbStore;
+        this._queue = new HZBTStateQueue(hzb.device, aabbStore.indexManager);
         this._lastTime = performance.now();
         this._avgFrameTimeMs = 20;
         this._readbackIntervalMs = 20;
@@ -69,13 +66,11 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
     }
 
     public lock(boundingBox: pc.BoundingBox, matrix?: pc.Mat4, extra1: number = 0, extra2: number = 0): TUnicalId {
-        const index = this._indexManager.reserve();
-        this._aabbStore.enqueueAABBUpdate(index, boundingBox, matrix, extra1, extra2);
-        return index;
+        return this._aabbStore.lock(boundingBox, matrix, extra1, extra2);
     }
 
     public unlock(id: TUnicalId): void {
-        this._indexManager.free(id);
+        this._aabbStore.unlock(id);
     }
 
     private _clearScopes() {
@@ -86,8 +81,8 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
         this._uHZBUvFactorScope = this._hzb.device.scope.resolve("uHZBUvFactor");
         this._hzbSizeScope = this._hzb.device.scope.resolve("uHZBSize");
         this._screenSizeScope = this._hzb.device.scope.resolve("uScreenSize");
-        this._dataTextureScope = this._hzb.device.scope.resolve("uDataTexture");
-        this._pixelsSizePerInstanceScope = this._hzb.device.scope.resolve("uPixelsSizePerInstance");
+        this._centersTextureScope = this._hzb.device.scope.resolve("uCentersTexture");
+        this._halfExtentsTextureScope = this._hzb.device.scope.resolve("uHalfExtentsTexture");
         this._matrixViewProjectionScope = this._hzb.device.scope.resolve("uMatrixViewProjection");
         this._hzbScope1 = this._hzb.device.scope.resolve("uHZB1");
         this._hzbScope2 = this._hzb.device.scope.resolve("uHZB2");
@@ -163,12 +158,9 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
         this._clearScopes();
         this._shader?.destroy();
         this._queue?.destroy();
-        this._aabbStore?.destroy();
     }
 
-    public resize(count: number): void {
-        this._indexManager.resize(count);
-        this._aabbStore.resize(count);
+    public resize(): void {
         this._queue.resize();
     }
 
@@ -218,8 +210,8 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
             _hzbUvFactorArr[0] = uvFactor[0];
             _hzbUvFactorArr[1] = uvFactor[1];
 
-            this._pixelsSizePerInstanceScope.setValue(this._aabbStore.pixelsPerInstance);
-            this._dataTextureScope.setValue(this._aabbStore.texture);
+            this._centersTextureScope.setValue(this._aabbStore.centersTexture);
+            this._halfExtentsTextureScope.setValue(this._aabbStore.halfExtentsTexture);
             this._screenSizeScope.setValue(_screenSizeArr);
             this._hzbSizeScope.setValue(_hzbSizeArr);
             this._uHZBUvFactorScope.setValue(_hzbUvFactorArr);

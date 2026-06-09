@@ -2,6 +2,8 @@ import pc from "../../engine.js";
 import { OCCLUSION_OCCLUDED } from "../IOcclusionCullingTester.js";
 import { WebglOcclusionQueriesTester } from "./Webgl/WebglOcclusionQueriesTester.js";
 
+const _aabb = new pc.BoundingBox();
+
 export class QueriesDebugger {
 
     private _app: pc.AppBase;
@@ -18,15 +20,14 @@ export class QueriesDebugger {
             return;
         }
 
-        const boundingBox = this._tester.getBoundingBox(index);
+        this._tester.getBoundingBox(index, _aabb);
+
         const occlusionStatus = this._tester.getOcclusionStatus(index);
 
-        _minPoint.copy(boundingBox.center).sub(boundingBox.halfExtents);
-        _maxPoint.copy(boundingBox.center).add(boundingBox.halfExtents);
+        _minPoint.copy(_aabb.center).sub(_aabb.halfExtents);
+        _maxPoint.copy(_aabb.center).add(_aabb.halfExtents);
 
-        if (boundingBox) {
-            this._app.drawWireAlignedBox(_minPoint, _maxPoint, occlusionStatus === OCCLUSION_OCCLUDED ? pc.Color.RED : pc.Color.GREEN, false);
-        }
+        this._app.drawWireAlignedBox(_minPoint, _maxPoint, occlusionStatus === OCCLUSION_OCCLUDED ? pc.Color.RED : pc.Color.GREEN, false);
     }
 }
 

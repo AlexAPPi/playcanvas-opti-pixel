@@ -5,9 +5,8 @@ import getRectDepthCS from "./TesterShader/GetRectDepth.wgsl.js";
 import getDepthCS from "./TesterShader/GetDepth.wgsl.js";
 import mainCS from "./TesterShader/Main.wgsl.js";
 import pc from "../../../engine.js";
-import { AABBDataTexture } from "../../../Extras/AABBDataTexture.js";
+import { IAABBStore } from "../../../Extras/IAABBStore.js";
 import { GPUIndexQueue } from "../../../Extras/GPUIndexQueue.js";
-import { IndexManager } from "../../../Extras/IndexManager.js";
 import { IndirectMetaDataTexture } from "../../../Extras/IndirectMetaDataTexture.js";
 import { IGPUIndirectDrawOcclusionCullingTester, IPrimitive, TUnicalId, TUnicalQueueIndex } from "../../IOcclusionCullingTester";
 import { IHierarchicalZBufferTester } from "../IHierarchicalZBufferTester";
@@ -21,8 +20,7 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
     public shaderDebugName: string  = "WebgpuHZBTesterShader";
     public computeDebugName: string = "WebgpuHZBTesterCompute";
 
-    private _indexManager: IndexManager;
-    private _aabbStore: AABBDataTexture;
+    private _aabbStore: IAABBStore;
     private _metaStore: IndirectMetaDataTexture;
     private _indirect: GPUIndexQueue;
     private _hzb: WebgpuHierarchicalZBuffer;
@@ -39,14 +37,13 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
         this._updateShader();
     }
 
-    constructor(hzb: WebgpuHierarchicalZBuffer, capacity: number = 512, extraSize: number = 2) {
+    constructor(hzb: WebgpuHierarchicalZBuffer, aabbStore: IAABBStore, extraSize: number = 2) {
         this._hzb = hzb;
-        this._indexManager = new IndexManager(capacity, true);
-        this._aabbStore = new AABBDataTexture(hzb.device, capacity);
-        this._metaStore = new IndirectMetaDataTexture(hzb.device, capacity);
+        this._aabbStore = aabbStore;
+        this._metaStore = new IndirectMetaDataTexture(hzb.device, aabbStore.capacity);
 
         // extra must be 2 + (slot, instanceCount, ...)
-        this._indirect = new GPUIndexQueue(hzb.device, this._indexManager, false, Math.max(2, extraSize));
+        this._indirect = new GPUIndexQueue(hzb.device, aabbStore.indexManager, false, Math.max(2, extraSize));
         this._updateShader();
     }
 
@@ -54,26 +51,22 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
         this._clearScopes();
         this._computeShader?.destroy();
         this._compute?.destroy();
-        this._aabbStore?.destroy();
         this._metaStore?.destroy();
         this._indirect?.destroy();
     }
 
-    public resize(count: number): void {
-        this._indexManager.resize(count);
-        this._aabbStore.resize(count);
-        this._metaStore.resize(count);
+    public resize(): void {
+        const capacity = this._aabbStore.capacity;
+        this._metaStore.resize(capacity);
         this._indirect.resize();
     }
 
     public lock(boundingBox: pc.BoundingBox, matrix?: pc.Mat4, extra1: number = 0, extra2: number = 0): TUnicalId {
-        const index = this._indexManager.reserve();
-        this._aabbStore.enqueueAABBUpdate(index, boundingBox, matrix, extra1, extra2);
-        return index;
+        return this._aabbStore.lock(boundingBox, matrix, extra1, extra2);
     }
 
     public unlock(id: TUnicalId): void {
-        this._indexManager.free(id);
+        this._aabbStore.unlock(id);
     }
 
     private _clearScopes() {
@@ -146,7 +139,6 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
             // @ts-ignore
             computeUniformBufferFormats: {
                 ub: new pc.UniformBufferFormat(this._hzb.device, [
-                    new pc.UniformFormat("boundingBoxPixelsSizePerInstance", pc.UNIFORMTYPE_UINT),
                     new pc.UniformFormat("metaDataPixelsSizePerInstance", pc.UNIFORMTYPE_UINT),
                     new pc.UniformFormat("viewProjection", pc.UNIFORMTYPE_MAT4),
                     new pc.UniformFormat("hzbUvFactor", pc.UNIFORMTYPE_VEC3),
@@ -158,7 +150,8 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
             computeBindGroupFormat: new pc.BindGroupFormat(this._hzb.device, [
                 new pc.BindUniformBufferFormat("ub", pc.SHADERSTAGE_COMPUTE),
                 new pc.BindTextureFormat("hzb", pc.SHADERSTAGE_COMPUTE, pc.TEXTUREDIMENSION_2D, pc.SAMPLETYPE_UNFILTERABLE_FLOAT, true, 'hzbSampler'),
-                new pc.BindTextureFormat("boundingBoxes", pc.SHADERSTAGE_COMPUTE, pc.TEXTUREDIMENSION_2D, pc.SAMPLETYPE_UNFILTERABLE_FLOAT, false, null),
+                new pc.BindTextureFormat("boundingBoxCenters", pc.SHADERSTAGE_COMPUTE, pc.TEXTUREDIMENSION_2D, pc.SAMPLETYPE_UNFILTERABLE_FLOAT, false, null),
+                new pc.BindTextureFormat("boundingBoxHalfExtents", pc.SHADERSTAGE_COMPUTE, pc.TEXTUREDIMENSION_2D, pc.SAMPLETYPE_UNFILTERABLE_FLOAT, false, null),
                 new pc.BindTextureFormat("indirectMetaData", pc.SHADERSTAGE_COMPUTE, pc.TEXTUREDIMENSION_2D, pc.SAMPLETYPE_UINT, false, null),
                 new pc.BindStorageBufferFormat("indirectDrawQueueBuffer", pc.SHADERSTAGE_COMPUTE, true),
                 new pc.BindStorageBufferFormat("indirectDrawBuffer", pc.SHADERSTAGE_COMPUTE)
@@ -218,9 +211,9 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
             this._compute.setParameter("indirectDrawBuffer", this.hzb.device.indirectDrawBuffer!);
             this._compute.setParameter("hzb", hzbTexture);
             this._compute.setParameter("indirectMetaData", this._metaStore.texture);
-            this._compute.setParameter("boundingBoxes", this._aabbStore.texture);
+            this._compute.setParameter("boundingBoxCenters", this._aabbStore.centersTexture);
+            this._compute.setParameter("boundingBoxHalfExtents", this._aabbStore.halfExtentsTexture);
             this._compute.setParameter("indirectDrawQueueBuffer", this._indirect.buffer);
-            this._compute.setParameter("boundingBoxPixelsSizePerInstance", this._aabbStore.pixelsPerInstance);
             this._compute.setParameter("metaDataPixelsSizePerInstance", this._metaStore.pixelsPerInstance);
             this._compute.setParameter('viewProjection', this._modelViewProjection.data);
             this._compute.setParameter('hzbUvFactor', _hzbUvFactorArr);

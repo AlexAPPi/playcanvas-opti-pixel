@@ -13,7 +13,7 @@ import { IndexQueueEx } from "./Extras/IndexQueueEx.js";
 import { NumberQueue } from "./Extras/NumberQueue.js";
 import { Random } from "./Extras/Random.js";
 import { ReadbackQueue } from "./Extras/ReadbackQueue.js";
-import { SquareDataTexture } from "./Extras/SquareDataTexture.js";
+import { getPixelFormatByArrayType, getSquareTextureSize, SquareDataTexture } from "./Extras/SquareDataTexture.js";
 import { WebglReadbackBuffer } from "./Extras/WebglReadbackBuffer.js";
 import { HierarchicalInstancer } from "./Instancer/HierarchicalInstancer.js";
 import { HierarchicalZBufferDebugger } from "./OcclusionCulling/HZB/HierarchicalZBufferDebugger.js";
@@ -31,33 +31,15 @@ import { WebglFrameOcclusionQueries } from "./OcclusionCulling/Queries/Webgl/Web
 import { WebglOcclusionBoxMesh } from "./OcclusionCulling/Queries/Webgl/WebglOcclusionBoxMesh.js";
 import { WebglOcclusionQueriesTester } from "./OcclusionCulling/Queries/Webgl/WebglOcclusionQueriesTester.js";
 import { WebglQueryScope } from "./OcclusionCulling/Queries/Webgl/WebglQueryScope.js";
+import { IHierarchicalZBuffer } from "./OcclusionCulling/HZB/IHierarchicalZBuffer.js";
+import { WebglHierarchicalZBuffer } from "./OcclusionCulling/HZB/Webgl/WebglHierarchicalZBuffer.js";
+import { WebgpuHierarchicalZBuffer } from "./OcclusionCulling/HZB/Webgpu/WebgpuHierarchicalZBuffer.js";
+import { WebglHZBCPUFBTester } from "./OcclusionCulling/HZB/Webgl/WebglHZBCPUFBTester.js";
+import { WebgpuOcclusionQueriesTester } from "./OcclusionCulling/Queries/Webgpu/WebgpuOcclusionQueriesTester.js";
+import { AABBStore } from "./Extras/AABBStore.js";
+import { IAABBStore } from "./Extras/IAABBStore.js";
 
 export {
-    AABBDataTexture,
-    BitSet,
-    GPUAABBStore,
-    GPUBufferTool,
-    GPUElementQueue,
-    GPUIndexQueue,
-    ValueSortQueue,
-    IndexManager,
-    IndexQueue,
-    IndexQueueEx,
-    NumberQueue,
-    Random,
-    ReadbackQueue,
-    SquareDataTexture,
-    WebglReadbackBuffer,
-
-    BoxMesh,
-
-    WebglFrameOcclusionQueries,
-    WebglOcclusionBoxMesh,
-    WebglOcclusionQueriesTester,
-    WebglQueryScope,
-    isGPUOcclusionCullingTester,
-    isGPU2CPUReadbackOcclusionCullingTester,
-    isGPUIndirectDrawOcclusionCullingTester,
 
     FRUSTUM_UNKNOWN,
     FRUSTUM_OUTSIDE,
@@ -70,8 +52,46 @@ export {
     OCCLUSION_ALGORITHM_TYPE_CONSERVATIVE,
     OCCLUSION_ALGORITHM_TYPE_ACCURATE,
 
-    OcclusionCullingSystem,
+    AABBStore,
+    AABBDataTexture,
+
+    BitSet,
+    GPUAABBStore,
+    GPUBufferTool,
+    GPUElementQueue,
+    GPUIndexQueue,
+    ValueSortQueue,
+    IndexManager,
+    IndexQueue,
+    IndexQueueEx,
+    NumberQueue,
+    Random,
+    ReadbackQueue,
+    WebglReadbackBuffer,
+
+    SquareDataTexture,
+    getSquareTextureSize,
+    getPixelFormatByArrayType,
+
+    BoxMesh,
+
+    WebgpuOcclusionQueriesTester,
+
+    WebglFrameOcclusionQueries,
+    WebglOcclusionBoxMesh,
+    WebglOcclusionQueriesTester,
+    WebglQueryScope,
+    isGPUOcclusionCullingTester,
+    isGPU2CPUReadbackOcclusionCullingTester,
+    isGPUIndirectDrawOcclusionCullingTester,
+
+    WebglHierarchicalZBuffer,
+    WebgpuHierarchicalZBuffer,
+
+    WebglHZBCPUFBTester,
     WebgpuHZBTester,
+
+    OcclusionCullingSystem,
     HierarchicalZBufferDebugger,
 
     BVH,
@@ -81,6 +101,8 @@ export {
 };
 
 export type {
+    IAABBStore,
+    IHierarchicalZBuffer,
     IOcclusionCullingTester,
     IHierarchicalZBufferTester,
     IGPU2CPUReadbackOcclusionCullingTester,

@@ -1,7 +1,7 @@
+import pc from "../../../engine.js";
 import { IndexManager } from "../../../Extras/IndexManager.js";
 import { HZBTFState } from "./HZBTFState.js";
 import { OCCLUSION_UNKNOWN } from "../../IOcclusionCullingTester.js";
-import pc from "../../../engine.js";
 import { ReadbackQueue } from "../../../Extras/ReadbackQueue.js";
 
 export class HZBTStateQueue extends ReadbackQueue<HZBTFState> {
