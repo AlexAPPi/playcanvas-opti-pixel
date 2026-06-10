@@ -235,7 +235,21 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
         return state;
     }
 
-    public async execute(camera: pc.Camera) {
+    public execute(camera: pc.Camera) {
+
+        if (this.hzb.enabled) {
+
+            this._aabbStore.update();
+
+            const state = this._internalTest(camera);
+
+            if (state) {
+                state.beginRead();
+            }
+        }
+    }
+
+    public async executeAsync(camera: pc.Camera) {
 
         if (this.hzb.enabled) {
 

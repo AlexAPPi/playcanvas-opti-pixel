@@ -1,6 +1,7 @@
 export interface IReadbackQueueItemReader {
     count: number;
     lock: boolean;
+    frameUpdate(): void;
     abortRead(): void;
     resize(): void;
     clear(): void;
@@ -112,6 +113,8 @@ export abstract class ReadbackQueue<TReader extends IReadbackQueueItemReader> {
 
             const reader = this._usedReaders[i];
 
+            reader.frameUpdate();
+
             if (!reader.lock) {
 
                 this._finishedReader = reader;
@@ -122,8 +125,8 @@ export abstract class ReadbackQueue<TReader extends IReadbackQueueItemReader> {
 
                     for (let j = 0; j < i; j++) {
 
-                        this._freeReaders.push(this._usedReaders[j]);
                         this._usedReaders[j].abortRead();
+                        this._freeReaders.push(this._usedReaders[j]);
                     }
 
                     this._usedReaders.splice(0, i);

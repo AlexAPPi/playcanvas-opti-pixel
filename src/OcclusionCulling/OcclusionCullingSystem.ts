@@ -127,9 +127,7 @@ export class OcclusionCullingSystem extends pc.EventHandler {
             }
 
             if (isGPU2CPUReadbackOcclusionCullingTester(this._hzbTester)) {
-                this._hzbTester
-                    .execute(this._camera)
-                    .catch(console.error);
+                this._hzbTester.execute(this._camera);
             }
         }
     }

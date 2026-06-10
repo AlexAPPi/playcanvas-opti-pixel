@@ -73,7 +73,7 @@ export class HZBTFState {
         }
 
         // See shader function getFlags
-        const value = (this.data[index] >>> 0) & 0x3;
+        const value = this.data[index] & 0x3;
         if (value === 1) {
             return OCCLUSION_OCCLUDED;
         }
@@ -84,6 +84,51 @@ export class HZBTFState {
     public abortRead() {
         this.outputBuffer.abortRead();
         this._lock = false;
+    }
+
+    protected _fillFromBuffer(resultCount: number) {
+
+        const indexes = this.indexQueue.indexes;
+        const outData = this.outputBuffer.storageData;
+
+        for (let i = 0; i < resultCount; i++) {
+            const dataIndex = indexes[i];
+            this.data[dataIndex] = outData[i];
+            this.keyStore.set(dataIndex, true);
+        }
+    }
+
+    public beginRead(): void {
+
+        if (this._lock) {
+            throw new Error("Reading started earlier");
+        }
+
+        const targetResultCount = Math.min(this.indexQueue.count, this.data.length);
+
+        // Skip empty read
+        if (targetResultCount > 0) {
+            this.outputBuffer.beginRead(targetResultCount);
+            this._lock = true;
+        }
+    }
+
+    public frameUpdate(): number {
+
+        if (this._lock) {
+
+            const resultCount = this.outputBuffer.checkRead();
+
+            if (resultCount !== -1) {
+
+                this._lock = false;
+                this._fillFromBuffer(resultCount);
+
+                return resultCount;
+            }
+        }
+
+        return -1;
     }
 
     public async read(intervalMs: number) {
@@ -100,14 +145,7 @@ export class HZBTFState {
 
                 if (this._lock) {
 
-                    const indexes = this.indexQueue.indexes;
-                    const outData = this.outputBuffer.storageData;
-
-                    for (let i = 0; i < resultCount; i++) {
-                        const dataIndex = indexes[i];
-                        this.data[dataIndex] = outData[i];
-                        this.keyStore.set(dataIndex, true);
-                    }
+                    this._fillFromBuffer(resultCount);
                 }
             }
 
