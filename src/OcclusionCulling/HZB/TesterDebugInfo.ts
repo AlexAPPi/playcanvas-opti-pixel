@@ -110,14 +110,8 @@ export function getDebugInfo(
     const extent = new pc.Vec2().sub2(_rectMax2, _rectMin2);
     const viewSize = new pc.Vec2().mul2(extent, hzbSize);
 
-    const hzbFactor = new pc.Vec2(
-        tester.hzb.screenWidth  / (2 * tester.hzb.width),
-        tester.hzb.screenHeight / (2 * tester.hzb.height)
-    );
-
     return {
         inFrustum: _rectMax.z < 1,
-        factor: hzbFactor,
         lod: level,
         viewSize,
         boundingBox: {
@@ -125,12 +119,6 @@ export function getDebugInfo(
             halfExtents: box.halfExtents,
         },
         rectangleScreen: {
-            x: (_rectMin2.x + extent.x / 2) * 2 - 1,
-            y: (_rectMin2.y + extent.y / 2) * 2 - 1,
-            width: extent.x * 2,
-            height: extent.y * 2,
-        },
-        rectangleDepth: {
             x: (_rectMin2.x + extent.x / 2) * 2 - 1,
             y: (_rectMin2.y + extent.y / 2) * 2 - 1,
             width: extent.x * 2,

@@ -88,7 +88,7 @@ export class HierarchicalZBufferDebugger {
         }
     }
 
-    public debugBuffer(i: number, x: number, y: number, width: number, height: number) {
+    public debugBuffer(i: number, x: number, y: number, width: number, height: number, adaptive: boolean = false) {
 
         if (!this.hzb.texture && !this.hzb.buffers) {
             return;
@@ -96,16 +96,18 @@ export class HierarchicalZBufferDebugger {
 
         const buffer = (this.hzb.buffers?.[i] ?? this.hzb.texture)!;
         const debugMaterial = new pc.ShaderMaterial();
+        const uvFactor = adaptive ? this.hzb.uvFactor : [1, 1];
         debugMaterial.cull = pc.CULLFACE_NONE;
         debugMaterial.shaderDesc = this._debugTextureShaderDesc;
+        debugMaterial.setParameter("uHZBFactor", uvFactor);
         debugMaterial.setParameter("uDepthMip", buffer);
         debugMaterial.setParameter("uDepthMipLevel", i);
         debugMaterial.update();
         this._app.drawTexture(x, y, width, height, buffer, debugMaterial);
     }
 
-    public debugMipLevel(level: number) {
-        this.debugBuffer(level, 0, 0, 2, 2);
+    public debugMipLevel(level: number, adaptive: boolean = true) {
+        this.debugBuffer(level, 0, 0, 2, 2, adaptive);
     }
 
     public debugItem(index: number, box: boolean = true, rect: boolean = true, mipLevel: boolean = true) {
@@ -115,7 +117,7 @@ export class HierarchicalZBufferDebugger {
         }
 
         const info = this._tester.getDebugInfo(index);
-        const rectangle = mipLevel ? info.rectangleDepth : info.rectangleScreen;
+        const rectangle = info.rectangleScreen;
         const boundingBox = info.boundingBox;
 
         let occlusionStatus = OCCLUSION_UNKNOWN;

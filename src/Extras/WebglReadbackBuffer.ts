@@ -50,7 +50,7 @@ export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer>> ext
         // dispose
         if (this._syncObject) {
             const gl = this.device.gl;
-            gl.deleteSync(this._syncObject);
+            gl?.deleteSync(this._syncObject);
             this._syncObject = null;
         }
     }
@@ -72,11 +72,11 @@ export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer>> ext
 
     protected _clientWaitAsync(currentVersion: number, flags: number, interval: number): Promise<boolean> {
 
-        const self = this;
-
         return new Promise<boolean>((resolve, reject) => {
 
-            const tmpSync = self._fenceSync();
+            const self = this;
+            const tmpSync = this._fenceSync();
+
             if (!tmpSync) {
                 reject(new Error("failed fenceSync"));
                 return;

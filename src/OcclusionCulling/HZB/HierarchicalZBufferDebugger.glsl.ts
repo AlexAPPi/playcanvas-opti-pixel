@@ -5,6 +5,7 @@ export default `
     varying vec2 uv0;
 
     uniform vec4 camera_params;
+    uniform vec2 uHZBFactor;
     uniform float uDepthMipLevel;
     uniform highp sampler2D uDepthMip;
 
@@ -30,8 +31,13 @@ export default `
     }
 
     void main() {
-        vec2 uv = vec2(uv0.x, 1.0 - uv0.y);
-        float depth = getLinearScreenDepth(uv) * camera_params.x;
+
+        // We sample the UV coordinates relative to the Level 0 HZB mipmap canvas,
+        // since the rendering along the Y-axis was inverted.
+        vec2 factoredUv = uHZBFactor * uv0;
+        vec2 adaptedUv = vec2(factoredUv.x, uHZBFactor.y - factoredUv.y);
+
+        float depth = getLinearScreenDepth(adaptedUv) * camera_params.x;
         gl_FragColor = vec4(gammaCorrectOutput(vec3(depth)), 1.0);
     }
 `;
