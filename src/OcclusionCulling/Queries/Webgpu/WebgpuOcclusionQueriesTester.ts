@@ -14,6 +14,8 @@ export class WebgpuOcclusionQueriesTester implements IGPU2CPUReadbackOcclusionCu
     private _aabbStore: IAABBStore;
     private _algorithmType: OCCLUSION_ALGORITHM_TYPE;
 
+    public freeze: boolean = false;
+
     constructor(app: pc.AppBase, aabbStore: IAABBStore, algoritmType: OCCLUSION_ALGORITHM_TYPE = OCCLUSION_ALGORITHM_TYPE_CONSERVATIVE) {
 
         // @ts-ignore

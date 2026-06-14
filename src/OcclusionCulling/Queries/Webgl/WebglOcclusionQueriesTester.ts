@@ -18,6 +18,8 @@ export class WebglOcclusionQueriesTester implements IGPU2CPUReadbackOcclusionCul
     private _algorithmType: OCCLUSION_ALGORITHM_TYPE;
     private _aabbStore: IAABBStore;
 
+    public freeze: boolean = false;
+
     public get algoritmType() { return this._algorithmType; }
     public set algoritmType(value: OCCLUSION_ALGORITHM_TYPE) { this._algorithmType = value; }
     public get finishTime() { return this._finishFrame?.finishTime ?? -1; }
@@ -46,8 +48,11 @@ export class WebglOcclusionQueriesTester implements IGPU2CPUReadbackOcclusionCul
         }
 
         if (this._queue.length === 0) {
-            this._finishFrame?.destroy();
-            this._finishFrame = null;
+
+            if (!this.freeze) {
+                this._finishFrame?.destroy();
+                this._finishFrame = null;
+            }
         }
         else {
 
@@ -107,6 +112,12 @@ export class WebglOcclusionQueriesTester implements IGPU2CPUReadbackOcclusionCul
     }
 
     public enqueue(index: TUnicalId, algoritm: OCCLUSION_ALGORITHM_TYPE) {
+
+        // Ignore new tests
+        if (this.freeze) {
+            return -1;
+        }
+
         // Create new tmp frame for queue if not exists
         this._tmpFrame ??= new WebglFrameOcclusionQueries(this._device.gl, this._app.frame, this._mesh);
         return this._tmpFrame.add(index, algoritm ?? this._algorithmType);
