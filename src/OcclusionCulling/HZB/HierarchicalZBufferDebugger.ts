@@ -108,7 +108,7 @@ export class HierarchicalZBufferDebugger {
         this.debugBuffer(level, 0, 0, 2, 2, adaptive);
     }
 
-    public debugItem(index: number, box: boolean = true, rect: boolean = true, mipLevel: boolean = true) {
+    public debugItem(index: number, box: boolean = true, rect: boolean = true, mipLevel: boolean = true, adaptiveMipLevel: boolean = true) {
 
         if (!this._tester) {
             return;
@@ -125,7 +125,7 @@ export class HierarchicalZBufferDebugger {
         }
 
         if (mipLevel) {
-            this.debugMipLevel(info.lod);
+            this.debugMipLevel(info.lod, adaptiveMipLevel);
         }
 
         if (info.inFrustum) {
