@@ -20,7 +20,9 @@ export class OcclusionCullingSystem extends pc.EventHandler {
     public set camera(value: pc.Camera | null) { this._camera = value; }
 
     private _camera: pc.Camera | null = null;
-    private _active: boolean = false;
+    private _autoUpdate: boolean = false;
+    private _drawHZB: boolean = false;
+
     private _hzb: WebglHierarchicalZBuffer | WebgpuHierarchicalZBuffer | null = null;
     private _hzbTester: WebglHZBCPUFBTester | WebgpuHZBTester | null = null;
     private _hzbDebugger: HierarchicalZBufferDebugger | null = null;
@@ -38,8 +40,26 @@ export class OcclusionCullingSystem extends pc.EventHandler {
     public get hzbTester() { return this._hzbTester; }
     public get hzbDebugger() { return this._hzbDebugger; }
 
-    public get active(): boolean { return this._active; }
-    public set active(value: boolean) { this._active = value; }
+    public get drawHZB() { return this._drawHZB; }
+    public set drawHZB(value: boolean) { this._drawHZB = value; }
+
+    public get autoUpdate(): boolean { return this._autoUpdate; }
+    public set autoUpdate(value: boolean) {
+
+        if (this._autoUpdate !== value) {
+            this._offHandles();
+        }
+
+        this._autoUpdate = value;
+
+        if (this._queriesTester) {
+            this._queriesTester.freeze = !value;
+        }
+
+        if (this._autoUpdate) {
+            this._onHandles();
+        }
+    }
 
     public get queriesLayerName() { return this._queriesLayerName; }
     public set queriesLayerName(name: string) { this._queriesLayerName = name; }
@@ -106,21 +126,25 @@ export class OcclusionCullingSystem extends pc.EventHandler {
             this.app.graphicsDevice.isWebGL2 ? new WebglOcclusionQueriesTester(this.app, this.aabbStore) :
             this.app.graphicsDevice.isWebGPU ? null : // TODO: webgpu now not supported
             null;
-        
+
         if (this._queriesTester) {
             this._queriesDebugger = new QueriesDebugger(this.app, this._queriesTester);
         }
     }
 
     private _onFrameUpdate(ms: number) {
-        this._hzbDebugger?.debug(this.hzbDebugger?.hzb.mipLevels);
+
+        if (this.drawHZB) {
+            this._hzbDebugger?.debug(this.hzbDebugger?.hzb.mipLevels);
+        }
+
         this._hzbTester?.frameUpdate();
         this._queriesTester?.frameUpdate();
     }
 
     private _updateHZBAndHandleReadbackTester() {
 
-        if (this.active && this._camera) {
+        if (this._autoUpdate && this._camera) {
 
             if (this._hzb) {
                 this._hzb.update(this._camera);
@@ -142,8 +166,9 @@ export class OcclusionCullingSystem extends pc.EventHandler {
 
     private _onPostRenderLayer(renderCameraComponent: pc.CameraComponent, layer: pc.Layer, transperent: boolean) {
 
-        // Test after not transperent layer
+        // Test not in transperent layer
         if (!transperent &&
+            this._autoUpdate &&
             this._camera === renderCameraComponent.camera && 
             this._queriesLayerName === layer.name) {
             this._queriesTester?.execute(this._camera);
