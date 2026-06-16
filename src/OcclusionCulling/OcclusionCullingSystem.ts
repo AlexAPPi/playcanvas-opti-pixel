@@ -46,18 +46,10 @@ export class OcclusionCullingSystem extends pc.EventHandler {
     public get autoUpdate(): boolean { return this._autoUpdate; }
     public set autoUpdate(value: boolean) {
 
-        if (this._autoUpdate !== value) {
-            this._offHandles();
-        }
-
         this._autoUpdate = value;
 
         if (this._queriesTester) {
             this._queriesTester.freeze = !value;
-        }
-
-        if (this._autoUpdate) {
-            this._onHandles();
         }
     }
 
