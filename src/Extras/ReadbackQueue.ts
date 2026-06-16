@@ -123,6 +123,13 @@ export abstract class ReadbackQueue<TReader extends IReadbackQueueItemReader> {
                 // Outdated data can be ignored.
                 if (i > 0) {
 
+                    /*
+                    Where we can give warn:
+                    "performance warning: READ-usage buffer was written,
+                    then fenced, but written again before being read back.
+                    This discarded the shadow copy that was created to accelerate readback."
+                    */
+
                     for (let j = 0; j < i; j++) {
 
                         this._usedReaders[j].abortRead();
