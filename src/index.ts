@@ -1,9 +1,7 @@
 import { BVH } from "./BVH/BVH.js";
 import { HybridBuilder } from "./BVH/HybridBuilder.js";
-import { AABBDataTexture } from "./Extras/AABBDataTexture.js";
 import { BitSet } from "./Extras/BitSet.js";
 import { ValueSortQueue } from "./Extras/ValueSortQueue.js";
-import { GPUAABBStore } from "./Extras/GPUAABBStore.js";
 import { GPUBufferTool } from "./Extras/GPUBufferTool.js";
 import { GPUElementQueue } from "./Extras/GPUElementQueue.js";
 import { GPUIndexQueue } from "./Extras/GPUIndexQueue.js";
@@ -54,10 +52,8 @@ export {
     OCCLUSION_ALGORITHM_TYPE_ACCURATE,
 
     AABBStore,
-    AABBDataTexture,
 
     BitSet,
-    GPUAABBStore,
     GPUBufferTool,
     GPUElementQueue,
     GPUIndexQueue,
