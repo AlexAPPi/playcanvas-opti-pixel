@@ -24,7 +24,7 @@ export class GPUBufferTool {
                 const wgpu   = (device as any).wgpu as GPUDevice;
                 const buffer = vertexBuffer.impl.buffer as GPUBuffer;
 
-                const byteLength = length * data.BYTES_PER_ELEMENT;
+                const byteLength   = length * data.BYTES_PER_ELEMENT;
                 const paddedLength = Math.ceil(byteLength / 4) * 4;
 
                 wgpu.queue.writeBuffer(buffer, 0, data.buffer, 0, paddedLength);
