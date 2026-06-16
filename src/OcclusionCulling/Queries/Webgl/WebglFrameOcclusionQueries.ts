@@ -123,7 +123,7 @@ export class WebglFrameOcclusionQueries {
         return true;
     }
 
-    public resultAwailable() {
+    public resultAvailable() {
 
         if (this._processing) {
 

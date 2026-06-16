@@ -62,7 +62,7 @@ export class WebglOcclusionQueriesTester implements IGPU2CPUReadbackOcclusionCul
 
                 const frameState = this._queue[i];
 
-                if (frameState.resultAwailable()) {
+                if (frameState.resultAvailable()) {
 
                     this._finishFrame?.destroy();
                     this._finishFrame = frameState;

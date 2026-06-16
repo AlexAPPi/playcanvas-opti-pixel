@@ -126,7 +126,7 @@ export class WebgpuFrameOcclusionQueries {
         return true;
     }
 
-    public resultAwailable() {
+    public resultAvailable() {
         return this._processing;
     }
 }
