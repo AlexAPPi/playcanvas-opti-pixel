@@ -97,5 +97,7 @@ export class GPUIndexQueue {
                 this._indexQueue.size
             );
         }
+
+        this.clear();
     }
 }
