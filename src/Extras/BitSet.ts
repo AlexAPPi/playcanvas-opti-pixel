@@ -58,6 +58,34 @@ export class BitSet {
         }
     }
 
+    public exchange(index: number, value: boolean): boolean {
+
+        if (this._cleanValue !== value) {
+            this._clean = false;
+        }
+        else if (this._clean) {
+
+            // Array cleaned and set clean value
+            // not need update
+            return this._cleanValue;
+        }
+
+        const word = index >>> 5;
+        const bit  = index & 31;
+        const prev = ((this._array[word] >>> bit) & 1) !== 0;
+
+        if (prev !== value) {
+
+            if (value) {
+                this._array[word] |= (1 << bit);
+            } else {
+                this._array[word] &= ~(1 << bit);
+            }
+        }
+
+        return prev;
+    }
+
     public forEachFilter(value: boolean, callback: TOkForeachCallback): void {
 
         const size = this._size;
