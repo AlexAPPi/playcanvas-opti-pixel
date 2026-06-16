@@ -21,6 +21,7 @@ import { IHierarchicalZBufferTester } from "./OcclusionCulling/HZB/IHierarchical
 import { WebgpuHZBTester } from "./OcclusionCulling/HZB/Webgpu/WebgpuHZBTester.js";
 import { FRUSTUM_CONTAINED, FRUSTUM_INTERSECTS, FRUSTUM_OUTSIDE, FRUSTUM_UNKNOWN,
     IGPU2CPUReadbackOcclusionCullingTester, IGPUIndirectDrawOcclusionCullingTester, IOcclusionCullingTester,
+    IPrimitive,
     isGPU2CPUReadbackOcclusionCullingTester, isGPUIndirectDrawOcclusionCullingTester, isGPUOcclusionCullingTester,
     OCCLUSION_OCCLUDED, OCCLUSION_UNKNOWN, OCCLUSION_VISIBLE
 } from "./OcclusionCulling/IOcclusionCullingTester.js";
@@ -101,6 +102,7 @@ export {
 };
 
 export type {
+    IPrimitive,
     IAABBStore,
     IHierarchicalZBuffer,
     IOcclusionCullingTester,
