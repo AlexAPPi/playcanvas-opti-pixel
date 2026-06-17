@@ -13,12 +13,12 @@ export abstract class IndexedStorageBuffer<TData extends StorageTypedArrayType> 
     protected _data: TData;
     protected _buffer: pc.StorageBuffer;
     protected _bitSet: BitSet;
-    protected _capacity: number;
-    protected _count: number;
+    protected _capacity: number = 0; 
+    protected _dirty: boolean = false;
 
     public get buffer() { return this._buffer; }
     public get capacity() { return this._capacity; }
-    public get count() { return this._count; }
+    public get dirty() { return this._dirty; }
 
     public constructor(device: pc.WebgpuGraphicsDevice, arrayConstructor: TypedArrayConstructorType<TData>, elementsPerIndex: number = 1, capacity: number = 512) {
         this.device = device;
@@ -33,7 +33,7 @@ export abstract class IndexedStorageBuffer<TData extends StorageTypedArrayType> 
 
     public reset() {
         this._bitSet.clear();
-        this._count = 0;
+        this._dirty = false;
     }
 
     public resize(capacity: number) {
@@ -64,7 +64,7 @@ export abstract class IndexedStorageBuffer<TData extends StorageTypedArrayType> 
 
         // Prev value false
         if (this._bitSet.exchange(index, true) === false) {
-            this._count++;
+            this._dirty = true;
             return true;
         }
 
@@ -73,7 +73,7 @@ export abstract class IndexedStorageBuffer<TData extends StorageTypedArrayType> 
 
     public update(maxBatchSizeBytes: number = 1024) {
 
-        if (this._count < 1) {
+        if (!this._dirty) {
             return;
         }
 
