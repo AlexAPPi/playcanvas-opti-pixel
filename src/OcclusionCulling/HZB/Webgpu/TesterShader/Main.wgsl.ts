@@ -57,7 +57,7 @@ export default `
             let cullResult   = cullBoundingBox(boundingBox);
 
             let slot = queueItem.slot;
-            let instanceCount = 1u;//select(indirectData.instanceCount, 0u, cullResult == 0);
+            let instanceCount = select(indirectData.instanceCount, 0u, cullResult == 0);
 
             // TODO: Consider other logics for separating buffers
             if (indirectData.baseVertexOrNonIndexedSign == uniforms.nonIndexedSign) {
