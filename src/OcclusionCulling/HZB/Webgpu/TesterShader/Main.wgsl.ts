@@ -44,7 +44,7 @@ export default `
     @group(0) @binding(6) var<storage, read> indirectDrawQueueBuffer: array<IndirectQueueItem>;
     @group(0) @binding(7) var<storage, read_write> indirectDrawBuffer: array<DrawIndirectFlexArgs>;
 
-    @compute @workgroup_size({WORKGROUP_SIZE_X}, {WORKGROUP_SIZE_Y}, 1)
+    @compute @workgroup_size({WORKGROUP_SIZE_X}, 1, 1)
     fn main(@builtin(global_invocation_id) gid: vec3u) {
 
         let index = gid.x;
@@ -57,7 +57,7 @@ export default `
             let cullResult   = cullBoundingBox(boundingBox);
 
             let slot = queueItem.slot;
-            let instanceCount = select(indirectData.instanceCount, 0u, cullResult == 0);
+            let instanceCount = 1u;//select(indirectData.instanceCount, 0u, cullResult == 0);
 
             // TODO: Consider other logics for separating buffers
             if (indirectData.baseVertexOrNonIndexedSign == uniforms.nonIndexedSign) {

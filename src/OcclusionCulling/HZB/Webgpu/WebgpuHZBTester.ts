@@ -29,7 +29,6 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
     private _cameraPosition = new pc.Vec3();
 
     private _workgroupSizeX: number = 64;
-    private _workgroupSizeY: number = 1;
 
     public get hzb() { return this._hzb; }
     public set hzb(v: WebgpuHierarchicalZBuffer) {
@@ -104,7 +103,6 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
         cdefines.set("{MIN_LEVEL}", minLevel.toFixed(1));
         cdefines.set("{MAX_LEVEL}", maxLevel.toFixed(1));
         cdefines.set("{WORKGROUP_SIZE_X}", this._workgroupSizeX.toFixed(0));
-        cdefines.set("{WORKGROUP_SIZE_Y}", this._workgroupSizeY.toFixed(0));
 
         cincludes.set("mainCS", mainCS);
         cincludes.set("getDepthCS", getDepthCS);
