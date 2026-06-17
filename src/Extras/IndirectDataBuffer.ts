@@ -18,26 +18,9 @@ export class IndirectDataBuffer extends IndexedStorageBuffer<Uint32Array> {
 
     public readonly nonIndexedSign: number;
 
-    private _minQueueIndex: number;
-    private _maxQueueIndex: number;
-
     public constructor(device: pc.WebgpuGraphicsDevice, capacity: number = 512, nonIndexedSign: number = defaultNonIndexedSign) {
         super(device, Uint32Array, elementsPerIndex, capacity);
         this.nonIndexedSign = nonIndexedSign;
-    }
-
-    public override reset() {
-        super.reset();
-        this._minQueueIndex = Number.MAX_SAFE_INTEGER;
-        this._maxQueueIndex = Number.MIN_SAFE_INTEGER;
-    }
-
-    protected override _enqueueUpdate(index: number) {
-
-        if (this._minQueueIndex > index) this._minQueueIndex = index;
-        if (this._maxQueueIndex < index) this._maxQueueIndex = index;
-
-        return super._enqueueUpdate(index);
     }
 
     public tryEnqueueUpdate(index: number, primitive: IPrimitive, instanceCount: number = 1, firstInstance: number = 0) {
@@ -51,28 +34,40 @@ export class IndirectDataBuffer extends IndexedStorageBuffer<Uint32Array> {
         const firstIndexOrVertex = primitive.base;
         const baseVertexOrNonIndexedSign = (primitive.indexed ? primitive.baseVertex >>> 0 : this.nonIndexedSign);
 
-        if (data[dataIndex] !== indexOrVertexCount) {
-            data[dataIndex] = indexOrVertexCount;
+        const dataIndex0 = dataIndex;
+        const dataIndex1 = dataIndex + 1;
+        const dataIndex2 = dataIndex + 2;
+        const dataIndex3 = dataIndex + 3;
+        const dataIndex4 = dataIndex + 4;
+
+        if (data[dataIndex0] !== indexOrVertexCount) {
+            data[dataIndex0] = indexOrVertexCount;
+            data[dataIndex1] = instanceCount;
+            data[dataIndex2] = firstIndexOrVertex;
+            data[dataIndex3] = baseVertexOrNonIndexedSign;
+            data[dataIndex4] = firstInstance;
             differences = true;
         }
-
-        if (data[dataIndex + 1] !== instanceCount) {
-            data[dataIndex + 1] = instanceCount;
+        else if (data[dataIndex1] !== instanceCount) {
+            data[dataIndex1] = instanceCount;
+            data[dataIndex2] = firstIndexOrVertex;
+            data[dataIndex3] = baseVertexOrNonIndexedSign;
+            data[dataIndex4] = firstInstance;
             differences = true;
         }
-
-        if (data[dataIndex + 2] !== firstIndexOrVertex) {
-            data[dataIndex + 2] = firstIndexOrVertex;
+        else if (data[dataIndex2] !== firstIndexOrVertex) {
+            data[dataIndex2] = firstIndexOrVertex;
+            data[dataIndex3] = baseVertexOrNonIndexedSign;
+            data[dataIndex4] = firstInstance;
             differences = true;
         }
-
-        if (data[dataIndex + 3] !== baseVertexOrNonIndexedSign) {
-            data[dataIndex + 3] !== baseVertexOrNonIndexedSign;
+        else if (data[dataIndex3] !== baseVertexOrNonIndexedSign) {
+            data[dataIndex3] !== baseVertexOrNonIndexedSign;
+            data[dataIndex4] = firstInstance;
             differences = true;
         }
-
-        if (data[dataIndex + 4] !== firstInstance) {
-            data[dataIndex + 4] = firstInstance;
+        else if (data[dataIndex4] !== firstInstance) {
+            data[dataIndex4] = firstInstance;
             differences = true;
         }
 
