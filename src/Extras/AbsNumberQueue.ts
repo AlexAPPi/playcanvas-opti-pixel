@@ -55,7 +55,7 @@ export abstract class AbsNumberQueue<TArray extends TypedArrayType> {
         for (let k = 0; k < itemSize; k++) {
             const idxI = baseI + k;
             const idxJ = baseJ + k;
-            const tmp = queue[idxI];
+            const tmp  = queue[idxI];
             queue[idxI] = queue[idxJ];
             queue[idxJ] = tmp;
         }
@@ -75,25 +75,26 @@ export abstract class AbsNumberQueue<TArray extends TypedArrayType> {
 
     public enqueue(index: number, extra?: number | number[] | TArray): number {
 
+        const itemSize   = this._itemSize;
         const queueIndex = this._count++;
-        const indexIndex = queueIndex * this._itemSize;
-        const oldIndex = this._queue[indexIndex];
+        const indexIndex = queueIndex * itemSize;
+        const oldIndex   = this._queue[indexIndex];
 
         if (oldIndex !== index) {
             this._dirty = true;
             this._queue[indexIndex] = index;
         }
 
-        if (this._itemSize > 1) {
+        if (itemSize > 1) {
 
             const normalizedExtra = typeof extra === "object";
             const defaultExtra = this._getDefaultExtra();
 
-            for (let i = 1; i < this._itemSize; i++) {
+            for (let i = 1; i < itemSize; i++) {
 
                 const extraIndex = indexIndex + i;
                 const extraValue = normalizedExtra ? extra[i - 1] : extra;
-                const newExtra = extraValue ?? defaultExtra;
+                const newExtra   = extraValue ?? defaultExtra;
 
                 // Update always if dirty
                 if (!this._dirty) {
