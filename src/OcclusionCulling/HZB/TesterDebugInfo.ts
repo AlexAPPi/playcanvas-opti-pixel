@@ -110,8 +110,13 @@ export function getDebugInfo(
     const extent = new pc.Vec2().sub2(_rectMax2, _rectMin2);
     const viewSize = new pc.Vec2().mul2(extent, hzbSize);
 
+    const inFrustumXY = _rectMax.x >= -1 && _rectMin.x <= 1 &&
+                        _rectMax.y >= -1 && _rectMin.y <= 1;
+
+    const inFrustumZ = _rectMax.z >= -1 && _rectMin.z <= 1;
+
     return {
-        inFrustum: _rectMax.z < 1,
+        inFrustum: inFrustumXY && inFrustumZ,
         lod: level,
         viewSize,
         boundingBox: {
