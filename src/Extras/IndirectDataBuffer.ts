@@ -62,7 +62,7 @@ export class IndirectDataBuffer extends IndexedStorageBuffer<Uint32Array> {
             differences = true;
         }
         else if (data[dataIndex3] !== baseVertexOrNonIndexedSign) {
-            data[dataIndex3] !== baseVertexOrNonIndexedSign;
+            data[dataIndex3] = baseVertexOrNonIndexedSign;
             data[dataIndex4] = firstInstance;
             differences = true;
         }
