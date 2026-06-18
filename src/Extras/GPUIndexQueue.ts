@@ -88,14 +88,16 @@ export class GPUIndexQueue {
 
     public update() {
 
-        if (this._indexQueue.count > 0 &&
-            this._indexQueue.dirty) {
+        if (this._indexQueue.dirty &&
+            this._indexQueue.count > 0) {
 
             GPUBufferTool.update(
                 this._buffer,
                 this._indexQueue.indexes,
                 this._indexQueue.size
             );
+
+            this._indexQueue.markClean();
         }
     }
 }

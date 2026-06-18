@@ -62,8 +62,12 @@ export abstract class AbsNumberQueue<TArray extends TypedArrayType> {
     }
 
     public clear(): void {
-        this._dirty = false;
+        this._dirty = true;
         this._count = 0;
+    }
+
+    public markClean(): void {
+        this._dirty = false;
     }
 
     public swap(i: number, j: number, markDirty: boolean = true): void {
