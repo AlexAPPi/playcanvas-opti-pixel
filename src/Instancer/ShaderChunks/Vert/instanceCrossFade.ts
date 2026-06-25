@@ -1,6 +1,7 @@
 export default `
 
     float getInstanceCrossFade() {
-        return float((aInstanceIndex >> 20u) & 0xffu) / 255.0;
+        const float INV_255 = 1.0 / 255.0;
+        return float((aInstanceIndex >> 20u) & 0xffu) * INV_255;
     }
 `;

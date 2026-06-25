@@ -37,6 +37,7 @@ import { WebglHZBCPUFBTester } from "./OcclusionCulling/HZB/Webgl/WebglHZBCPUFBT
 import { WebgpuOcclusionQueriesTester } from "./OcclusionCulling/Queries/Webgpu/WebgpuOcclusionQueriesTester.js";
 import { AABBStore } from "./Extras/AABBStore.js";
 import { IAABBStore } from "./Extras/IAABBStore.js";
+import { AbsHierarchicalInstancer } from "./Instancer/AbsHierarchicalInstancer.js";
 
 export {
 
@@ -95,6 +96,7 @@ export {
     HybridBuilder,
 
     HierarchicalInstancer,
+    AbsHierarchicalInstancer,
 };
 
 export type {
