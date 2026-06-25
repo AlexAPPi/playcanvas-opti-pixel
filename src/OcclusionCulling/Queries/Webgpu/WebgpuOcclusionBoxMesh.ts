@@ -22,14 +22,14 @@ export class WebgpuOcclusionBoxMesh extends BoxMesh<pc.WebgpuGraphicsDevice> {
         this.setPVMatrix(camera);
     }
 
-    public makeQuery(encoder: GPURenderPassEncoder, scope: WebgpuQueryScope, first: boolean = true, last: boolean = true) {
+    public makeQuery(encoder: GPURenderPassEncoder, key: number, scope: WebgpuQueryScope, first: boolean = true, last: boolean = true) {
 
-        this.setMMatrix(scope.box);
+        this.setMMatrix(key);
 
         const indexBuffer = this.mesh.indexBuffer[0];
         const primitive = this.mesh.primitive[0];
 
-        encoder.beginOcclusionQuery(scope.index);
+        encoder.beginOcclusionQuery(key);
 
         this.device.draw(primitive, indexBuffer, 1, undefined, first, last);
 

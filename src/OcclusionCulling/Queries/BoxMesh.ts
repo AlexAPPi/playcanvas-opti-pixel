@@ -3,6 +3,7 @@ import vertexGLSL from "./BoxMesh.vert.glsl.js";
 import fragmentGLSL from "./BoxMesh.frag.glsl.js";
 import vertexWGSL from "./BoxMesh.vert.wgsl.js";
 import fragmentWGSL from "./BoxMesh.frag.wgsl.js";
+import { IAABBStore } from "../../Extras/IAABBStore.js";
 
 const indices = new Uint16Array([
     0, 2, 1,
@@ -37,6 +38,7 @@ export class BoxMesh<TGraphicsDevice extends pc.GraphicsDevice> {
     private _mesh: pc.Mesh;
     private _shader: pc.Shader;
     private _device: TGraphicsDevice;
+    private _aabbStore: IAABBStore;
     private _pvmMatrixScopeId: pc.ScopeId;
     private _modelMatrix = new pc.Mat4();
     private _viewProjection = new pc.Mat4();
@@ -45,10 +47,12 @@ export class BoxMesh<TGraphicsDevice extends pc.GraphicsDevice> {
     public get mesh() { return this._mesh; }
     public get shader() { return this._shader; }
     public get device() { return this._device; }
+    public get aabbStore() { return this._aabbStore; }
 
-    constructor(device: TGraphicsDevice) {
+    constructor(device: TGraphicsDevice, aabbStore: IAABBStore) {
         this._device = device;
-        this._pvmMatrixScopeId = this._device.scope.resolve('matrix_modelViewProjectionOccCull');
+        this._aabbStore = aabbStore;
+        this._pvmMatrixScopeId = this._device.scope.resolve("matrix_modelViewProjectionOccCull");
         this._initBox();
         this._initShader();
     }
@@ -95,17 +99,9 @@ export class BoxMesh<TGraphicsDevice extends pc.GraphicsDevice> {
         });
     }
 
-    public getMatrixFromBoundingBox(box: pc.BoundingBox) {
-
+    public getMatrix(key: number) {
         const m = this._modelMatrix.data;
-
-        m[0]  = box.halfExtents.x * 2;
-        m[5]  = box.halfExtents.y * 2;
-        m[10] = box.halfExtents.z * 2;
-        m[12] = box.center.x;
-        m[13] = box.center.y;
-        m[14] = box.center.z;
-
+        this._aabbStore.getMatrix(key, m);
         return this._modelMatrix;
     }
 
@@ -117,10 +113,8 @@ export class BoxMesh<TGraphicsDevice extends pc.GraphicsDevice> {
         this._viewProjection.mul2(projectionMatrix, viewMatrix);
     }
 
-    public setMMatrix(box: pc.BoundingBox) {
-
-        const modelMatrix = this.getMatrixFromBoundingBox(box);
-
+    public setMMatrix(key: number) {
+        const modelMatrix = this.getMatrix(key);
         this._modelViewProjection.mul2(this._viewProjection, modelMatrix);
         this._pvmMatrixScopeId.setValue(this._modelViewProjection.data);
     }

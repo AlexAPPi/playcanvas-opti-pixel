@@ -15,8 +15,6 @@ export class HierarchicalZBufferDebugger {
     private _debugAABBTexture: pc.Texture;
     private _debugTextureShaderDesc: any;
 
-    public enabled: boolean = true;
-
     public get hzb() { return (this._tester?.hzb ?? this._hzb)!; }
     public set hzbOrTester(v: WebglHierarchicalZBuffer | WebgpuHierarchicalZBuffer | IHierarchicalZBufferTester) {
         const initByHZB = (v instanceof WebglHierarchicalZBuffer || v instanceof WebgpuHierarchicalZBuffer);
@@ -70,7 +68,7 @@ export class HierarchicalZBufferDebugger {
 
     public debug(count: number = 5, maxElementHeight: number = 0.25, spacing: number = 0.02, x: number = 0.75, w: number = 0.25) {
 
-        if (!this.enabled || count <= 0) return;
+        if (count <= 0) return;
 
         const m = this.hzb.mipLevels - 1;
         const step = m / (count - 1);
@@ -88,7 +86,7 @@ export class HierarchicalZBufferDebugger {
         }
     }
 
-    public debugBuffer(i: number, x: number, y: number, width: number, height: number) {
+    public debugBuffer(i: number, x: number, y: number, width: number, height: number, adaptive: boolean = false) {
 
         if (!this.hzb.texture && !this.hzb.buffers) {
             return;
@@ -96,26 +94,28 @@ export class HierarchicalZBufferDebugger {
 
         const buffer = (this.hzb.buffers?.[i] ?? this.hzb.texture)!;
         const debugMaterial = new pc.ShaderMaterial();
+        const uvFactor = adaptive ? this.hzb.uvFactor : [1, 1];
         debugMaterial.cull = pc.CULLFACE_NONE;
         debugMaterial.shaderDesc = this._debugTextureShaderDesc;
+        debugMaterial.setParameter("uHZBFactor", uvFactor);
         debugMaterial.setParameter("uDepthMip", buffer);
         debugMaterial.setParameter("uDepthMipLevel", i);
         debugMaterial.update();
         this._app.drawTexture(x, y, width, height, buffer, debugMaterial);
     }
 
-    public debugMipLevel(level: number) {
-        this.debugBuffer(level, 0, 0, 2, 2);
+    public debugMipLevel(level: number, adaptive: boolean = true) {
+        this.debugBuffer(level, 0, 0, 2, 2, adaptive);
     }
 
-    public debugItem(index: number, box: boolean = true, rect: boolean = true, mipLevel: boolean = true) {
+    public debugItem(index: number, box: boolean = true, rect: boolean = true, mipLevel: boolean = true, adaptiveMipLevel: boolean = true) {
 
         if (!this._tester) {
             return;
         }
 
         const info = this._tester.getDebugInfo(index);
-        const rectangle = mipLevel ? info.rectangleDepth : info.rectangleScreen;
+        const rectangle = info.rectangleScreen;
         const boundingBox = info.boundingBox;
 
         let occlusionStatus = OCCLUSION_UNKNOWN;
@@ -125,7 +125,7 @@ export class HierarchicalZBufferDebugger {
         }
 
         if (mipLevel) {
-            this.debugMipLevel(info.lod);
+            this.debugMipLevel(info.lod, adaptiveMipLevel);
         }
 
         if (info.inFrustum) {

@@ -8,6 +8,9 @@ export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer>> ext
     private _lengthFactor: number = 1;
     private _itemByteSize: number = 1;
     private _version: number = 0;
+    private _syncVersion: number = -1;
+    private _syncObject: WebGLSync | null = null;
+    private _beginReadLength: number = 0;
 
     constructor(device: pc.WebglGraphicsDevice, capacity: number, itemByteSize: number = 4, arrayOrConstructor: TData | ArrayConstructorOf<TData>) {
 
@@ -41,7 +44,15 @@ export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer>> ext
     }
 
     public abortRead() {
+
         this._version++;
+
+        // dispose
+        if (this._syncObject) {
+            const gl = this.device.gl;
+            gl?.deleteSync(this._syncObject);
+            this._syncObject = null;
+        }
     }
 
     public destroy() {
@@ -49,21 +60,30 @@ export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer>> ext
         super.destroy();
     }
 
-    private _clientWaitAsync(currentVersion: number, flags: number, interval: number): Promise<boolean> {
+    protected _fenceSync() {
 
         const gl = this.device.gl;
-        const tmpSync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
-
-        if (!tmpSync) {
-            return Promise.reject(new Error("webgl fenceSync failed"));
-        }
-
-        const sync = tmpSync;
-        const self = this;
+        const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
 
         gl.flush();
 
+        return sync;
+    }
+
+    protected _clientWaitAsync(currentVersion: number, flags: number, interval: number): Promise<boolean> {
+
         return new Promise<boolean>((resolve, reject) => {
+
+            const self = this;
+            const tmpSync = this._fenceSync();
+
+            if (!tmpSync) {
+                reject(new Error("failed fenceSync"));
+                return;
+            }
+
+            const gl = this.device.gl;
+            const sync = tmpSync;
 
             let timeoutId: number | undefined;
 
@@ -113,26 +133,83 @@ export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer>> ext
         });
     }
 
+    protected _readBuffer(length: number) {
+
+        const safeStorageLength = Math.floor(this.storageData.byteLength / this._itemByteSize);
+        const safeLength = Math.min(length, safeStorageLength);
+        const safeGetLength = safeLength * this._lengthFactor;
+
+        const gl = this.device.gl;
+        gl.bindBuffer(gl.ARRAY_BUFFER, this.impl.bufferId);
+        gl.getBufferSubData(gl.ARRAY_BUFFER, 0, this.storageData, 0, safeGetLength);
+        gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+        return safeLength;
+    }
+
+    public beginRead(length: number) {
+
+        if (this._syncObject) {
+            throw new Error("Reading started earlier");
+        }
+
+        this.abortRead();
+        this._beginReadLength = length;
+
+        // Skip empty read
+        if (length > 0) {
+
+            const sync = this._fenceSync();
+            this._syncVersion = this._version;
+            this._syncObject  = sync;
+        }
+    }
+
+    public checkRead(): number {
+
+        if (this._syncObject &&
+            this._syncVersion === this._version) {
+
+            const gl = this.device.gl;
+            const res = gl.clientWaitSync(this._syncObject, 0, 0);
+
+            // result ready
+            if (res !== gl.TIMEOUT_EXPIRED) {
+
+                // dispose
+                gl.deleteSync(this._syncObject);
+                this._syncObject = null;
+
+                // failed read
+                if (res === gl.WAIT_FAILED) {
+                    return 0;
+                }
+
+                return this._readBuffer(this._beginReadLength);   
+            }
+        }
+
+        // If empty read
+        if (this._beginReadLength < 1) {
+
+            return 0;
+        }
+
+        return -1;
+    }
+
     public async read(length: number, intervalMs: number = 16) {
 
         this.abortRead();
+
         const currentVersion = this._version;
-        const ready = await this._clientWaitAsync(currentVersion, 0, intervalMs);
+        const success = await this._clientWaitAsync(currentVersion, 0, intervalMs);
 
-        if (ready && currentVersion === this._version) {
-
-            const safeStorageLength = Math.floor(this.storageData.byteLength / this._itemByteSize);
-            const safeLength = Math.min(length, safeStorageLength);
-            const safeGetLength = safeLength * this._lengthFactor;
-
-            const gl = this.device.gl;
-            gl.bindBuffer(gl.ARRAY_BUFFER, this.impl.bufferId);
-            gl.getBufferSubData(gl.ARRAY_BUFFER, 0, this.storageData, 0, safeGetLength);
-            gl.bindBuffer(gl.ARRAY_BUFFER, null);
-            return safeLength;
+        if (!success || currentVersion !== this._version) {
+            return 0;
         }
 
-        return 0;
+        return this._readBuffer(length);
     }
 
     public override unlock(): void {

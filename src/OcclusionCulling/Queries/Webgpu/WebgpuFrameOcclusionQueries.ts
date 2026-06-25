@@ -5,14 +5,14 @@ import { WebgpuQueryScope } from "./WebgpuQueryScope.js";
 
 // TODO
 
-export class WebgpuFrameOcclusionQueries<TKey = number> {
+export class WebgpuFrameOcclusionQueries {
 
     public readonly device: pc.WebgpuGraphicsDevice;
     public readonly gpu: GPUDevice;
     public readonly frameId: number;
     public readonly boxMesh: WebgpuOcclusionBoxMesh;
 
-    private _map: Map<TKey, WebgpuQueryScope>;
+    private _map: Map<number, WebgpuQueryScope>;
     private _processing: boolean;
     private _beginExecuteTime: number;
     private _endExecuteTime: number;
@@ -61,17 +61,17 @@ export class WebgpuFrameOcclusionQueries<TKey = number> {
         this.clear();
     }
 
-    public get(key: TKey) {
+    public get(key: number) {
         return this._map.get(key);
     }
-    
-    public add(key: TKey, box: pc.BoundingBox) {
+
+    public add(key: number) {
 
         if (this._processing) {
             return false;
         }
 
-        const newScope = new WebgpuQueryScope(this._map.size, box);
+        const newScope = new WebgpuQueryScope();
         this._map.set(key, newScope);
         return true;
     }
@@ -86,7 +86,7 @@ export class WebgpuFrameOcclusionQueries<TKey = number> {
         this._processing = true;
 
         let i = 0;
-        
+
         const occlusionQueryCount = this._map.size;
         const last = occlusionQueryCount;
 
@@ -105,13 +105,13 @@ export class WebgpuFrameOcclusionQueries<TKey = number> {
             usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.MAP_READ
         });
 
-        for (let [, scope] of this._map) {
+        for (let [key, scope] of this._map) {
 
             i++;
 
             scope.checking = true;
 
-            this.boxMesh.makeQuery(passEncoder, scope, i === 1, i === last);
+            this.boxMesh.makeQuery(passEncoder, key, scope, i === 1, i === last);
         }
 
         this.boxMesh.end();
@@ -123,12 +123,10 @@ export class WebgpuFrameOcclusionQueries<TKey = number> {
         commandEncoder.resolveQuerySet(occlusionQuerySet, 0, occlusionQueryCount, queryResolveBuffer, 0);
         commandEncoder.copyBufferToBuffer(queryResolveBuffer, 0, readBuffer, 0, bufferSize);
 
-        
-
         return true;
     }
 
-    public resultAwailable() {
+    public resultAvailable() {
         return this._processing;
     }
 }

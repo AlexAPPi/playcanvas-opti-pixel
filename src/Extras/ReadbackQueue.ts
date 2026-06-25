@@ -1,6 +1,7 @@
 export interface IReadbackQueueItemReader {
     count: number;
     lock: boolean;
+    frameUpdate(): void;
     abortRead(): void;
     resize(): void;
     clear(): void;
@@ -112,6 +113,8 @@ export abstract class ReadbackQueue<TReader extends IReadbackQueueItemReader> {
 
             const reader = this._usedReaders[i];
 
+            reader.frameUpdate();
+
             if (!reader.lock) {
 
                 this._finishedReader = reader;
@@ -120,10 +123,17 @@ export abstract class ReadbackQueue<TReader extends IReadbackQueueItemReader> {
                 // Outdated data can be ignored.
                 if (i > 0) {
 
+                    /*
+                    Where we can give warn:
+                    "performance warning: READ-usage buffer was written,
+                    then fenced, but written again before being read back.
+                    This discarded the shadow copy that was created to accelerate readback."
+                    */
+
                     for (let j = 0; j < i; j++) {
 
-                        this._freeReaders.push(this._usedReaders[j]);
                         this._usedReaders[j].abortRead();
+                        this._freeReaders.push(this._usedReaders[j]);
                     }
 
                     this._usedReaders.splice(0, i);

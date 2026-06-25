@@ -33,9 +33,11 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
      */
     private _maxSize: number;
     private _width: number;
-    private _heigth: number;
+    private _height: number;
     private _mipLevels: number;
     private _minMipLevel: number;
+    private _uvFactorX: number;
+    private _uvFactorY: number;
 
     private _dispatchThreadIdToBufferUVScope: pc.ScopeId;
     private _inputViewportMaxBoundScope: pc.ScopeId;
@@ -49,7 +51,7 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
     public get screenWidth() { return this._screenWidth; }
     public get screenHeight() { return this._screenHeight; }
     public get width() { return this._width; }
-    public get height() { return this._heigth; }
+    public get height() { return this._height; }
     public get device() { return this._device; }
     public get texture() { return this._texture1; }
     public get texture2() { return this._texture2; }
@@ -63,10 +65,7 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
     }
 
     public get uvFactor(): [number, number] {
-        return [
-            this.screenWidth  / ((2 ** (this.nearLevel + 1)) * this.width),
-            this.screenHeight / ((2 ** (this.nearLevel + 1)) * this.height)
-        ];
+        return [this._uvFactorX, this._uvFactorY];
     }
 
     /**
@@ -101,7 +100,9 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
     }
 
     public resize(width: number = this.screenWidth, height: number = this.screenHeight, maxSize: number = this.maxSize) {
+
         this._dispose();
+
         this._maxSize = maxSize;
         this._screenWidth = width | 0;
         this._screenHeight = height | 0;
@@ -116,8 +117,12 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
 
         this._minMipLevel = this.getNearestMipLevel(this._globalMipWidth, this._globalMipHeight, this._maxSize);
         this._width       = this._globalMipWidth  >> this._minMipLevel;
-        this._heigth      = this._globalMipHeight >> this._minMipLevel;
+        this._height      = this._globalMipHeight >> this._minMipLevel;
         this._mipLevels   = this._globalMipLevels - this._minMipLevel;
+
+        // Calc uv factor
+        this._uvFactorX   = this._screenWidth  / ((2 ** (this._minMipLevel + 1)) * this._width);
+        this._uvFactorY   = this._screenHeight / ((2 ** (this._minMipLevel + 1)) * this._height);
 
         this._initShader();
         this._initRenders();
@@ -189,7 +194,7 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         this._texture1 = new pc.Texture(this._device, {
             name: "HZB_MIP_TX_1",
             width: this._width,
-            height: this._heigth,
+            height: this._height,
             format: format,
             mipmaps: true,
             numLevels: this._mipLevels,
@@ -204,7 +209,7 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         this._texture2 = new pc.Texture(this._device, {
             name: "HZB_MIP_TX_2",
             width: this._width,
-            height: this._heigth,
+            height: this._height,
             format: format,
             mipmaps: true,
             numLevels: this._mipLevels,

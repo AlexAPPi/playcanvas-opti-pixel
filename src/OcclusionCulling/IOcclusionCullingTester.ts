@@ -80,13 +80,14 @@ export interface IGPUIndirectDrawOcclusionCullingTester extends IOcclusionCullin
     /**
      * Adds the object to the queue for occlusion testing.
      * @param id - The unique identifier returned earlier by the lock() method.
-     * @param primitive - The mesh primitive for rendering.
-     * @param slot - The slot value obtained from device.getIndirectDrawSlot.
-     * @param instanceCount - The number of instances to render.
+     * @param slot - The slot value obtained from device.getIndirectDrawSlot or your internal index.
+     * @param primitive - The mesh primitive for draw.
+     * @param instanceCount - The number of instances to draw.
+     * @param firstInstance - The first instance to draw.
      * @param extra - The extra data.
      * @returns A queue index, or -1 if internal verification inconsistencies occur (e.g., the tester is unavailable or waiting for synchronization).
      */
-    enqueue(id: TUnicalId, primitive: IPrimitive, slot: number, instanceCount: number, extra?: number | number[]): TUnicalQueueIndex;
+    enqueue(id: TUnicalId, slot: number, primitive: IPrimitive, instanceCount: number, firstInstance: number, extra?: number | number[]): TUnicalQueueIndex;
 
     /**
      * Runs an occlusion check for the specified camera.

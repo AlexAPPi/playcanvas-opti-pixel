@@ -1,0 +1,147 @@
+import pc from "../engine.js";
+import { BVHParams, InstancedMeshBVH } from "./InstancedMeshBVH.js";
+import AbsHierarchicalInstancer, { InstancedMeshParams, TOnFrustumEnter, TOnFrustumEnterThenUpdate } from "./AbsHierarchicalInstancer.js";
+
+export class HierarchicalInstancer extends AbsHierarchicalInstancer {
+
+    public bvh: InstancedMeshBVH<number, Float32Array<ArrayBuffer>> | undefined;
+    public autoUpdateBVH: boolean = true;
+
+    public constructor(device: pc.GraphicsDevice, params: InstancedMeshParams = {}) {
+        super(device, params);
+    }
+
+    /**
+     * Creates and computes the BVH (Bounding Volume Hierarchy) for the instances.
+     * It's recommended to create it when all the instance matrices have been assigned.
+     * Once created it will be updated automatically.
+     * @param config Optional configuration parameters object. See `BVHParams` for details.
+     */
+    public computeBVH(config: BVHParams = {}): void {
+        this.bvh ??= new InstancedMeshBVH(this, Float32Array, config.margin, config.getBBoxFromBSphere, config.accurateCulling);
+        this.bvh.clear();
+        this.bvh.create();
+    }
+
+    /**
+     * Disposes of the BVH structure.
+     */
+    public disposeBVH(): void {
+        this.bvh = null!;
+    }
+
+    /**
+     * Sets the local transformation matrix for a specific instance.
+     * @param id The index of the instance.
+     * @param matrix A `Mat4` representing the local transformation to apply to the instance.
+     */
+    public setMatrixAt(id: number, matrix: pc.Mat4): void {
+        super.setMatrixAt(id, matrix);
+        if (this.bvh && this.autoUpdateBVH) {
+            this.bvh.move(id);
+        }
+    }
+
+    protected override _updateRenders(camera: pc.Camera, cameraPosition: pc.Vec3, cameraForward: pc.Vec3, onFrustumEnter?: TOnFrustumEnterThenUpdate) {
+
+        if (!this.bvh) {
+            super._updateRenders(camera, cameraPosition, cameraForward, onFrustumEnter);
+            return;
+        }
+
+        let minIndex = this.instancesArrayCount;
+        let maxIndex = 0;
+        let minZ =  Infinity;
+        let maxZ = -Infinity;
+
+        const lods = this.LODs;
+        const frustum = camera.frustum;
+
+        this.bvh?.frustumCullingLOD(frustum, cameraPosition, lods, (node, level, min, max) => {
+
+            const index = node.object;
+
+            // we don't check if active because we remove inactive instances from BVH
+            if (this.getVisibilityAt(index)) {
+
+                const center = min + (max - min) / 2;
+                const distance = center;
+                const level = this.getLODIndexAndWeight(lods, distance);
+                const levelRender = lods[level.index].render;
+
+                let depth = Infinity;
+
+                if (levelRender?.sortObjects) {
+                    depth = center;
+                }
+
+                if (!onFrustumEnter || onFrustumEnter(index, camera, level.index, depth)) {
+
+                    // add 0.1 for safe off negative
+                    this._sharedDepthStore[index] = depth + 0.1;
+                    if (minZ > depth) minZ = depth;
+                    if (maxZ < depth) maxZ = depth;
+                    if (minIndex > index) minIndex = index;
+                    if (maxIndex < index) maxIndex = index;
+
+                    levelRender?.enqueue(index, depth, level.weight);
+
+                    if (level.nextIndex !== null) {
+
+                        const nextLevelRender = lods[level.nextIndex].render;
+
+                        if (nextLevelRender) {
+                            nextLevelRender.enqueue(index, depth, level.nextWeight);
+                        }
+                    }
+                }
+            }
+        });
+
+        // We adapt the depth for lower bit depths.
+        const from = minIndex;
+        const to   = maxIndex + 1;
+        for (let i = from; i < to; i++) {
+            this._sharedDepthStore[i] -= minZ;
+        }
+    }
+
+    public override frustumCulling(camera: pc.Camera, cameraPosition: pc.Vec3, onFrustumEnter: TOnFrustumEnter) {
+
+        if (!this.bvh) {
+            super.frustumCulling(camera, cameraPosition, onFrustumEnter);
+        }
+
+        const lods = this.LODs;
+
+        this.bvh?.frustumCullingLOD(camera.frustum, cameraPosition, lods, (node, level, min, max) => {
+
+            const index = node.object;
+
+            // we don't check if active because we remove inactive instances from BVH
+            if (this.getVisibilityAt(index)) {
+
+                let distance: number;
+
+                if (level === null) {
+
+                    // distance can be get by BVH, but is not the distance from center
+                    const pos = this.getPositionAt(index, _tempVec31);
+                    const tmp = _tempVec32.sub2(pos, cameraPosition);
+
+                    distance = tmp.lengthSq();
+                    level = this.getObjectLODIndexForDistance(lods, distance);
+                }
+                else {
+                    // avg distance
+                    distance = (max + min) / 2;
+                }
+
+                onFrustumEnter(index, camera, level, distance);
+            }
+        });
+    }
+}
+
+const _tempVec31 = new pc.Vec3();
+const _tempVec32 = new pc.Vec3();

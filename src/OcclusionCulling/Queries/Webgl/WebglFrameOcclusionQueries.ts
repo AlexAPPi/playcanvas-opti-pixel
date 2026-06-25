@@ -3,14 +3,14 @@ import { OCCLUSION_ALGORITHM_TYPE, OCCLUSION_ALGORITHM_TYPE_CONSERVATIVE } from 
 import { WebglOcclusionBoxMesh } from "./WebglOcclusionBoxMesh.js";
 import { WebglQueryScope } from "./WebglQueryScope.js";
 
-export class WebglFrameOcclusionQueries<TKey = number> {
+export class WebglFrameOcclusionQueries {
 
     public readonly gl: WebGL2RenderingContext;
     public readonly frameId: number;
     public readonly boxMesh: WebglOcclusionBoxMesh;
 
     private _lastScope: WebglQueryScope | null;
-    private _map: Map<TKey, WebglQueryScope>;
+    private _map: Map<number, WebglQueryScope>;
     private _processing: boolean;
     private _beginExecuteTime: number;
     private _endExecuteTime: number;
@@ -70,17 +70,17 @@ export class WebglFrameOcclusionQueries<TKey = number> {
         this.clear();
     }
 
-    public get(key: TKey) {
+    public get(key: number) {
         return this._map.get(key);
     }
 
-    public add(key: TKey, box: pc.BoundingBox, algorithmType: OCCLUSION_ALGORITHM_TYPE = OCCLUSION_ALGORITHM_TYPE_CONSERVATIVE) {
+    public add(key: number, algorithmType: OCCLUSION_ALGORITHM_TYPE = OCCLUSION_ALGORITHM_TYPE_CONSERVATIVE) {
 
         if (this._processing) {
             return -1;
         }
 
-        const newScope = new WebglQueryScope(box, algorithmType);
+        const newScope = new WebglQueryScope(algorithmType);
         this._map.set(key, newScope);
         return key;
     }
@@ -99,14 +99,14 @@ export class WebglFrameOcclusionQueries<TKey = number> {
 
         this.boxMesh.begin(camera);
 
-        for (let [, scope] of this._map) {
+        for (let [key, scope] of this._map) {
 
             i++;
 
             scope.query ??= this.gl.createQuery();
             scope.checking = true;
 
-            this.boxMesh.makeQuery(scope, i === 1, i === last);
+            this.boxMesh.makeQuery(key, scope, i === 1, i === last);
 
             if (scope.query) {
                 this._lastScope = scope;
@@ -123,8 +123,8 @@ export class WebglFrameOcclusionQueries<TKey = number> {
         return true;
     }
 
-    public resultAwailable() {
-        
+    public resultAvailable() {
+
         if (this._processing) {
 
             if (this._awaitLastScope()) {
@@ -135,9 +135,9 @@ export class WebglFrameOcclusionQueries<TKey = number> {
             this._processing = false;
 
             for (const [, scope] of this._map) {
-                
+
                 if (!this._testScope(scope)) {
-                    
+
                     this._processing = true;
                 }
             }

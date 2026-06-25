@@ -12,6 +12,8 @@ export class WebglOcclusionBoxMesh extends BoxMesh<pc.WebglGraphicsDevice> {
 
         const device = this.device;
 
+        this.aabbStore.update();
+
         device.setVertexBuffer(this.mesh.vertexBuffer);
         device.setCullMode(pc.CULLFACE_NONE);
         device.setBlendState(blendNoWrite);
@@ -25,9 +27,9 @@ export class WebglOcclusionBoxMesh extends BoxMesh<pc.WebglGraphicsDevice> {
         this.setPVMatrix(camera);
     }
 
-    public makeQuery(scope: WebglQueryScope, first: boolean = true, last: boolean = true) {
+    public makeQuery(key: number, scope: WebglQueryScope, first: boolean = true, last: boolean = true) {
 
-        this.setMMatrix(scope.box);
+        this.setMMatrix(key);
 
         const device = this.device;
         const gl = device.gl;
