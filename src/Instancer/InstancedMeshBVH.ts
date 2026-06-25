@@ -145,7 +145,7 @@ export class InstancedMeshBVH<TObject, TBoxType extends BoxType> {
             index++;
         }
 
-        this.bvh.createFromArray(objects as unknown as number[], boxes, (node) => {
+        this.bvh.createFromArray(objects, boxes, (node) => {
             this.nodesMap.set(node.object, node);
         }, this._margin);
     }
