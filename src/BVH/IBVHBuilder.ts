@@ -7,9 +7,9 @@ export interface IBVHBuilder<N, L, B extends BoxType> {
     root: BVHNode<N, L, B>;
     typeArray: TypedArrayConstructor<B>;
     boxConverter: TBoxConverter<B>;
-    createFromArray(objects: L[], boxes: FloatArray[], onLeafCreation?: onLeafCreationCallback<N, L, B>, margin?: number): void;
+    createFromArray(objects: ArrayLike<L>, boxes: FloatArray[], onLeafCreation?: onLeafCreationCallback<N, L, B>, margin?: number): void;
     insert(object: L, box: FloatArray, margin: number): BVHNode<N, L, B>;
-    insertRange(objects: L[], boxes: FloatArray[], margins?: number | FloatArray | number[], onLeafCreation?: onLeafCreationCallback<N, L, B>): void;
+    insertRange(objects: ArrayLike<L>, boxes: FloatArray[], margins?: number | FloatArray | number[], onLeafCreation?: onLeafCreationCallback<N, L, B>): void;
     move(node: BVHNode<N, L, B>, margin: number): void;
     delete(node: BVHNode<N, L, B>): BVHNode<N, L, B>;
     clear(): void;

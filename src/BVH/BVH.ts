@@ -49,7 +49,7 @@ export class BVH<N, L, B extends BoxType> {
         this._origin = highPrecision ? new Float64Array(3) : new Float32Array(3);
     }
 
-    public createFromArray(objects: L[], boxes: FloatArray[], onLeafCreation?: onLeafCreationCallback<N, L, B>, margin?: number): void {
+    public createFromArray(objects: ArrayLike<L>, boxes: FloatArray[], onLeafCreation?: onLeafCreationCallback<N, L, B>, margin?: number): void {
         if (objects?.length > 0) {
             this.builder.createFromArray(objects, boxes, onLeafCreation, margin);
         }
