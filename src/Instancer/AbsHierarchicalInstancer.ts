@@ -634,7 +634,7 @@ export abstract class AbsHierarchicalInstancer implements IInstancer {
         }
     }
 
-    protected _updateRenders(camera: pc.Camera, cameraPosition: pc.Vec3, cameraForward: pc.Vec3, onFrustumEnter?: TOnFrustumEnterThenUpdate) {
+    protected _updateRenders(dt: number, camera: pc.Camera, cameraPosition: pc.Vec3, cameraForward: pc.Vec3, onFrustumEnter?: TOnFrustumEnterThenUpdate) {
 
         const lods = this.LODs;
         const frustum = camera.frustum;
@@ -718,7 +718,7 @@ export abstract class AbsHierarchicalInstancer implements IInstancer {
             }
         }
 
-        this._updateRenders(camera, cameraPosition, cameraForward, onFrustumEnter);
+        this._updateRenders(dt, camera, cameraPosition, cameraForward, onFrustumEnter);
 
         for (let lodIndex = 0; lodIndex < numLods; lodIndex++) {
 

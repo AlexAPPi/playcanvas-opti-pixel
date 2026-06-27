@@ -42,10 +42,10 @@ export class HierarchicalInstancer extends AbsHierarchicalInstancer {
         }
     }
 
-    protected override _updateRenders(camera: pc.Camera, cameraPosition: pc.Vec3, cameraForward: pc.Vec3, onFrustumEnter?: TOnFrustumEnterThenUpdate) {
+    protected override _updateRenders(dt: number, camera: pc.Camera, cameraPosition: pc.Vec3, cameraForward: pc.Vec3, onFrustumEnter?: TOnFrustumEnterThenUpdate) {
 
         if (!this.bvh) {
-            super._updateRenders(camera, cameraPosition, cameraForward, onFrustumEnter);
+            super._updateRenders(dt, camera, cameraPosition, cameraForward, onFrustumEnter);
             return;
         }
 
