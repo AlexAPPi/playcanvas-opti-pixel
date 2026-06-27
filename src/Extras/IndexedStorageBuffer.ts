@@ -86,15 +86,6 @@ export abstract class IndexedStorageBuffer<TData extends StorageTypedArrayType> 
         const elementsPerIndex = this.elementsPerIndex;
         const bytesPerIndex = elementsPerIndex * this._data.BYTES_PER_ELEMENT;
 
-        /*
-        if (1 === 1) {
-
-            // TODO: update full
-            gpuQueue.writeBuffer(gpuBuffer, 0, buffer, 0, this._data.byteLength);
-            return;
-        }
-        */
-
         let startIndex = -1;
         let blockElementsCount = 0;
 
