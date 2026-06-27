@@ -12,7 +12,6 @@ import instancerDiffusePS from "./ShaderChunks/Frag/diffuse.js";
 import instancerOpacityPS from "./ShaderChunks/Frag/opacity.js";
 
 import pc from "../engine.js";
-import { BitSet } from "../Extras/BitSet";
 import { SquareDataTexture } from "../Extras/SquareDataTexture.js";
 import { IInstancer } from "./IInstancer";
 import { ILODLevel } from "./ILODLevel";
@@ -21,6 +20,10 @@ import { LODRender } from "./LODRender.js";
 
 export type TOnFrustumEnter = (index: number, camera: pc.Camera, level: number, distance: number) => void;
 export type TOnFrustumEnterThenUpdate = (index: number, camera: pc.Camera, level: number, depth: number) => boolean | void;
+
+const VISIBLE = 1;
+const ACTIVE  = 2;
+const BOTH    = VISIBLE | ACTIVE;
 
 /**
  * Parameters for configuring an `InstancedMesh` instance.
@@ -49,10 +52,8 @@ export abstract class AbsHierarchicalInstancer implements IInstancer {
     protected _sharedDepthStore: Float32Array;
     protected _sharedDepthStoreU: Uint32Array;
     protected _sharedIndexes: Uint32Array;
-    protected _visibility: BitSet;
-    protected _visibilityDirty: boolean = true;
-    protected _activibility: BitSet;
-    protected _activibilityDirty: boolean = true;
+
+    protected _visibilityAndActivibility: Uint8Array;
     protected _needUpdateMaterials: boolean = true;
 
     public LODs: ILODLevel[] = [];
@@ -98,9 +99,8 @@ export abstract class AbsHierarchicalInstancer implements IInstancer {
         this._sharedDepthStore = new Float32Array(capacity);
         this._sharedDepthStoreU = new Uint32Array(this._sharedDepthStore.buffer);
         this._sharedIndexes = new Uint32Array(capacity);
+        this._visibilityAndActivibility = new Uint8Array(capacity);
         this._capacity = capacity;
-        this._visibility = new BitSet(capacity, true);
-        this._activibility = new BitSet(capacity, true);
 
         this._initMatricesTexture();
     }
@@ -484,8 +484,12 @@ export abstract class AbsHierarchicalInstancer implements IInstancer {
      * @param visible Whether the instance should be visible.
      */
     public setVisibilityAt(id: number, visible: boolean): void {
-        this._visibility.set(id, visible);
-        this._visibilityDirty = true;
+        if (visible) {
+            this._visibilityAndActivibility[id] |= VISIBLE;
+        }
+        else {
+            this._visibilityAndActivibility[id] &= ~VISIBLE;
+        }
     }
 
     /**
@@ -494,7 +498,7 @@ export abstract class AbsHierarchicalInstancer implements IInstancer {
      * @returns Whether the instance is visible.
      */
     public getVisibilityAt(id: number): boolean {
-        return this._visibility.get(id);
+        return (this._visibilityAndActivibility[id] & VISIBLE) !== 0;
     }
 
     /**
@@ -503,8 +507,12 @@ export abstract class AbsHierarchicalInstancer implements IInstancer {
      * @param active Whether the instance is active (not deleted).
      */
     public setActiveAt(id: number, active: boolean): void {
-        this._activibility.set(id, active);
-        this._activibilityDirty = true;
+        if (active) {
+            this._visibilityAndActivibility[id] |= ACTIVE;
+        }
+        else {
+            this._visibilityAndActivibility[id] &= ~ACTIVE;
+        }
     }
 
     /**
@@ -513,7 +521,7 @@ export abstract class AbsHierarchicalInstancer implements IInstancer {
      * @returns Whether the instance is active (not deleted).
      */
     public getActiveAt(id: number): boolean {
-        return this._activibility.get(id);
+        return (this._visibilityAndActivibility[id] & ACTIVE) !== 0;
     }
 
     /**
@@ -522,7 +530,7 @@ export abstract class AbsHierarchicalInstancer implements IInstancer {
      * @returns Whether the instance is visible and active.
      */
     public getActiveAndVisibilityAt(id: number): boolean {
-        return this._activibility.get(id) && this._visibility.get(id);
+        return (this._visibilityAndActivibility[id] & BOTH) === BOTH;
     }
 
     /**
@@ -531,8 +539,7 @@ export abstract class AbsHierarchicalInstancer implements IInstancer {
      * @param value Whether the instance is active and active (not deleted).
      */
     public setActiveAndVisibilityAt(id: number, value: boolean): void {
-        this.setActiveAt(id, value);
-        this.setVisibilityAt(id, value);
+        this._visibilityAndActivibility[id] = value ? BOTH : 0;
     }
 
     /**
@@ -607,12 +614,13 @@ export abstract class AbsHierarchicalInstancer implements IInstancer {
     public frustumCulling(camera: pc.Camera, cameraPosition: pc.Vec3, onFrustumEnter: TOnFrustumEnter) {
 
         const lods = this.LODs;
+        const count = this.instancesArrayCount;
 
-        for (let i = 0; i < this.instancesArrayCount; i++) {
+        for (let index = 0; index < count; index++) {
 
-            if (!this.getActiveAndVisibilityAt(i)) continue;
+            if (!this.getActiveAndVisibilityAt(index)) continue;
 
-            const maxScale = this.getPositionAndMaxScaleOnAxisAt(i, _sphere.center);
+            const maxScale = this.getPositionAndMaxScaleOnAxisAt(index, _sphere.center);
             const relativeCenterOfCamera = _tempVec32.sub2(_sphere.center, cameraPosition);
             const distance = relativeCenterOfCamera.lengthSq();
             const level = this.getObjectLODIndexForDistance(lods, distance);
@@ -621,7 +629,7 @@ export abstract class AbsHierarchicalInstancer implements IInstancer {
 
             if (camera.frustum.containsSphere(_sphere) > 0) {
 
-                onFrustumEnter(i, camera, level, distance);
+                onFrustumEnter(index, camera, level, distance);
             }
         }
     }
@@ -636,7 +644,9 @@ export abstract class AbsHierarchicalInstancer implements IInstancer {
         let minZ =  Infinity;
         let maxZ = -Infinity;
 
-        for (let index = 0; index < this.instancesArrayCount; index++) {
+        const count = this.instancesArrayCount;
+
+        for (let index = 0; index < count; index++) {
 
             if (!this.getActiveAndVisibilityAt(index)) continue;
 
