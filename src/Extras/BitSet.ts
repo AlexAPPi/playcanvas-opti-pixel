@@ -8,10 +8,14 @@ export class BitSet {
     private _cleanValue: boolean;
     private _size: number;
     private _bitsInLast: number;
+    private _lastIsOutcast: boolean;
+    private _lastFullWordIdx: number;
 
     constructor(size: number, clearValue: boolean = false) {
         this._array = new Uint32Array(Math.ceil(size / 32));
         this._bitsInLast = size % 32 || 32;
+        this._lastIsOutcast = this._bitsInLast !== 32;
+        this._lastFullWordIdx = this._lastIsOutcast ? this._array.length - 1 : this._array.length;
         this._cleanValue = clearValue;
         this._clean = false;
         this._size = size;
@@ -31,6 +35,11 @@ export class BitSet {
     }
 
     public get(index: number): boolean {
+
+        if (this._clean) {
+            return this._cleanValue;
+        }
+
         const word = index >>> 5;
         const bit  = index & 31;
         return ((this._array[word] >>> bit) & 1) !== 0;
@@ -49,12 +58,12 @@ export class BitSet {
         }
 
         const word = index >>> 5;
-        const bit  = index & 31;
+        const mask = 1 << (index & 31);
 
         if (value) {
-            this._array[word] |= (1 << bit);
+            this._array[word] |= mask;
         } else {
-            this._array[word] &= ~(1 << bit);
+            this._array[word] &= ~mask;
         }
     }
 
@@ -70,16 +79,17 @@ export class BitSet {
             return this._cleanValue;
         }
 
-        const word = index >>> 5;
-        const bit  = index & 31;
-        const prev = ((this._array[word] >>> bit) & 1) !== 0;
+        const array = this._array;
+        const word  = index >>> 5;
+        const mask  = 1 << (index & 31);
+        const prev  = (array[word] & mask) !== 0;
 
         if (prev !== value) {
 
             if (value) {
-                this._array[word] |= (1 << bit);
+                array[word] |= mask;
             } else {
-                this._array[word] &= ~(1 << bit);
+                array[word] &= ~mask;
             }
         }
 
@@ -107,8 +117,7 @@ export class BitSet {
 
         // If last block has 32 bits
         // handle in normal circle
-        const lastIsOutcast = this._bitsInLast !== 32;
-        const lastFullWordIdx = lastIsOutcast ? arr.length - 1 : arr.length;
+        const lastFullWordIdx = this._lastFullWordIdx;
 
         for (let wordIdx = 0; wordIdx < lastFullWordIdx; wordIdx++) {
 
@@ -128,7 +137,8 @@ export class BitSet {
             }
         }
 
-        if (lastIsOutcast) {
+        // handle tail
+        if (this._lastIsOutcast) {
 
             const base = lastFullWordIdx << 5;
             const word = arr[lastFullWordIdx];
