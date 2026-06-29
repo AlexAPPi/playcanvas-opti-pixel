@@ -25,7 +25,8 @@ export class Vec4F32Texture extends SquareDataTexture<Float32Array> {
         for (let i = 0; i < _channels; i++) {
             const inIdx = offset + i;
             const outIdx = dataIndex + i;
-            if (this._data[outIdx] !== inArray[inIdx]) {
+            if (differences ||
+                this._data[outIdx] !== inArray[inIdx]) {
                 this._data[outIdx] = inArray[inIdx];
                 differences = true;
             }
@@ -49,20 +50,23 @@ export class Vec4F32Texture extends SquareDataTexture<Float32Array> {
 
         if (this._data[dataIndex0] !== r) {
             this._data[dataIndex0] = r;
-            differences = true;
-        }
-
-        if (this._data[dataIndex1] !== g) {
             this._data[dataIndex1] = g;
-            differences = true;
-        }
-
-        if (this._data[dataIndex2] !== b) {
             this._data[dataIndex2] = b;
+            this._data[dataIndex3] = a;
             differences = true;
         }
-
-        if (this._data[dataIndex3] !== a) {
+        else if (this._data[dataIndex1] !== g) {
+            this._data[dataIndex1] = g;
+            this._data[dataIndex2] = b;
+            this._data[dataIndex3] = a;
+            differences = true;
+        }
+        else if (this._data[dataIndex2] !== b) {
+            this._data[dataIndex2] = b;
+            this._data[dataIndex3] = a;
+            differences = true;
+        }
+        else if (this._data[dataIndex3] !== a) {
             this._data[dataIndex3] = a;
             differences = true;
         }
