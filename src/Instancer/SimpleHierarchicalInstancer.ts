@@ -212,6 +212,16 @@ export class SimpleHierarchicalInstancer implements IInstancer {
         return this._removeLevel(this.shadowLODs, levelIndex, destroyObject);
     }
 
+    protected _setLodStateToMax(lods: ILODLevel[]) {
+        // set default last lod with render
+        for (let index = lods.length - 1; index > -1; index--) {
+            if (lods[index].render) {
+                this._instancesState.setLodsAll(index, index, true);
+                break;
+            }
+        }
+    }
+
     protected _addLevel(lods: ILODLevel[], meshInstanceList: pc.MeshInstance[] | null, root: pc.Entity | null, distance: number, hysteresis: number) {
 
         // to avoid to use Math.sqrt every time
@@ -231,17 +241,13 @@ export class SimpleHierarchicalInstancer implements IInstancer {
             this.patchMeshInstancesMaterials(meshInstanceList);
         }
 
-        // set default last lod
-        if (index >= lods.length - 1) {
-            const lastIndex = index + 1;
-            this._instancesState.setLodsAll(lastIndex, lastIndex);
-        }
-
         lods.splice(index, 0, {
             distance,
             hysteresis,
             render
         });
+
+        this._setLodStateToMax(lods);
     }
 
     protected _updateLevel(lods: ILODLevel[], levelIndex: number, distance: number | null = null, hysteresis: number | null = null) {
