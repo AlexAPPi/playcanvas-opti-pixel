@@ -1,7 +1,6 @@
 import pc from "../engine.js";
 import { BVHParams, InstancedMeshBVH } from "./InstancedMeshBVH.js";
 import SimpleHierarchicalInstancer, { InstancedMeshParams, TOnFrustumEnter, TOnFrustumEnterThenUpdate } from "./SimpleHierarchicalInstancer.js";
-import { ILODLevel } from "./ILODLevel.js";
 
 export class HierarchicalInstancer extends SimpleHierarchicalInstancer {
 
@@ -61,7 +60,7 @@ export class HierarchicalInstancer extends SimpleHierarchicalInstancer {
         // Let’s make an assumption: since we store data in uint8,
         // we must guarantee that the increment occurs; however,
         // this could become an issue at very high FPS.
-        const alpha = Math.max((1 / 255), dt / this._lodFadeTime);
+        const alpha = this.lodFadeTime === 0 ? 255 : Math.max((1 / 255), dt / this.lodFadeTime);
 
         this.bvh?.frustumCullingLOD(frustum, cameraPosition, lods, (node, level, min, max) => {
 

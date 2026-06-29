@@ -36,6 +36,12 @@ type TLodState = {
 export interface InstancedMeshParams {
 
     /**
+     * Time at which the LOD disappears before switching to another LOD.
+     * @default 0.25
+     */
+    lodFadeTime?: number;
+
+    /**
      * Determines the maximum number of instances that buffers can hold.
      * The buffers will be expanded automatically if necessary.
      * @default 1000
@@ -54,21 +60,31 @@ export class SimpleHierarchicalInstancer implements IInstancer {
     protected _instanceAABBRadius: number = 0;
 
     protected _instancesState: InstancesState;
-    protected _lodFadeTime: number = 0.25;
-
     protected _capacity: number;
     protected _sharedDepthStore: Float32Array;
     protected _sharedDepthStoreU: Uint32Array;
     protected _sharedIndexes: Uint32Array;
     protected _needUpdateMaterials: boolean = true;
 
-    public LODs: ILODLevel[] = [];
-    public shadowLODs: ILODLevel[] = [];
-
     /**
      * Instanced mesh graphics device
      */
     public readonly device: pc.GraphicsDevice;
+
+    /**
+     * Time at which the LOD disappears before switching to another LOD.
+     */
+    public lodFadeTime: number;
+
+    /**
+     * LODs
+     */
+    public LODs: ILODLevel[] = [];
+
+    /**
+     * Shadow LODs
+     */
+    public shadowLODs: ILODLevel[] = [];
 
     /**
      * Texture storing matrices for instances.
@@ -97,9 +113,10 @@ export class SimpleHierarchicalInstancer implements IInstancer {
 
     public constructor(device: pc.GraphicsDevice, params: InstancedMeshParams = {}) {
 
-        const { capacity = _defaultCapacity } = params;
+        const { capacity = _defaultCapacity, lodFadeTime = 0.25 } = params;
 
         this.device = device;
+        this.lodFadeTime = lodFadeTime;
 
         this._sharedDepthStore = new Float32Array(capacity);
         this._sharedDepthStoreU = new Uint32Array(this._sharedDepthStore.buffer);
@@ -662,7 +679,7 @@ export class SimpleHierarchicalInstancer implements IInstancer {
         // Let’s make an assumption: since we store data in uint8,
         // we must guarantee that the increment occurs; however,
         // this could become an issue at very high FPS.
-        const alpha = Math.max((1 / 255), dt / this._lodFadeTime);
+        const alpha = this.lodFadeTime === 0 ? 255 : Math.max((1 / 255), dt / this.lodFadeTime);
         const count = this.instancesArrayCount;
 
         for (let index = 0; index < count; index++) {
