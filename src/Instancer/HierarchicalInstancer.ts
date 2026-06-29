@@ -42,10 +42,10 @@ export class HierarchicalInstancer extends SimpleHierarchicalInstancer {
         }
     }
 
-    protected override _updateRenders(dt: number, camera: pc.Camera, cameraPosition: pc.Vec3, cameraForward: pc.Vec3, onFrustumEnter?: TOnFrustumEnterThenUpdate) {
+    protected override _updateRenders(dt: number, camera: pc.Camera, cameraPosition: pc.Vec3, onFrustumEnter?: TOnFrustumEnterThenUpdate) {
 
         if (!this.bvh) {
-            super._updateRenders(dt, camera, cameraPosition, cameraForward, onFrustumEnter);
+            super._updateRenders(dt, camera, cameraPosition, onFrustumEnter);
             return;
         }
 
@@ -57,10 +57,8 @@ export class HierarchicalInstancer extends SimpleHierarchicalInstancer {
         const lods = this.LODs;
         const frustum = camera.frustum;
 
-        // Let’s make an assumption: since we store data in uint8,
-        // we must guarantee that the increment occurs; however,
-        // this could become an issue at very high FPS.
-        const alpha = this.lodFadeTime === 0 ? 255 : Math.max((1 / 255), dt / this.lodFadeTime);
+        const time = this._time;
+        const lodFadeTime = this.lodFadeTime;
 
         this.bvh?.frustumCullingLOD(frustum, cameraPosition, lods, (node, level, min, max) => {
 
@@ -84,7 +82,7 @@ export class HierarchicalInstancer extends SimpleHierarchicalInstancer {
                     distance = min;
                 }
 
-                this._instancesState.updateLodState(index, level, alpha, levelInfo);
+                this._instancesState.updateLodState(index, level, time, lodFadeTime, levelInfo);
 
                 const currentLevelRender = lods[levelInfo.current]?.render;
                 const nextLevelRender = levelInfo.next !== null ? lods[levelInfo.next]?.render : null;

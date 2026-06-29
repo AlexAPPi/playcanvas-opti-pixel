@@ -47,6 +47,8 @@ export class SimpleHierarchicalInstancer implements IInstancer {
     /** @internal */ _sortObjects = false;
     /** @internal */ _useOpacity = false;
 
+    protected _time: number = 0;
+
     protected _maxInstanceBoundingBox: pc.BoundingBox = new pc.BoundingBox();
     protected _instanceAABBCenter: pc.Vec3 = new pc.Vec3();
     protected _instanceAABBRadius: number = 0;
@@ -106,7 +108,7 @@ export class SimpleHierarchicalInstancer implements IInstancer {
 
     public constructor(device: pc.GraphicsDevice, params: InstancedMeshParams = {}) {
 
-        const { capacity = _defaultCapacity, lodFadeTime = 0.25 } = params;
+        const { capacity = _defaultCapacity, lodFadeTime = 0.5 } = params;
 
         this.device = device;
         this.lodFadeTime = lodFadeTime;
@@ -152,7 +154,7 @@ export class SimpleHierarchicalInstancer implements IInstancer {
             return;
         }
 
-
+        // TODO
     }
 
     public computeMaxInstanceBoundingBox(src?: pc.BoundingBox): pc.BoundingBox {
@@ -659,7 +661,9 @@ export class SimpleHierarchicalInstancer implements IInstancer {
         }
     }
 
-    public update(dt: number, camera: pc.Camera, cameraPosition: pc.Vec3, cameraForward: pc.Vec3, onFrustumEnter?: TOnFrustumEnterThenUpdate) {
+    public update(dt: number, camera: pc.Camera, cameraPosition: pc.Vec3, onFrustumEnter?: TOnFrustumEnterThenUpdate) {
+
+        this._time += dt;
 
         this.matricesTexture?.update();
         this.colorsTexture?.update();
@@ -681,7 +685,7 @@ export class SimpleHierarchicalInstancer implements IInstancer {
             }
         }
 
-        this._updateRenders(dt, camera, cameraPosition, cameraForward, onFrustumEnter);
+        this._updateRenders(dt, camera, cameraPosition, onFrustumEnter);
 
         for (let lodIndex = 0; lodIndex < numLods; lodIndex++) {
 
@@ -712,22 +716,20 @@ export class SimpleHierarchicalInstancer implements IInstancer {
             if (frustum.containsSphere(_sphere) > 0) {
 
                 outRelativePosition.sub2(_sphere.center, cameraPosition);
-                return true;   
+                return true;
             }
         }
 
         return false;
     }
 
-    protected _updateRenders(dt: number, camera: pc.Camera, cameraPosition: pc.Vec3, cameraForward: pc.Vec3, onFrustumEnter?: TOnFrustumEnterThenUpdate) {
+    protected _updateRenders(dt: number, camera: pc.Camera, cameraPosition: pc.Vec3, onFrustumEnter?: TOnFrustumEnterThenUpdate) {
 
         const lods = this.LODs;
         const frustum = camera.frustum;
 
-        // Let’s make an assumption: since we store data in uint8,
-        // we must guarantee that the increment occurs; however,
-        // this could become an issue at very high FPS.
-        const alpha = this.lodFadeTime === 0 ? 255 : Math.max((1 / 255), dt / this.lodFadeTime);
+        const time = this._time;
+        const lodFadeTime = this.lodFadeTime;
         const count = this.instancesArrayCount;
         const relativeCenterOfCamera = _tempVec32;
 
@@ -743,7 +745,7 @@ export class SimpleHierarchicalInstancer implements IInstancer {
                 const distance = relativeCenterOfCamera.lengthSq();
                 const targetLevel = this.getObjectLODIndexForDistance(lods, distance);
 
-                this._instancesState.updateLodState(index, targetLevel, alpha, levelInfo);
+                this._instancesState.updateLodState(index, targetLevel, time, lodFadeTime, levelInfo);
 
                 const currentLevel = lods[levelInfo.current];
                 const currentLevelRender = currentLevel.render;

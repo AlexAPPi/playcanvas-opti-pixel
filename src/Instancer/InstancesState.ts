@@ -7,37 +7,49 @@ export interface ILodUpdateResult {
 
 const enum StateOffset {
     Flags = 0,
-    CurrentLod = 1,
-    TargetLod = 2,
-    FadeT = 3,
+    LodPacked = 1,
 }
 
 const enum Flags {
     Active  = 1,
     Visible = 2,
-    ActiveAndVisible = Active | Visible,
-    LodStateFading = 1 << 2,
+    ActiveAndVisible = Active | Visible
 }
+
+const LOD_MASK = 0x0f;
 
 export class InstancesState {
 
-    public readonly stride = 4;
+    public readonly stride = 2;
 
     public data: Uint8Array;
+    public fadeStartTime: Float32Array;
+    public lastViewTime: Float32Array;
     public count: number;
 
     constructor(count: number) {
         this.count = count;
         this.data = new Uint8Array(count * this.stride);
+        this.fadeStartTime = new Float32Array(count);
+        this.lastViewTime = new Float32Array(count);
     }
 
     public resize(count: number): void {
+
         if (count === this.count) return;
-        const safeLen = Math.min(this.data.length, count);
-        const prevData = this.data.subarray(0, safeLen);
+
+        const safeDataLen = Math.min(this.data.length, count * this.stride);
+        const safeTimeLen = Math.min(this.fadeStartTime.length, count);
+        const prevData = this.data.subarray(0, safeDataLen);
+        const prevTime = this.fadeStartTime.subarray(0, safeTimeLen);
+
         this.count = count;
         this.data = new Uint8Array(count * this.stride);
+        this.fadeStartTime = new Float32Array(count);
+        this.lastViewTime = new Float32Array(count);
+
         this.data.set(prevData);
+        this.fadeStartTime.set(prevTime);
     }
 
     private _base(index: number): number {
@@ -51,12 +63,8 @@ export class InstancesState {
 
     public setActive(index: number, value: boolean): void {
         const offset = this._base(index) + StateOffset.Flags;
-        if (value) {
-            this.data[offset] |= Flags.Active;
-        }
-        else {
-            this.data[offset] &= ~Flags.Active
-        }
+        if (value) this.data[offset] |= Flags.Active;
+        else       this.data[offset] &= ~Flags.Active
     }
 
     public getVisibility(index: number): boolean {
@@ -66,12 +74,8 @@ export class InstancesState {
 
     public setVisibility(index: number, value: boolean): void {
         const offset = this._base(index) + StateOffset.Flags;
-        if (value) {
-            this.data[offset] |= Flags.Visible;
-        }
-        else {
-            this.data[offset] &= ~Flags.Visible;
-        }
+        if (value) this.data[offset] |= Flags.Visible;
+        else       this.data[offset] &= ~Flags.Visible;
     }
 
     public getActiveAndVisibility(index: number): boolean {
@@ -81,138 +85,97 @@ export class InstancesState {
 
     public setActiveAndVisibility(index: number, value: boolean): void {
         const offset = this._base(index) + StateOffset.Flags;
-        if (value) {
-            this.data[offset] |= Flags.ActiveAndVisible;
-        }
-        else {
-            this.data[offset] &= ~Flags.ActiveAndVisible;
-        }
-    }
-
-    public getCurrentLod(index: number): number {
-        return this.data[this._base(index) + StateOffset.CurrentLod];
-    }
-
-    public setCurrentLod(index: number, value: number): void {
-        this.data[this._base(index) + StateOffset.CurrentLod] = value;
-    }
-
-    public getTargetLod(index: number): number {
-        return this.data[this._base(index) + StateOffset.TargetLod];
-    }
-
-    public setTargetLod(index: number, value: number): void {
-        this.data[this._base(index) + StateOffset.TargetLod] = value;
-    }
-
-    public isFading(index: number): boolean {
-        const flags = this.data[this._base(index) + StateOffset.Flags];
-        return (flags & Flags.LodStateFading) !== 0;
-    }
-
-    public setFading(index: number, value: boolean): void {
-        const offset = this._base(index) + StateOffset.Flags;
-        if (value) {
-            this.data[offset] |= Flags.LodStateFading;
-        }
-        else {
-            this.data[offset] &= ~Flags.LodStateFading;
-        }
-    }
-
-    public getFadeValue(index: number): number {
-        return this.data[this._base(index) + StateOffset.FadeT];
-    }
-
-    public setFadeValue(index: number, value: number): void {
-        this.data[this._base(index) + StateOffset.FadeT] = value;
-    }
-
-    public reset(index: number, current: number = 0, flags: number = 0): void {
-        const b = this._base(index);
-        this.data[b + StateOffset.Flags] = flags;
-        this.data[b + StateOffset.CurrentLod] = current;
-        this.data[b + StateOffset.TargetLod] = current;
-        this.data[b + StateOffset.FadeT] = 0;
+        if (value) this.data[offset] |= Flags.ActiveAndVisible;
+        else       this.data[offset] &= ~Flags.ActiveAndVisible;
     }
 
     public setLodsAll(currentLod: number, targetLod: number, skipFade: boolean = true) {
 
-        for (let i = 0; i < this.count; i++) {
+        const lodPacked = ((currentLod & LOD_MASK) << 4) | (targetLod & LOD_MASK);
 
-            const b = this._base(i);
+        for (let index = 0; index < this.count; index++) {
 
-            this.data[b + StateOffset.CurrentLod] = currentLod;
-            this.data[b + StateOffset.TargetLod] = targetLod;
+            const basePtr = this._base(index);
+
+            this.data[basePtr + StateOffset.LodPacked] = lodPacked;
 
             if (skipFade) {
-
-                this.data[b + StateOffset.Flags] &= ~Flags.LodStateFading;
-                this.data[b + StateOffset.FadeT] = 0;
+                this.fadeStartTime[index] = 0;
             }
         }
     }
 
-    public updateLodState(index: number, targetLod: number, alpha: number, out: ILodUpdateResult): void {
+    public updateLodState(
+        index: number,
+        targetLod: number,
+        time: number,
+        fadeTime: number,
+        out: ILodUpdateResult
+    ): void {
 
-        const b = this._base(index);
+        const basePtr = this._base(index);
+        const lodPtr = basePtr + StateOffset.LodPacked;
 
-        let flags = this.data[b + StateOffset.Flags];
-        let current = this.data[b + StateOffset.CurrentLod];
-        let target = this.data[b + StateOffset.TargetLod];
-        let fadeT = this.data[b + StateOffset.FadeT];
+        const prevViewTime = this.lastViewTime[index];
+        this.lastViewTime[index] = time;
 
-        const isFading = (flags & Flags.LodStateFading) !== 0;
-
-        if (targetLod !== current) {
-
-            if (!isFading || targetLod !== target) {
-                target = targetLod;
-                flags |= Flags.LodStateFading;
-                fadeT = 0;
-
-                this.data[b + StateOffset.TargetLod] = target;
-                this.data[b + StateOffset.Flags] = flags;
-                this.data[b + StateOffset.FadeT] = fadeT;
-            }
-        } else {
-
-            if (isFading) {
-                flags &= ~Flags.LodStateFading;
-                fadeT = 0;
-
-                this.data[b + StateOffset.Flags] = flags;
-                this.data[b + StateOffset.FadeT] = fadeT;
-            }
+        if (time - prevViewTime >= fadeTime) {
+            this.fadeStartTime[index] = 0;
+            this.data[lodPtr] = ((targetLod & LOD_MASK) << 4) | (targetLod & LOD_MASK);
+            out.current = targetLod;
+            out.next = null;
+            out.weight = 1;
+            out.nextWeight = 0;
+            return;
         }
 
-        const nowFading = (flags & Flags.LodStateFading) !== 0;
+        const packed = this.data[lodPtr];
+        let current = (packed >> 4) & LOD_MASK;
+        let storedTarget = packed & LOD_MASK;
 
-        if (nowFading) {
+        const storedTime = this.fadeStartTime[index];
+        const isFading = storedTime > 0;
 
-            const step = Math.round(alpha * 255);
-            fadeT = Math.min(255, fadeT + step);
-            this.data[b + StateOffset.FadeT] = fadeT;
+        if (!isFading) {
 
-            if (fadeT >= 255) {
-
-                current = target;
-                flags &= ~Flags.LodStateFading;
-                this.data[b + StateOffset.CurrentLod] = current;
-                this.data[b + StateOffset.Flags] = flags;
-
+            if (current !== targetLod) {
+                storedTarget = targetLod;
+                this.data[lodPtr] = ((current & LOD_MASK) << 4) | (storedTarget & LOD_MASK);
+                this.fadeStartTime[index] = time;
+            }
+            else {
                 out.current = current;
                 out.next = null;
                 out.weight = 1;
                 out.nextWeight = 0;
                 return;
             }
+        }
+        else if (storedTarget !== targetLod) {
+            storedTarget = targetLod;
+            this.data[lodPtr] = ((current & LOD_MASK) << 4) | (storedTarget & LOD_MASK);
+            this.fadeStartTime[index] = time;
+        }
 
-            const x = fadeT / 255;
-            const w = x * x * (3 - 2 * x);
+        const nowStoredTime = this.fadeStartTime[index];
 
+        if (nowStoredTime > 0) {
+
+            const t = Math.max(0, (time - nowStoredTime) / fadeTime);
+
+            if (t >= 1) {
+                this.fadeStartTime[index] = 0;
+                this.data[lodPtr] = ((storedTarget & LOD_MASK) << 4) | (storedTarget & LOD_MASK);
+                out.current = storedTarget;
+                out.next = null;
+                out.weight = 1;
+                out.nextWeight = 0;
+                return;
+            }
+
+            const w = t * t * (3 - 2 * t);
             out.current = current;
-            out.next = target;
+            out.next = storedTarget;
             out.weight = 1 - w;
             out.nextWeight = w;
             return;
