@@ -58,6 +58,16 @@ export function getSquareTextureInfo<TConstructor extends TypedArrayConstructorT
     return { array, size, pixelFormat };
 }
 
+export interface ISquareDataTextureParams<TArray extends TypedArrayType> {
+    arrayConstructor: TypedArrayConstructorType<TArray>,
+    channels: TChannelSize,
+    pixelsPerInstance: number,
+    capacity?: number,
+    pixelFormat?: number,
+    defaultPixelValue?: number,
+    name?: string
+}
+
 export class SquareDataTexture<TArray extends TypedArrayType> {
 
     /**
@@ -89,7 +99,14 @@ export class SquareDataTexture<TArray extends TypedArrayType> {
     public get texture() { return this._texture; }
     public get data() { return this._data; }
 
-    constructor(device: pc.GraphicsDevice, arrayConstructor: TypedArrayConstructorType<TArray>, channels: TChannelSize, pixelsPerInstance: number, capacity: number = 512, pixelFormat?: number, defaultPixelValue?: number) {
+    constructor(device: pc.GraphicsDevice, params: ISquareDataTextureParams<TArray>) {
+
+        const {
+            arrayConstructor, channels, pixelsPerInstance,
+            capacity = 512, pixelFormat, defaultPixelValue,
+            name = "SquareDataTexture"
+        } = params;
+
         this._device = device;
         this._channels = channels;
         this._arrayConstructor = arrayConstructor;
@@ -97,14 +114,14 @@ export class SquareDataTexture<TArray extends TypedArrayType> {
         this._pixelFormat = pixelFormat;
         this._defaultPixelValue = defaultPixelValue;
         this._stride = pixelsPerInstance * channels;
-        this._createOrResizeTexture(capacity);
+        this._createOrResizeTexture(capacity, name);
     }
 
     public destroy(): void {
         this._texture?.destroy();
     }
 
-    private _createOrResizeTexture(count: number): void {
+    private _createOrResizeTexture(count: number, name?: string): void {
 
         this._capacity = count;
 
@@ -154,6 +171,7 @@ export class SquareDataTexture<TArray extends TypedArrayType> {
             this._data = array;
             this._rowToUpdate = new Array(size);
             this._texture = new pc.Texture(this._device, {
+                name: name,
                 width: size,
                 height: size,
                 format: finalPixelFormat,

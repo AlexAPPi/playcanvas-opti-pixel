@@ -118,9 +118,12 @@ export class SimpleHierarchicalInstancer implements IInstancer {
         this.device = device;
         this.lodFadeTime = lodFadeTime;
 
+        // Need for sort by depth
         this._sharedDepthStore = new Float32Array(capacity);
         this._sharedDepthStoreU = new Uint32Array(this._sharedDepthStore.buffer);
         this._sharedIndexes = new Uint32Array(capacity);
+
+        // State
         this._instancesState = new InstancesState(capacity);
         this._capacity = capacity;
         this._initMatricesTexture();
@@ -128,14 +131,35 @@ export class SimpleHierarchicalInstancer implements IInstancer {
 
     protected _initMatricesTexture(): void {
         this.matricesTexture?.destroy();
-        this.matricesTexture = new SquareDataTexture(this.device, Float32Array, 4, 4, this.capacity);
+        this.matricesTexture = new SquareDataTexture(this.device, {
+            arrayConstructor: Float32Array,
+            channels: 4,
+            pixelsPerInstance: 4,
+            capacity: this.capacity
+        });
         this._needUpdateMaterials = true;
     }
 
     protected _initColorsTexture(): void {
         this.colorsTexture?.destroy();
-        this.colorsTexture = new SquareDataTexture(this.device, Uint8Array, 4, 1, this.capacity, pc.PIXELFORMAT_RGBA8, 255);
+        this.colorsTexture = new SquareDataTexture(this.device, {
+            arrayConstructor: Uint8Array,
+            channels: 4,
+            pixelsPerInstance: 1,
+            capacity: this.capacity,
+            pixelFormat: pc.PIXELFORMAT_RGBA8,
+            defaultPixelValue: 255
+        });
         this._needUpdateMaterials = true;
+    }
+
+    public resize(newCapacity: number) {
+
+        if (this._capacity === newCapacity) {
+            return;
+        }
+
+
     }
 
     public computeMaxInstanceBoundingBox(src?: pc.BoundingBox): pc.BoundingBox {
@@ -710,8 +734,8 @@ export class SimpleHierarchicalInstancer implements IInstancer {
 
                 if (!onFrustumEnter || onFrustumEnter(index, camera, levelInfo.current, depth)) {
 
-                    // add 0.1 for safe off negative
-                    this._sharedDepthStore[index] = depth + 0.1;
+                    // add 0.05 for safe off negative
+                    this._sharedDepthStore[index] = depth + 0.05;
                     if (minZ > depth) minZ = depth;
                     if (maxZ < depth) maxZ = depth;
                     if (minIndex > index) minIndex = index;

@@ -7,7 +7,13 @@ const _pixelsPerInstance = 1;
 export class Vec4F32Texture extends SquareDataTexture<Float32Array> {
 
     public constructor(device: pc.GraphicsDevice, capacity: number = 512) {
-        super(device, Float32Array, _channels, _pixelsPerInstance, capacity);
+
+        super(device, {
+            arrayConstructor: Float32Array,
+            channels: _channels,
+            pixelsPerInstance: _pixelsPerInstance,
+            capacity
+        });
     }
 
     public tryEnqueueUpdateFromArray(index: number, inArray: Float32Array, offset: number = 0) {

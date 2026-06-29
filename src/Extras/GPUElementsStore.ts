@@ -23,7 +23,7 @@ export class GPUElementsStore<TArray extends TypedArrayType> {
         this._device = device;
         this._instancing = instancing;
         this._indexManager = new IndexManager(capacity, instancing ? false : true);
-        this._dataStore = new SquareDataTexture(device, arrayConstructor, channels, pixelsPerInstance, capacity);
+        this._dataStore = new SquareDataTexture(device, { arrayConstructor, channels, pixelsPerInstance, capacity });
     }
 
     public destroy() {
