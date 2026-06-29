@@ -1,8 +1,9 @@
 import pc from "../engine.js";
 import { BVHParams, InstancedMeshBVH } from "./InstancedMeshBVH.js";
-import AbsHierarchicalInstancer, { InstancedMeshParams, TOnFrustumEnter, TOnFrustumEnterThenUpdate } from "./AbsHierarchicalInstancer.js";
+import SimpleHierarchicalInstancer, { InstancedMeshParams, TOnFrustumEnter, TOnFrustumEnterThenUpdate } from "./SimpleHierarchicalInstancer.js";
+import { ILODLevel } from "./ILODLevel.js";
 
-export class HierarchicalInstancer extends AbsHierarchicalInstancer {
+export class HierarchicalInstancer extends SimpleHierarchicalInstancer {
 
     public bvh: InstancedMeshBVH<number, Float32Array<ArrayBuffer>> | undefined;
     public autoUpdateBVH: boolean = true;
@@ -35,7 +36,7 @@ export class HierarchicalInstancer extends AbsHierarchicalInstancer {
      * @param id The index of the instance.
      * @param matrix A `Mat4` representing the local transformation to apply to the instance.
      */
-    public setMatrixAt(id: number, matrix: pc.Mat4): void {
+    public override setMatrixAt(id: number, matrix: pc.Mat4): void {
         super.setMatrixAt(id, matrix);
         if (this.bvh && this.autoUpdateBVH) {
             this.bvh.move(id);
@@ -57,6 +58,11 @@ export class HierarchicalInstancer extends AbsHierarchicalInstancer {
         const lods = this.LODs;
         const frustum = camera.frustum;
 
+        // Let’s make an assumption: since we store data in uint8,
+        // we must guarantee that the increment occurs; however,
+        // this could become an issue at very high FPS.
+        const alpha = Math.max((1 / 255), dt / this._lodFadeTime);
+
         this.bvh?.frustumCullingLOD(frustum, cameraPosition, lods, (node, level, min, max) => {
 
             const index = node.object;
@@ -66,16 +72,21 @@ export class HierarchicalInstancer extends AbsHierarchicalInstancer {
 
                 const center = min + (max - min) / 2;
                 const distance = center;
-                const level = this.getLODIndexAndWeight(lods, distance);
-                const levelRender = lods[level.index].render;
+
+                const targetLevel = this.getObjectLODIndexForDistance(lods, distance);
+
+                this._instancesState.updateLodState(index, targetLevel, alpha, levelInfo);
+
+                const currentLevelRender = lods[levelInfo.current]?.render;
+                const nextLevelRender = levelInfo.next !== null ? lods[levelInfo.next]?.render : null;
 
                 let depth = Infinity;
 
-                if (levelRender?.sortObjects) {
+                if (currentLevelRender?.sortObjects) {
                     depth = center;
                 }
 
-                if (!onFrustumEnter || onFrustumEnter(index, camera, level.index, depth)) {
+                if (!onFrustumEnter || onFrustumEnter(index, camera, levelInfo.current, depth)) {
 
                     // add 0.1 for safe off negative
                     this._sharedDepthStore[index] = depth + 0.1;
@@ -84,16 +95,8 @@ export class HierarchicalInstancer extends AbsHierarchicalInstancer {
                     if (minIndex > index) minIndex = index;
                     if (maxIndex < index) maxIndex = index;
 
-                    levelRender?.enqueue(index, depth, level.weight);
-
-                    if (level.nextIndex !== null) {
-
-                        const nextLevelRender = lods[level.nextIndex].render;
-
-                        if (nextLevelRender) {
-                            nextLevelRender.enqueue(index, depth, level.nextWeight);
-                        }
-                    }
+                    currentLevelRender?.enqueue(index, depth, levelInfo.weight);
+                    nextLevelRender?.enqueue(index, depth, levelInfo.nextWeight);
                 }
             }
         });
@@ -118,8 +121,7 @@ export class HierarchicalInstancer extends AbsHierarchicalInstancer {
 
             const index = node.object;
 
-            // we don't check if active because we remove inactive instances from BVH
-            if (this.getVisibilityAt(index)) {
+            if (this.getActiveAndVisibilityAt(index)) {
 
                 let distance: number;
 
@@ -145,3 +147,9 @@ export class HierarchicalInstancer extends AbsHierarchicalInstancer {
 
 const _tempVec31 = new pc.Vec3();
 const _tempVec32 = new pc.Vec3();
+const levelInfo = {
+    current: 0,
+    next: 0,
+    weight: 1,
+    nextWeight: 0
+};

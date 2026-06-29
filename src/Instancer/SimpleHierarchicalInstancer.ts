@@ -13,17 +13,22 @@ import instancerOpacityPS from "./ShaderChunks/Frag/opacity.js";
 
 import pc from "../engine.js";
 import { SquareDataTexture } from "../Extras/SquareDataTexture.js";
-import { IInstancer } from "./IInstancer";
-import { ILODLevel } from "./ILODLevel";
+import { IInstancer } from "./IInstancer.js";
+import { ILODLevel } from "./ILODLevel.js";
 import { GPUInstancedList, instancingIndexSemantic } from "./InstancedList.js";
 import { LODRender } from "./LODRender.js";
+import { InstancesState } from "./InstancesState.js";
 
 export type TOnFrustumEnter = (index: number, camera: pc.Camera, level: number, distance: number) => void;
 export type TOnFrustumEnterThenUpdate = (index: number, camera: pc.Camera, level: number, depth: number) => boolean | void;
 
-const VISIBLE = 1;
-const ACTIVE  = 2;
-const BOTH    = VISIBLE | ACTIVE;
+type TLodState = {
+    current: number;
+    target: number;
+    fading: boolean;
+    fadeStartTime: number;
+    fadeTime: number;
+};
 
 /**
  * Parameters for configuring an `InstancedMesh` instance.
@@ -38,22 +43,23 @@ export interface InstancedMeshParams {
     capacity?: number;
 }
 
-export abstract class AbsHierarchicalInstancer implements IInstancer {
+export class SimpleHierarchicalInstancer implements IInstancer {
 
     /** @internal */ _perObjectFrustumCulled = true;
     /** @internal */ _sortObjects = false;
     /** @internal */ _useOpacity = false;
 
-    protected _maxInstanceBoundingBox: pc.BoundingBox;
+    protected _maxInstanceBoundingBox: pc.BoundingBox = new pc.BoundingBox();
     protected _instanceAABBCenter: pc.Vec3 = new pc.Vec3();
     protected _instanceAABBRadius: number = 0;
+
+    protected _instancesState: InstancesState;
+    protected _lodFadeTime: number = 0.25;
 
     protected _capacity: number;
     protected _sharedDepthStore: Float32Array;
     protected _sharedDepthStoreU: Uint32Array;
     protected _sharedIndexes: Uint32Array;
-
-    protected _visibilityAndActivibility: Uint8Array;
     protected _needUpdateMaterials: boolean = true;
 
     public LODs: ILODLevel[] = [];
@@ -95,13 +101,11 @@ export abstract class AbsHierarchicalInstancer implements IInstancer {
 
         this.device = device;
 
-        this._maxInstanceBoundingBox = new pc.BoundingBox();
         this._sharedDepthStore = new Float32Array(capacity);
         this._sharedDepthStoreU = new Uint32Array(this._sharedDepthStore.buffer);
         this._sharedIndexes = new Uint32Array(capacity);
-        this._visibilityAndActivibility = new Uint8Array(capacity);
+        this._instancesState = new InstancesState(capacity);
         this._capacity = capacity;
-
         this._initMatricesTexture();
     }
 
@@ -139,21 +143,6 @@ export abstract class AbsHierarchicalInstancer implements IInstancer {
         }
 
         return src;
-    }
-
-    /**
-     * Retrieves the index of the LOD level for a given distance.
-     * @param lods The array of LODs.
-     * @param distance The squared distance from the camera to the object.
-     * @returns The index of the LOD that should be used.
-     */
-    public getObjectLODIndexForDistance(lods: ILODLevel[], distance: number): number {
-        for (let i = lods.length - 1; i > 0; i--) {
-            const level = lods[i];
-            const levelDistance = level.distance - (level.distance * level.hysteresis);
-            if (distance >= levelDistance) return i;
-        }
-        return 0;
     }
 
     public addLOD(meshInstanceList: pc.MeshInstance[] | null, root: pc.Entity | null, distance: number = 0, hysteresis: number = 0) {
@@ -484,12 +473,7 @@ export abstract class AbsHierarchicalInstancer implements IInstancer {
      * @param visible Whether the instance should be visible.
      */
     public setVisibilityAt(id: number, visible: boolean): void {
-        if (visible) {
-            this._visibilityAndActivibility[id] |= VISIBLE;
-        }
-        else {
-            this._visibilityAndActivibility[id] &= ~VISIBLE;
-        }
+        this._instancesState.setVisibility(id, visible);
     }
 
     /**
@@ -498,7 +482,7 @@ export abstract class AbsHierarchicalInstancer implements IInstancer {
      * @returns Whether the instance is visible.
      */
     public getVisibilityAt(id: number): boolean {
-        return (this._visibilityAndActivibility[id] & VISIBLE) !== 0;
+        return this._instancesState.getVisibility(id);
     }
 
     /**
@@ -507,12 +491,7 @@ export abstract class AbsHierarchicalInstancer implements IInstancer {
      * @param active Whether the instance is active (not deleted).
      */
     public setActiveAt(id: number, active: boolean): void {
-        if (active) {
-            this._visibilityAndActivibility[id] |= ACTIVE;
-        }
-        else {
-            this._visibilityAndActivibility[id] &= ~ACTIVE;
-        }
+        this._instancesState.setActive(id, active);
     }
 
     /**
@@ -521,16 +500,7 @@ export abstract class AbsHierarchicalInstancer implements IInstancer {
      * @returns Whether the instance is active (not deleted).
      */
     public getActiveAt(id: number): boolean {
-        return (this._visibilityAndActivibility[id] & ACTIVE) !== 0;
-    }
-
-    /**
-     * Indicates if a specific instance is visible and active.
-     * @param id The index of the instance.
-     * @returns Whether the instance is visible and active.
-     */
-    public getActiveAndVisibilityAt(id: number): boolean {
-        return (this._visibilityAndActivibility[id] & BOTH) === BOTH;
+        return this._instancesState.getActive(id);
     }
 
     /**
@@ -539,7 +509,16 @@ export abstract class AbsHierarchicalInstancer implements IInstancer {
      * @param value Whether the instance is active and active (not deleted).
      */
     public setActiveAndVisibilityAt(id: number, value: boolean): void {
-        this._visibilityAndActivibility[id] = value ? BOTH : 0;
+        this._instancesState.setActiveAndVisibility(id, value);
+    }
+
+    /**
+     * Indicates if a specific instance is visible and active.
+     * @param id The index of the instance.
+     * @returns Whether the instance is visible and active.
+     */
+    public getActiveAndVisibilityAt(id: number): boolean {
+        return this._instancesState.getActiveAndVisibility(id);
     }
 
     /**
@@ -634,71 +613,6 @@ export abstract class AbsHierarchicalInstancer implements IInstancer {
         }
     }
 
-    protected _updateRenders(dt: number, camera: pc.Camera, cameraPosition: pc.Vec3, cameraForward: pc.Vec3, onFrustumEnter?: TOnFrustumEnterThenUpdate) {
-
-        const lods = this.LODs;
-        const frustum = camera.frustum;
-
-        let minIndex = this.instancesArrayCount;
-        let maxIndex = 0;
-        let minZ =  Infinity;
-        let maxZ = -Infinity;
-
-        const count = this.instancesArrayCount;
-
-        for (let index = 0; index < count; index++) {
-
-            if (!this.getActiveAndVisibilityAt(index)) continue;
-
-            this.applyMatrixAtToSphere(index, _sphere, this._instanceAABBCenter, this._instanceAABBRadius);
-
-            //const maxScale = this.getPositionAndMaxScaleOnAxisAt(i, _sphere.center);
-            //_sphere.radius = this._instanceAABBRadius * maxScale;
-
-            if (frustum.containsSphere(_sphere) > 0) {
-
-                const relativeCenterOfCamera = _tempVec32.sub2(_sphere.center, cameraPosition);
-                const distance = relativeCenterOfCamera.lengthSq();
-                const level = this.getLODIndexAndWeight(lods, distance);
-                const levelRender = lods[level.index].render;
-
-                let depth = Infinity;
-
-                if (levelRender?.sortObjects) {
-                    depth = relativeCenterOfCamera.dot(cameraForward);
-                }
-
-                if (!onFrustumEnter || onFrustumEnter(index, camera, level.index, depth)) {
-
-                    // add 0.1 for safe off negative
-                    this._sharedDepthStore[index] = depth + 0.1;
-                    if (minZ > depth) minZ = depth;
-                    if (maxZ < depth) maxZ = depth;
-                    if (minIndex > index) minIndex = index;
-                    if (maxIndex < index) maxIndex = index;
-
-                    levelRender?.enqueue(index, depth, level.weight);
-
-                    if (level.nextIndex !== null) {
-
-                        const nextLevelRender = lods[level.nextIndex].render;
-
-                        if (nextLevelRender) {
-                            nextLevelRender.enqueue(index, depth, level.nextWeight);
-                        }
-                    }
-                }
-            }
-        }
-
-        // We adapt the depth for lower bit depths.
-        const from = minIndex;
-        const to   = maxIndex + 1;
-        for (let i = from; i < to; i++) {
-            this._sharedDepthStore[i] -= minZ;
-        }
-    }
-
     public update(dt: number, camera: pc.Camera, cameraPosition: pc.Vec3, cameraForward: pc.Vec3, onFrustumEnter?: TOnFrustumEnterThenUpdate) {
 
         this.matricesTexture?.update();
@@ -735,51 +649,88 @@ export abstract class AbsHierarchicalInstancer implements IInstancer {
         }
     }
 
-    public getLODIndexAndWeight(
-        lods: ILODLevel[],
-        distance: number
-    ): { index: number; weight: number; nextWeight: number; nextIndex: number | null } {
+    protected _updateRenders(dt: number, camera: pc.Camera, cameraPosition: pc.Vec3, cameraForward: pc.Vec3, onFrustumEnter?: TOnFrustumEnterThenUpdate) {
 
-        for (let i = 1, l = lods.length; i < l; i++) {
+        const lods = this.LODs;
+        const frustum = camera.frustum;
 
-            const level = lods[i];
+        let minIndex = this.instancesArrayCount;
+        let maxIndex = 0;
+        let minZ =  Infinity;
+        let maxZ = -Infinity;
 
-            if (distance < level.distance) {
+        // Let’s make an assumption: since we store data in uint8,
+        // we must guarantee that the increment occurs; however,
+        // this could become an issue at very high FPS.
+        const alpha = Math.max((1 / 255), dt / this._lodFadeTime);
+        const count = this.instancesArrayCount;
 
-                const levelDistance = level.distance - (level.distance * level.hysteresis);
+        for (let index = 0; index < count; index++) {
 
-                if (distance < levelDistance) {
+            if (!this.getActiveAndVisibilityAt(index)) continue;
 
-                    return {
-                        index: i - 1,
-                        weight: 1,
-                        nextWeight: 0,
-                        nextIndex: null
-                    };
+            this.applyMatrixAtToSphere(index, _sphere, this._instanceAABBCenter, this._instanceAABBRadius);
+
+            //const maxScale = this.getPositionAndMaxScaleOnAxisAt(i, _sphere.center);
+            //_sphere.radius = this._instanceAABBRadius * maxScale;
+
+            if (frustum.containsSphere(_sphere) > 0) {
+
+                const relativeCenterOfCamera = _tempVec32.sub2(_sphere.center, cameraPosition);
+                const distance = relativeCenterOfCamera.lengthSq();
+                const targetLevel = this.getObjectLODIndexForDistance(lods, distance);
+
+                this._instancesState.updateLodState(index, targetLevel, alpha, levelInfo);
+
+                const currentLevelRender = lods[levelInfo.current]?.render;
+                const nextLevelRender = levelInfo.next !== null ? lods[levelInfo.next]?.render : null;
+
+                let depth = Infinity;
+
+                if (currentLevelRender?.sortObjects) {
+                    depth = relativeCenterOfCamera.dot(cameraForward);
                 }
 
-                const t = (distance - levelDistance) / (level.distance * level.hysteresis);
-                const weight = Math.min(Math.max(0, t), 1);
+                if (!onFrustumEnter || onFrustumEnter(index, camera, levelInfo.current, depth)) {
 
-                return {
-                    index: i - 1,
-                    weight: 1 - weight,
-                    nextWeight: weight,
-                    nextIndex: i
+                    // add 0.1 for safe off negative
+                    this._sharedDepthStore[index] = depth + 0.1;
+                    if (minZ > depth) minZ = depth;
+                    if (maxZ < depth) maxZ = depth;
+                    if (minIndex > index) minIndex = index;
+                    if (maxIndex < index) maxIndex = index;
+
+                    currentLevelRender?.enqueue(index, depth, levelInfo.weight);
+                    nextLevelRender?.enqueue(index, depth, levelInfo.nextWeight);
                 }
             }
         }
 
-        return {
-            index: lods.length - 1,
-            weight: 1,
-            nextWeight: 0,
-            nextIndex: null
-        };
+        // We adapt the depth for lower bit depths.
+        const from = minIndex;
+        const to   = maxIndex + 1;
+        for (let i = from; i < to; i++) {
+            this._sharedDepthStore[i] -= minZ;
+        }
+    }
+
+    /**
+     * Retrieves the index of the LOD level for a given distance.
+     * @param lods The array of LODs.
+     * @param distance The squared distance from the camera to the object.
+     * @returns The index of the LOD that should be used.
+     */
+    public getObjectLODIndexForDistance(lods: ILODLevel[], distance: number): number {
+        for (let i = lods.length - 1; i > 0; i--) {
+            const level = lods[i];
+            const levelDistance = level.distance - (level.distance * level.hysteresis);
+            if (distance >= levelDistance) return i;
+        }
+        return 0;
     }
 }
 
-export default AbsHierarchicalInstancer;
+export default SimpleHierarchicalInstancer;
 
 const _defaultCapacity = 1000;
 const _sphere = new pc.BoundingSphere();
@@ -787,3 +738,9 @@ const _tempCol = new pc.Color();
 const _tempMat41 = new pc.Mat4();
 const _tempVec31 = new pc.Vec3();
 const _tempVec32 = new pc.Vec3();
+const levelInfo = {
+    current: 0,
+    next: 0,
+    weight: 1,
+    nextWeight: 0
+};
