@@ -111,9 +111,13 @@ export class InstancesState {
     }
 
     public setFading(index: number, value: boolean): void {
-        const i = this._base(index) + StateOffset.Flags;
-        const flags = this.data[i];
-        this.data[i] = value ? (flags | Flags.LodStateFading) : (flags & ~Flags.LodStateFading);
+        const offset = this._base(index) + StateOffset.Flags;
+        if (value) {
+            this.data[offset] |= Flags.LodStateFading;
+        }
+        else {
+            this.data[offset] &= ~Flags.LodStateFading;
+        }
     }
 
     public getFadeValue(index: number): number {
@@ -124,12 +128,29 @@ export class InstancesState {
         this.data[this._base(index) + StateOffset.FadeT] = value;
     }
 
-    public reset(index: number, current: number): void {
+    public reset(index: number, current: number = 0, flags: number = 0): void {
         const b = this._base(index);
-        this.data[b + StateOffset.Flags] = 0;
+        this.data[b + StateOffset.Flags] = flags;
         this.data[b + StateOffset.CurrentLod] = current;
         this.data[b + StateOffset.TargetLod] = current;
         this.data[b + StateOffset.FadeT] = 0;
+    }
+
+    public setLodsAll(currentLod: number, targetLod: number, skipFade: boolean = true) {
+
+        for (let i = 0; i < this.count; i++) {
+
+            const b = this._base(i);
+
+            this.data[b + StateOffset.CurrentLod] = currentLod;
+            this.data[b + StateOffset.TargetLod] = targetLod;
+
+            if (skipFade) {
+
+                this.data[b + StateOffset.Flags] &= ~Flags.LodStateFading;
+                this.data[b + StateOffset.FadeT] = 0;
+            }
+        }
     }
 
     public updateLodState(index: number, targetLod: number, alpha: number, out: ILodUpdateResult): void {

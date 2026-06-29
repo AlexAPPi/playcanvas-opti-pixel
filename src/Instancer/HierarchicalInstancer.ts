@@ -51,8 +51,8 @@ export class HierarchicalInstancer extends SimpleHierarchicalInstancer {
 
         let minIndex = this.instancesArrayCount;
         let maxIndex = 0;
-        let minZ =  Infinity;
-        let maxZ = -Infinity;
+        let minDistance =  Infinity;
+        let maxDistance = -Infinity;
 
         const lods = this.LODs;
         const frustum = camera.frustum;
@@ -69,42 +69,49 @@ export class HierarchicalInstancer extends SimpleHierarchicalInstancer {
             // we don't check if active because we remove inactive instances from BVH
             if (this.getVisibilityAt(index)) {
 
-                const center = min + (max - min) / 2;
-                const distance = center;
+                let distance: number;
 
-                const targetLevel = this.getObjectLODIndexForDistance(lods, distance);
+                if (level === null || this._sortObjectsInStep) {
 
-                this._instancesState.updateLodState(index, targetLevel, alpha, levelInfo);
+                    // distance can be get by BVH, but is not the distance from center
+                    const pos = this.getPositionAt(index, _tempVec31);
+                    const tmp = _tempVec32.sub2(pos, cameraPosition);
+
+                    distance = tmp.lengthSq();
+                    level = this.getObjectLODIndexForDistance(lods, distance);
+                }
+                else {
+                    distance = min;
+                }
+
+                this._instancesState.updateLodState(index, level, alpha, levelInfo);
 
                 const currentLevelRender = lods[levelInfo.current]?.render;
                 const nextLevelRender = levelInfo.next !== null ? lods[levelInfo.next]?.render : null;
 
-                let depth = Infinity;
+                if (!onFrustumEnter || onFrustumEnter(index, camera, levelInfo.current, distance)) {
 
-                if (currentLevelRender?.sortObjects) {
-                    depth = center;
-                }
+                    // add 0.05 for safe off negative
+                    this._sharedDepthStore[index] = distance + 0.05;
 
-                if (!onFrustumEnter || onFrustumEnter(index, camera, levelInfo.current, depth)) {
-
-                    // add 0.1 for safe off negative
-                    this._sharedDepthStore[index] = depth + 0.1;
-                    if (minZ > depth) minZ = depth;
-                    if (maxZ < depth) maxZ = depth;
+                    if (minDistance > distance) minDistance = distance;
+                    if (maxDistance < distance) maxDistance = distance;
                     if (minIndex > index) minIndex = index;
                     if (maxIndex < index) maxIndex = index;
 
-                    currentLevelRender?.enqueue(index, depth, levelInfo.weight);
-                    nextLevelRender?.enqueue(index, depth, levelInfo.nextWeight);
+                    currentLevelRender?.enqueue(index, levelInfo.weight);
+                    nextLevelRender?.enqueue(index, levelInfo.nextWeight);
                 }
             }
         });
 
-        // We adapt the depth for lower bit depths.
+        // We fill depth buffer by distances
+        // Now need convert distance to depth
+        // Diff minDistance
         const from = minIndex;
         const to   = maxIndex + 1;
         for (let i = from; i < to; i++) {
-            this._sharedDepthStore[i] -= minZ;
+            this._sharedDepthStore[i] -= minDistance;
         }
     }
 
@@ -134,8 +141,7 @@ export class HierarchicalInstancer extends SimpleHierarchicalInstancer {
                     level = this.getObjectLODIndexForDistance(lods, distance);
                 }
                 else {
-                    // avg distance
-                    distance = (max + min) / 2;
+                    distance = min;
                 }
 
                 onFrustumEnter(index, camera, level, distance);

@@ -258,9 +258,7 @@ export class BVH<N, L, B extends BoxType> {
             const nodeBox = node.box;
 
             if (level === null) { // TODO trying use mask here?
-                const distance = minMaxDistanceSqPointToBox(nodeBox, cameraPosition);
-                min = distance.min;
-                max = distance.max;
+                const { min, max } = minMaxDistanceSqPointToBox(nodeBox, cameraPosition);
                 level = getLevel(min, max);
             }
 

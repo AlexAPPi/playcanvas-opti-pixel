@@ -1,10 +1,7 @@
 import pc from "../engine.js";
-import { GPUInstancedList, instancingIndexSemantic } from "./InstancedList.js";
+import { GPUInstancedList } from "./InstancedList.js";
 
 export class LODRender {
-
-    private _minZ: number =  Infinity;
-    private _maxZ: number = -Infinity;
 
     /**
      * The gpu instanced list
@@ -110,15 +107,11 @@ export class LODRender {
 
     public start() {
         this.list.clear();
-        this._minZ =  Infinity;
-        this._maxZ = -Infinity;
     }
 
-    public enqueue(index: number, depth: number, opacity: number) {
+    public enqueue(index: number, opacity: number) {
         opacity = Math.min(255, Math.max(0, opacity * 255));
         this.list.push(index, opacity);
-        if (this._minZ > depth) this._minZ = depth;
-        if (this._maxZ < depth) this._maxZ = depth;
     }
 
     public end() {

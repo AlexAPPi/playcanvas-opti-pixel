@@ -140,7 +140,7 @@ export class InstancedMeshBVH<TObject, TBoxType extends BoxType> {
 
         for (let i = 0; i < instancesArrayCount; i++) {
             if (!this.target.getActiveAt(i)) continue;
-            boxes[index] = this.getBox(i, new Float32Array(6));
+            boxes[index] = this._getBox(i, new Float32Array(6));
             objects[index] = i;
             index++;
         }
@@ -155,7 +155,8 @@ export class InstancedMeshBVH<TObject, TBoxType extends BoxType> {
      * @param id The id of the instance to insert.
      */
     public insert(id: number): void {
-        const node = this.bvh.insert(id, this.getBox(id, new Float32Array(6)), this._margin);
+        const array = new Float32Array(6);
+        const node = this.bvh.insert(id, this._getBox(id, array), this._margin);
         this.nodesMap.set(id, node);
     }
 
@@ -168,7 +169,7 @@ export class InstancedMeshBVH<TObject, TBoxType extends BoxType> {
         const boxes: Float32Array[] = new Array(count);
 
         for (let i = 0; i < count; i++) {
-            boxes[i] = this.getBox(ids[i], new Float32Array(6));
+            boxes[i] = this._getBox(ids[i], new Float32Array(6));
         }
 
         this.bvh.insertRange(ids, boxes, this._margin, (node) => {
@@ -183,7 +184,7 @@ export class InstancedMeshBVH<TObject, TBoxType extends BoxType> {
     public move(id: number): void {
         const node = this.nodesMap.get(id);
         if (!node) return;
-        this.getBox(id, _boxArray); // this also updates box
+        this._getBox(id, _boxArray); // this also updates box
         this.bvh.builder.boxConverter(_boxArray, this.bvh.builder.typeArray, node.box); // convert for box type
         this.bvh.move(node, this._margin);
     }
@@ -267,11 +268,11 @@ export class InstancedMeshBVH<TObject, TBoxType extends BoxType> {
         return this.bvh.intersectsBox(this._boxArray, onIntersection);
     }
 
-    protected getBox(id: number, array: Float32Array): Float32Array {
+    protected _getBox(id: number, array: Float32Array): Float32Array {
 
         if (this._getBoxFromSphere && this._geoBoundingSphere && this._sphereTarget) {
             const matrixArray = this.target.matricesTexture.data;
-            const { centerX, centerY, centerZ, maxScale } = this.getSphereFromMatrix_centeredGeometry(id, matrixArray, this._sphereTarget);
+            const { centerX, centerY, centerZ, maxScale } = this._getSphereFromMatrix_centeredGeometry(id, matrixArray, this._sphereTarget);
             const radius = this._geoBoundingSphere.radius * maxScale;
             array[0] = centerX - radius;
             array[1] = centerX + radius;
@@ -287,7 +288,7 @@ export class InstancedMeshBVH<TObject, TBoxType extends BoxType> {
         return array;
     }
 
-    protected getSphereFromMatrix_centeredGeometry(id: number, array: Float32Array, target: SphereTarget): SphereTarget {
+    protected _getSphereFromMatrix_centeredGeometry(id: number, array: Float32Array, target: SphereTarget): SphereTarget {
         const offset = id * 16;
 
         const m0 = array[offset + 0];

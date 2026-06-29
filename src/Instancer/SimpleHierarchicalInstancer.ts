@@ -17,18 +17,10 @@ import { IInstancer } from "./IInstancer.js";
 import { ILODLevel } from "./ILODLevel.js";
 import { GPUInstancedList, instancingIndexSemantic } from "./InstancedList.js";
 import { LODRender } from "./LODRender.js";
-import { InstancesState } from "./InstancesState.js";
+import { ILodUpdateResult, InstancesState } from "./InstancesState.js";
 
 export type TOnFrustumEnter = (index: number, camera: pc.Camera, level: number, distance: number) => void;
-export type TOnFrustumEnterThenUpdate = (index: number, camera: pc.Camera, level: number, depth: number) => boolean | void;
-
-type TLodState = {
-    current: number;
-    target: number;
-    fading: boolean;
-    fadeStartTime: number;
-    fadeTime: number;
-};
+export type TOnFrustumEnterThenUpdate = (index: number, camera: pc.Camera, level: number, distance: number) => boolean | void;
 
 /**
  * Parameters for configuring an `InstancedMesh` instance.
@@ -59,6 +51,7 @@ export class SimpleHierarchicalInstancer implements IInstancer {
     protected _instanceAABBCenter: pc.Vec3 = new pc.Vec3();
     protected _instanceAABBRadius: number = 0;
 
+    protected _sortObjectsInStep: boolean = false;
     protected _instancesState: InstancesState;
     protected _capacity: number;
     protected _sharedDepthStore: Float32Array;
@@ -236,6 +229,12 @@ export class SimpleHierarchicalInstancer implements IInstancer {
             const instancedList = new GPUInstancedList(this.device, this.capacity);
             render = new LODRender(instancedList, meshInstanceList, root);
             this.patchMeshInstancesMaterials(meshInstanceList);
+        }
+
+        // set default last lod
+        if (index >= lods.length - 1) {
+            const lastIndex = index + 1;
+            this._instancesState.setLodsAll(lastIndex, lastIndex);
         }
 
         lods.splice(index, 0, {
@@ -666,10 +665,13 @@ export class SimpleHierarchicalInstancer implements IInstancer {
         const lods = this.LODs;
         const numLods = lods.length;
 
+        this._sortObjectsInStep = false;
+
         for (let lodIndex = 0; lodIndex < numLods; lodIndex++) {
             const render = lods[lodIndex].render;
             if (render) {
                 render.start();
+                this._sortObjectsInStep ||= render.sortObjects;
             }
         }
 
@@ -690,68 +692,82 @@ export class SimpleHierarchicalInstancer implements IInstancer {
         }
     }
 
+    protected _checkAndGetRelativePosition(index: number, frustum: pc.Frustum, cameraPosition: pc.Vec3, outRelativePosition: pc.Vec3) {
+
+        if (this.getActiveAndVisibilityAt(index)) {
+
+            // For non centered
+            this.applyMatrixAtToSphere(index, _sphere, this._instanceAABBCenter, this._instanceAABBRadius);
+
+            // For centered
+            //const maxScale = this.getPositionAndMaxScaleOnAxisAt(i, _sphere.center);
+            //_sphere.radius = this._instanceAABBRadius * maxScale;
+
+            if (frustum.containsSphere(_sphere) > 0) {
+
+                outRelativePosition.sub2(_sphere.center, cameraPosition);
+                return true;   
+            }
+        }
+
+        return false;
+    }
+
     protected _updateRenders(dt: number, camera: pc.Camera, cameraPosition: pc.Vec3, cameraForward: pc.Vec3, onFrustumEnter?: TOnFrustumEnterThenUpdate) {
 
         const lods = this.LODs;
         const frustum = camera.frustum;
-
-        let minIndex = this.instancesArrayCount;
-        let maxIndex = 0;
-        let minZ =  Infinity;
-        let maxZ = -Infinity;
 
         // Let’s make an assumption: since we store data in uint8,
         // we must guarantee that the increment occurs; however,
         // this could become an issue at very high FPS.
         const alpha = this.lodFadeTime === 0 ? 255 : Math.max((1 / 255), dt / this.lodFadeTime);
         const count = this.instancesArrayCount;
+        const relativeCenterOfCamera = _tempVec32;
+
+        let minIndex = count;
+        let maxIndex = 0;
+        let minDistance =  Infinity;
+        let maxDistance = -Infinity;
 
         for (let index = 0; index < count; index++) {
 
-            if (!this.getActiveAndVisibilityAt(index)) continue;
+            if (this._checkAndGetRelativePosition(index, frustum, cameraPosition, relativeCenterOfCamera)) {
 
-            this.applyMatrixAtToSphere(index, _sphere, this._instanceAABBCenter, this._instanceAABBRadius);
-
-            //const maxScale = this.getPositionAndMaxScaleOnAxisAt(i, _sphere.center);
-            //_sphere.radius = this._instanceAABBRadius * maxScale;
-
-            if (frustum.containsSphere(_sphere) > 0) {
-
-                const relativeCenterOfCamera = _tempVec32.sub2(_sphere.center, cameraPosition);
                 const distance = relativeCenterOfCamera.lengthSq();
                 const targetLevel = this.getObjectLODIndexForDistance(lods, distance);
 
                 this._instancesState.updateLodState(index, targetLevel, alpha, levelInfo);
 
-                const currentLevelRender = lods[levelInfo.current]?.render;
-                const nextLevelRender = levelInfo.next !== null ? lods[levelInfo.next]?.render : null;
+                const currentLevel = lods[levelInfo.current];
+                const currentLevelRender = currentLevel.render;
 
-                let depth = Infinity;
-
-                if (currentLevelRender?.sortObjects) {
-                    depth = relativeCenterOfCamera.dot(cameraForward);
-                }
-
-                if (!onFrustumEnter || onFrustumEnter(index, camera, levelInfo.current, depth)) {
+                if (!onFrustumEnter || onFrustumEnter(index, camera, levelInfo.current, distance)) {
 
                     // add 0.05 for safe off negative
-                    this._sharedDepthStore[index] = depth + 0.05;
-                    if (minZ > depth) minZ = depth;
-                    if (maxZ < depth) maxZ = depth;
+                    this._sharedDepthStore[index] = distance + 0.05;
+
+                    if (minDistance > distance) minDistance = distance;
+                    if (maxDistance < distance) maxDistance = distance;
                     if (minIndex > index) minIndex = index;
                     if (maxIndex < index) maxIndex = index;
 
-                    currentLevelRender?.enqueue(index, depth, levelInfo.weight);
-                    nextLevelRender?.enqueue(index, depth, levelInfo.nextWeight);
+                    currentLevelRender?.enqueue(index, levelInfo.weight);
+
+                    if (levelInfo.next !== null) {
+                        lods[levelInfo.next].render?.enqueue(index, levelInfo.nextWeight);
+                    }
                 }
             }
         }
 
-        // We adapt the depth for lower bit depths.
+        // We fill depth buffer by distances
+        // Now need convert distance to depth
+        // Diff minDistance
         const from = minIndex;
         const to   = maxIndex + 1;
         for (let i = from; i < to; i++) {
-            this._sharedDepthStore[i] -= minZ;
+            this._sharedDepthStore[i] -= minDistance;
         }
     }
 
@@ -779,7 +795,7 @@ const _tempCol = new pc.Color();
 const _tempMat41 = new pc.Mat4();
 const _tempVec31 = new pc.Vec3();
 const _tempVec32 = new pc.Vec3();
-const levelInfo = {
+const levelInfo: ILodUpdateResult = {
     current: 0,
     next: 0,
     weight: 1,
