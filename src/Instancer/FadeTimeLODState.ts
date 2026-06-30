@@ -1,26 +1,8 @@
-export interface ILodUpdateResult {
-    current: number;
-    next: number | null;
-    weight: number;
-    nextWeight: number;
-}
-
-const enum StateOffset {
-    Flags = 0,
-    LodPacked = 1,
-}
-
-const enum Flags {
-    Active  = 1,
-    Visible = 2,
-    ActiveAndVisible = Active | Visible
-}
+import { ILODState } from "./ILODState";
 
 const LOD_MASK = 0x0f;
 
-export class InstancesState {
-
-    public readonly stride = 2;
+export class FadeTimeLODState {
 
     public data: Uint8Array;
     public time: Float32Array;
@@ -28,7 +10,7 @@ export class InstancesState {
 
     constructor(count: number) {
         this.count = count;
-        this.data = new Uint8Array(count * this.stride);
+        this.data = new Uint8Array(count);
         this.time = new Float32Array(count);
     }
 
@@ -36,65 +18,27 @@ export class InstancesState {
 
         if (count === this.count) return;
 
-        const safeDataLen = Math.min(this.data.length, count * this.stride);
+        const safeDataLen = Math.min(this.data.length, count);
         const safeTimeLen = Math.min(this.time.length, count);
         const prevData = this.data.subarray(0, safeDataLen);
         const prevTime = this.time.subarray(0, safeTimeLen);
 
         this.count = count;
-        this.data = new Uint8Array(count * this.stride);
+        this.data = new Uint8Array(count);
         this.time = new Float32Array(count);
 
         this.data.set(prevData);
         this.time.set(prevTime);
     }
 
-    private _base(index: number): number {
-        return index * this.stride;
-    }
-
-    public getActive(index: number): boolean {
-        const flags = this.data[this._base(index) + StateOffset.Flags];
-        return (flags & Flags.Active) !== 0;
-    }
-
-    public setActive(index: number, value: boolean): void {
-        const offset = this._base(index) + StateOffset.Flags;
-        if (value) this.data[offset] |= Flags.Active;
-        else       this.data[offset] &= ~Flags.Active
-    }
-
-    public getVisibility(index: number): boolean {
-        const flags = this.data[this._base(index) + StateOffset.Flags];
-        return (flags & Flags.Visible) !== 0;
-    }
-
-    public setVisibility(index: number, value: boolean): void {
-        const offset = this._base(index) + StateOffset.Flags;
-        if (value) this.data[offset] |= Flags.Visible;
-        else       this.data[offset] &= ~Flags.Visible;
-    }
-
-    public getActiveAndVisibility(index: number): boolean {
-        const flags = this.data[this._base(index) + StateOffset.Flags];
-        return (flags & Flags.ActiveAndVisible) === Flags.ActiveAndVisible;
-    }
-
-    public setActiveAndVisibility(index: number, value: boolean): void {
-        const offset = this._base(index) + StateOffset.Flags;
-        if (value) this.data[offset] |= Flags.ActiveAndVisible;
-        else       this.data[offset] &= ~Flags.ActiveAndVisible;
-    }
-
     public setLodsAll(currentLod: number, targetLod: number, skipFade: boolean = true) {
 
         const lodPacked = ((currentLod & LOD_MASK) << 4) | (targetLod & LOD_MASK);
+        const count = this.count;
 
-        for (let index = 0; index < this.count; index++) {
+        for (let index = 0; index < count; index++) {
 
-            const basePtr = this._base(index);
-
-            this.data[basePtr + StateOffset.LodPacked] = lodPacked;
+            this.data[index] = lodPacked;
 
             if (skipFade) {
 
@@ -103,17 +47,15 @@ export class InstancesState {
         }
     }
 
-    public updateLodState(
+    public get(
         index: number,
         targetLod: number,
         time: number,
         fadeTime: number,
-        out: ILodUpdateResult
+        out: ILODState
     ): void {
 
-        const basePtr = this._base(index);
-        const lodPtr = basePtr + StateOffset.LodPacked;
-        const packed = this.data[lodPtr];
+        const packed = this.data[index];
 
         let currentLod = (packed >> 4) & LOD_MASK;
         let storedTargetLod = packed & LOD_MASK;
@@ -134,7 +76,7 @@ export class InstancesState {
                     storedTargetLod = targetLod;
                     storedTime = time + fadeTime;
 
-                    this.data[lodPtr] = (currentLod << 4) | (storedTargetLod & LOD_MASK);
+                    this.data[index] = (currentLod << 4) | (storedTargetLod & LOD_MASK);
                     this.time[index] = storedTime;
                 }
             }
@@ -159,7 +101,7 @@ export class InstancesState {
 
         if (targetLod !== currentLod || 
             targetLod !== storedTargetLod) {
-            this.data[lodPtr] = (targetLod << 4) | targetLod;
+            this.data[index] = (targetLod << 4) | targetLod;
         }
 
         out.current = targetLod;

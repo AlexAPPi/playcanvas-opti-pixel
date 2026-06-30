@@ -17,7 +17,9 @@ import { IInstancer } from "./IInstancer.js";
 import { ILODLevel } from "./ILODLevel.js";
 import { GPUInstancedList, instancingIndexSemantic } from "./InstancedList.js";
 import { LODRender } from "./LODRender.js";
-import { ILodUpdateResult, InstancesState } from "./InstancesState.js";
+import { FadeTimeLODState } from "./FadeTimeLODState.js";
+import { ILODState } from "./ILODState.js";
+import { InstancesFlags } from "./InstancesFlags.js";
 
 export type TOnFrustumEnter = (index: number, camera: pc.Camera, level: number, distance: number) => void;
 export type TOnFrustumEnterThenUpdate = (index: number, camera: pc.Camera, level: number, distance: number) => boolean | void;
@@ -53,13 +55,16 @@ export class SimpleHierarchicalInstancer implements IInstancer {
     protected _instanceAABBCenter: pc.Vec3 = new pc.Vec3();
     protected _instanceAABBRadius: number = 0;
 
-    protected _sortObjectsInStep: boolean = false;
-    protected _instancesState: InstancesState;
-    protected _capacity: number;
-    protected _sharedDepthStore: Float32Array;
-    protected _sharedDepthStoreU: Uint32Array;
-    protected _sharedIndexes: Uint32Array;
     protected _needUpdateMaterials: boolean = true;
+    protected _sortObjectsInStep: boolean = false;
+    protected _instancesFlags: InstancesFlags;
+    protected _fadeTimeLODState: FadeTimeLODState;
+    protected _capacity: number;
+
+    // Need for sort
+    protected _sharedDepthStore: Float32Array | null;
+    protected _sharedDepthStoreU: Uint32Array | null;
+    protected _sharedIndexes: Uint32Array | null;
 
     /**
      * Instanced mesh graphics device
@@ -113,15 +118,51 @@ export class SimpleHierarchicalInstancer implements IInstancer {
         this.device = device;
         this.lodFadeTime = lodFadeTime;
 
-        // Need for sort by depth
-        this._sharedDepthStore = new Float32Array(capacity);
-        this._sharedDepthStoreU = new Uint32Array(this._sharedDepthStore.buffer);
-        this._sharedIndexes = new Uint32Array(capacity);
-
         // State
-        this._instancesState = new InstancesState(capacity);
+        this._instancesFlags = new InstancesFlags(capacity);
+        this._fadeTimeLODState = new FadeTimeLODState(capacity);
         this._capacity = capacity;
         this._initMatricesTexture();
+    }
+
+    protected _disposeSorter(): void {
+        this._sharedIndexes = null;
+        this._sharedDepthStore = null;
+        this._sharedDepthStoreU = null;
+        this._sortObjects = false;
+    }
+
+    protected _initOrUpdateSorter(): void {
+
+        const capacity = this.capacity;
+
+        // Need for sort by depth
+        if (!this._sharedDepthStore ||
+            this._sharedDepthStore.length !== capacity) {
+            this._sharedDepthStore = new Float32Array(capacity);
+            this._sharedDepthStoreU = new Uint32Array(this._sharedDepthStore.buffer);
+        }
+
+        if (!this._sharedIndexes ||
+            this._sharedIndexes.length !== capacity) {
+            this._sharedIndexes = new Uint32Array(capacity);
+        }
+
+        this._sortObjects = true;
+    }
+
+    public _initOrDisposeSorterIfNeed(lods: ILODLevel[]) {
+
+        let needSorter = false;
+        for (let index = 0; index < lods.length; index++) {
+            needSorter ||= !!lods[index].render?.sortObjects;
+            if (needSorter) {
+                break;
+            }
+        }
+
+        if (needSorter) this._initOrUpdateSorter(); 
+        else            this._disposeSorter();
     }
 
     protected _initMatricesTexture(): void {
@@ -148,13 +189,21 @@ export class SimpleHierarchicalInstancer implements IInstancer {
         this._needUpdateMaterials = true;
     }
 
+    public applySortingIfNeeded(): void {
+        this._initOrDisposeSorterIfNeed(this.LODs);        
+    }
+
     public resize(newCapacity: number) {
 
         if (this._capacity === newCapacity) {
             return;
         }
 
-        // TODO
+        this._capacity = newCapacity;
+        this._instancesFlags?.resize(newCapacity);
+        this._fadeTimeLODState?.resize(newCapacity);
+        this.matricesTexture?.resize(newCapacity);
+        this.colorsTexture?.resize(newCapacity);
     }
 
     public computeMaxInstanceBoundingBox(src?: pc.BoundingBox): pc.BoundingBox {
@@ -183,6 +232,8 @@ export class SimpleHierarchicalInstancer implements IInstancer {
 
     public addLOD(meshInstanceList: pc.MeshInstance[] | null, root: pc.Entity | null, distance: number = 0, hysteresis: number = 0) {
         this._addLevel(this.LODs, meshInstanceList, root, distance, hysteresis);
+        this._initOrDisposeSorterIfNeed(this.LODs);
+        this._setLodStateToMax(this.LODs);
         this.updateInstanceBoundingBox();
     }
 
@@ -218,7 +269,7 @@ export class SimpleHierarchicalInstancer implements IInstancer {
         // set default last lod with render
         for (let index = lods.length - 1; index > -1; index--) {
             if (lods[index].render) {
-                this._instancesState.setLodsAll(index, index, true);
+                this._fadeTimeLODState.setLodsAll(index, index, true);
                 break;
             }
         }
@@ -248,8 +299,6 @@ export class SimpleHierarchicalInstancer implements IInstancer {
             hysteresis,
             render
         });
-
-        this._setLodStateToMax(lods);
     }
 
     protected _updateLevel(lods: ILODLevel[], levelIndex: number, distance: number | null = null, hysteresis: number | null = null) {
@@ -521,7 +570,7 @@ export class SimpleHierarchicalInstancer implements IInstancer {
      * @param visible Whether the instance should be visible.
      */
     public setVisibilityAt(id: number, visible: boolean): void {
-        this._instancesState.setVisibility(id, visible);
+        this._instancesFlags.setVisibility(id, visible);
     }
 
     /**
@@ -530,7 +579,7 @@ export class SimpleHierarchicalInstancer implements IInstancer {
      * @returns Whether the instance is visible.
      */
     public getVisibilityAt(id: number): boolean {
-        return this._instancesState.getVisibility(id);
+        return this._instancesFlags.getVisibility(id);
     }
 
     /**
@@ -539,7 +588,7 @@ export class SimpleHierarchicalInstancer implements IInstancer {
      * @param active Whether the instance is active (not deleted).
      */
     public setActiveAt(id: number, active: boolean): void {
-        this._instancesState.setActive(id, active);
+        this._instancesFlags.setActive(id, active);
     }
 
     /**
@@ -548,7 +597,7 @@ export class SimpleHierarchicalInstancer implements IInstancer {
      * @returns Whether the instance is active (not deleted).
      */
     public getActiveAt(id: number): boolean {
-        return this._instancesState.getActive(id);
+        return this._instancesFlags.getActive(id);
     }
 
     /**
@@ -557,7 +606,7 @@ export class SimpleHierarchicalInstancer implements IInstancer {
      * @param value Whether the instance is active and active (not deleted).
      */
     public setActiveAndVisibilityAt(id: number, value: boolean): void {
-        this._instancesState.setActiveAndVisibility(id, value);
+        this._instancesFlags.setActiveAndVisibility(id, value);
     }
 
     /**
@@ -566,7 +615,7 @@ export class SimpleHierarchicalInstancer implements IInstancer {
      * @returns Whether the instance is visible and active.
      */
     public getActiveAndVisibilityAt(id: number): boolean {
-        return this._instancesState.getActiveAndVisibility(id);
+        return this._instancesFlags.getActiveAndVisibility(id);
     }
 
     /**
@@ -685,18 +734,17 @@ export class SimpleHierarchicalInstancer implements IInstancer {
             }
         }
 
-        this._updateRenders(dt, camera, cameraPosition, onFrustumEnter);
+        this._updateRenders(camera, cameraPosition, onFrustumEnter);
+
+        const sharedIndexes = this._sharedIndexes!;
+        const sharedDepthStore = this._sharedDepthStoreU!;
 
         for (let lodIndex = 0; lodIndex < numLods; lodIndex++) {
-
             const render = lods[lodIndex].render;
-
             if (render) {
-
                 if (render.sortObjects) {
-                    render.list.sort(true, this._sharedIndexes, this._sharedDepthStoreU);
+                    render.list.sort(true, sharedIndexes, sharedDepthStore);
                 }
-
                 render.end();
             }
         }
@@ -723,7 +771,7 @@ export class SimpleHierarchicalInstancer implements IInstancer {
         return false;
     }
 
-    protected _updateRenders(dt: number, camera: pc.Camera, cameraPosition: pc.Vec3, onFrustumEnter?: TOnFrustumEnterThenUpdate) {
+    protected _updateRenders(camera: pc.Camera, cameraPosition: pc.Vec3, onFrustumEnter?: TOnFrustumEnterThenUpdate) {
 
         const lods = this.LODs;
         const frustum = camera.frustum;
@@ -732,6 +780,11 @@ export class SimpleHierarchicalInstancer implements IInstancer {
         const lodFadeTime = this.lodFadeTime;
         const count = this.instancesArrayCount;
         const relativeCenterOfCamera = _tempVec32;
+
+        // Need sort objects
+        const sortObjects = this._sortObjectsInStep && this._sortObjects;
+        const depthStore = this._sharedDepthStore!;
+        const fadeTimeLODState = this._fadeTimeLODState;
 
         let minIndex = count;
         let maxIndex = 0;
@@ -745,37 +798,43 @@ export class SimpleHierarchicalInstancer implements IInstancer {
                 const distance = relativeCenterOfCamera.lengthSq();
                 const targetLevel = this.getObjectLODIndexForDistance(lods, distance);
 
-                this._instancesState.updateLodState(index, targetLevel, time, lodFadeTime, levelInfo);
+                fadeTimeLODState.get(index, targetLevel, time, lodFadeTime, lodState);
 
-                const currentLevel = lods[levelInfo.current];
-                const currentLevelRender = currentLevel.render;
+                const currentLod = lods[lodState.current];
+                const currentLodRender = currentLod.render;
 
-                if (!onFrustumEnter || onFrustumEnter(index, camera, levelInfo.current, distance)) {
+                if (!onFrustumEnter || onFrustumEnter(index, camera, lodState.current, distance)) {
 
-                    // add 0.05 for safe off negative
-                    this._sharedDepthStore[index] = distance + 0.05;
+                    if (sortObjects) {
 
-                    if (minDistance > distance) minDistance = distance;
-                    if (maxDistance < distance) maxDistance = distance;
-                    if (minIndex > index) minIndex = index;
-                    if (maxIndex < index) maxIndex = index;
+                        // add 0.05 for safe off negative
+                        depthStore[index] = distance + 0.05;
 
-                    currentLevelRender?.enqueue(index, levelInfo.weight);
+                        if (minDistance > distance) minDistance = distance;
+                        if (maxDistance < distance) maxDistance = distance;
+                        if (minIndex > index) minIndex = index;
+                        if (maxIndex < index) maxIndex = index;
+                    }
 
-                    if (levelInfo.next !== null) {
-                        lods[levelInfo.next].render?.enqueue(index, levelInfo.nextWeight);
+                    currentLodRender?.enqueue(index, lodState.weight);
+
+                    if (lodState.next !== null) {
+                        lods[lodState.next].render?.enqueue(index, lodState.nextWeight);
                     }
                 }
             }
         }
 
-        // We fill depth buffer by distances
-        // Now need convert distance to depth
-        // Diff minDistance
-        const from = minIndex;
-        const to   = maxIndex + 1;
-        for (let i = from; i < to; i++) {
-            this._sharedDepthStore[i] -= minDistance;
+        if (sortObjects) {
+
+            // We fill depth buffer by distances
+            // Now need convert distance to depth
+            // Diff minDistance
+            const from = minIndex;
+            const to   = maxIndex + 1;
+            for (let i = from; i < to; i++) {
+                depthStore[i] -= minDistance;
+            }
         }
     }
 
@@ -803,7 +862,7 @@ const _tempCol = new pc.Color();
 const _tempMat41 = new pc.Mat4();
 const _tempVec31 = new pc.Vec3();
 const _tempVec32 = new pc.Vec3();
-const levelInfo: ILodUpdateResult = {
+const lodState: ILODState = {
     current: 0,
     next: 0,
     weight: 1,

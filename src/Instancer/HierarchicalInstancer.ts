@@ -42,10 +42,10 @@ export class HierarchicalInstancer extends SimpleHierarchicalInstancer {
         }
     }
 
-    protected override _updateRenders(dt: number, camera: pc.Camera, cameraPosition: pc.Vec3, onFrustumEnter?: TOnFrustumEnterThenUpdate) {
+    protected override _updateRenders(camera: pc.Camera, cameraPosition: pc.Vec3, onFrustumEnter?: TOnFrustumEnterThenUpdate) {
 
         if (!this.bvh) {
-            super._updateRenders(dt, camera, cameraPosition, onFrustumEnter);
+            super._updateRenders(camera, cameraPosition, onFrustumEnter);
             return;
         }
 
@@ -60,6 +60,11 @@ export class HierarchicalInstancer extends SimpleHierarchicalInstancer {
         const time = this._time;
         const lodFadeTime = this.lodFadeTime;
 
+        // Need sort objects
+        const sortObjects = this._sortObjectsInStep && this._sortObjects;
+        const depthStore = this._sharedDepthStore!;
+        const fadeTimeLODState = this._fadeTimeLODState;
+
         this.bvh?.frustumCullingLOD(frustum, cameraPosition, lods, (node, level, min, max) => {
 
             const index = node.object;
@@ -69,7 +74,7 @@ export class HierarchicalInstancer extends SimpleHierarchicalInstancer {
 
                 let distance: number;
 
-                if (level === null || this._sortObjectsInStep) {
+                if (level === null || sortObjects) {
 
                     // distance can be get by BVH, but is not the distance from center
                     const pos = this.getPositionAt(index, _tempVec31);
@@ -82,34 +87,44 @@ export class HierarchicalInstancer extends SimpleHierarchicalInstancer {
                     distance = min;
                 }
 
-                this._instancesState.updateLodState(index, level, time, lodFadeTime, levelInfo);
+                fadeTimeLODState.get(index, level, time, lodFadeTime, lodState);
 
-                const currentLevelRender = lods[levelInfo.current]?.render;
-                const nextLevelRender = levelInfo.next !== null ? lods[levelInfo.next]?.render : null;
+                const currentLod = lods[lodState.current];
+                const currentLodRender = currentLod.render;
 
-                if (!onFrustumEnter || onFrustumEnter(index, camera, levelInfo.current, distance)) {
+                if (!onFrustumEnter || onFrustumEnter(index, camera, lodState.current, distance)) {
 
-                    // add 0.05 for safe off negative
-                    this._sharedDepthStore[index] = distance + 0.05;
+                    if (sortObjects) {
 
-                    if (minDistance > distance) minDistance = distance;
-                    if (maxDistance < distance) maxDistance = distance;
-                    if (minIndex > index) minIndex = index;
-                    if (maxIndex < index) maxIndex = index;
+                        // add 0.05 for safe off negative
+                        depthStore[index] = distance + 0.05;
 
-                    currentLevelRender?.enqueue(index, levelInfo.weight);
-                    nextLevelRender?.enqueue(index, levelInfo.nextWeight);
+                        if (minDistance > distance) minDistance = distance;
+                        if (maxDistance < distance) maxDistance = distance;
+                        if (minIndex > index) minIndex = index;
+                        if (maxIndex < index) maxIndex = index;
+                    }
+
+                    currentLodRender?.enqueue(index, lodState.weight);
+
+                    if (lodState.next !== null) {
+
+                        lods[lodState.next].render?.enqueue(index, lodState.nextWeight);
+                    }
                 }
             }
         });
 
-        // We fill depth buffer by distances
-        // Now need convert distance to depth
-        // Diff minDistance
-        const from = minIndex;
-        const to   = maxIndex + 1;
-        for (let i = from; i < to; i++) {
-            this._sharedDepthStore[i] -= minDistance;
+        if (sortObjects) {
+
+            // We fill depth buffer by distances
+            // Now need convert distance to depth
+            // Diff minDistance
+            const from = minIndex;
+            const to   = maxIndex + 1;
+            for (let i = from; i < to; i++) {
+                depthStore[i] -= minDistance;
+            }
         }
     }
 
@@ -150,7 +165,7 @@ export class HierarchicalInstancer extends SimpleHierarchicalInstancer {
 
 const _tempVec31 = new pc.Vec3();
 const _tempVec32 = new pc.Vec3();
-const levelInfo = {
+const lodState = {
     current: 0,
     next: 0,
     weight: 1,
