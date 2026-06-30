@@ -23,15 +23,13 @@ export class InstancesState {
     public readonly stride = 2;
 
     public data: Uint8Array;
-    public fadeStartTime: Float32Array;
-    public lastViewTime: Float32Array;
+    public time: Float32Array;
     public count: number;
 
     constructor(count: number) {
         this.count = count;
         this.data = new Uint8Array(count * this.stride);
-        this.fadeStartTime = new Float32Array(count);
-        this.lastViewTime = new Float32Array(count);
+        this.time = new Float32Array(count);
     }
 
     public resize(count: number): void {
@@ -39,17 +37,16 @@ export class InstancesState {
         if (count === this.count) return;
 
         const safeDataLen = Math.min(this.data.length, count * this.stride);
-        const safeTimeLen = Math.min(this.fadeStartTime.length, count);
+        const safeTimeLen = Math.min(this.time.length, count);
         const prevData = this.data.subarray(0, safeDataLen);
-        const prevTime = this.fadeStartTime.subarray(0, safeTimeLen);
+        const prevTime = this.time.subarray(0, safeTimeLen);
 
         this.count = count;
         this.data = new Uint8Array(count * this.stride);
-        this.fadeStartTime = new Float32Array(count);
-        this.lastViewTime = new Float32Array(count);
+        this.time = new Float32Array(count);
 
         this.data.set(prevData);
-        this.fadeStartTime.set(prevTime);
+        this.time.set(prevTime);
     }
 
     private _base(index: number): number {
@@ -100,7 +97,8 @@ export class InstancesState {
             this.data[basePtr + StateOffset.LodPacked] = lodPacked;
 
             if (skipFade) {
-                this.fadeStartTime[index] = 0;
+
+                this.time[index] = 0;
             }
         }
     }
@@ -115,73 +113,56 @@ export class InstancesState {
 
         const basePtr = this._base(index);
         const lodPtr = basePtr + StateOffset.LodPacked;
-
-        const prevViewTime = this.lastViewTime[index];
-        this.lastViewTime[index] = time;
-
-        if (time - prevViewTime >= fadeTime) {
-            this.fadeStartTime[index] = 0;
-            this.data[lodPtr] = ((targetLod & LOD_MASK) << 4) | (targetLod & LOD_MASK);
-            out.current = targetLod;
-            out.next = null;
-            out.weight = 1;
-            out.nextWeight = 0;
-            return;
-        }
-
         const packed = this.data[lodPtr];
-        let current = (packed >> 4) & LOD_MASK;
-        let storedTarget = packed & LOD_MASK;
 
-        const storedTime = this.fadeStartTime[index];
-        const isFading = storedTime > 0;
+        let currentLod = (packed >> 4) & LOD_MASK;
+        let storedTargetLod = packed & LOD_MASK;
+        let storedTime = this.time[index];
 
-        if (!isFading) {
+        // The instance has not been animated for a long time,
+        // or there was no animation in the past.
+        if (storedTime < time) {
 
-            if (current !== targetLod) {
-                storedTarget = targetLod;
-                this.data[lodPtr] = ((current & LOD_MASK) << 4) | (storedTarget & LOD_MASK);
-                this.fadeStartTime[index] = time;
-            }
-            else {
-                out.current = current;
-                out.next = null;
-                out.weight = 1;
-                out.nextWeight = 0;
-                return;
+            // Since the update function is not called for elements that fall outside the frustum or occluded,
+            // we check whether the animation still needs to play or if the playback time has long since
+            // expired and a new LOD should be displayed.
+            const elapsed = time - storedTime;
+
+            if (elapsed < fadeTime) {
+
+                if (storedTargetLod !== targetLod) {
+                    storedTargetLod = targetLod;
+                    storedTime = time + fadeTime;
+
+                    this.data[lodPtr] = (currentLod << 4) | (storedTargetLod & LOD_MASK);
+                    this.time[index] = storedTime;
+                }
             }
         }
-        else if (storedTarget !== targetLod) {
-            storedTarget = targetLod;
-            this.data[lodPtr] = ((current & LOD_MASK) << 4) | (storedTarget & LOD_MASK);
-            this.fadeStartTime[index] = time;
-        }
 
-        const nowStoredTime = this.fadeStartTime[index];
+        // Animation in progress
+        if (storedTime > time) {
 
-        if (nowStoredTime > 0) {
+            const elapsed = storedTime - time;
+            const progress = 1.0 - Math.min(1, Math.max(0, elapsed / fadeTime));
+            const w = progress * progress * (3 - 2 * progress);
 
-            const t = Math.max(0, (time - nowStoredTime) / fadeTime);
-
-            if (t >= 1) {
-                this.fadeStartTime[index] = 0;
-                this.data[lodPtr] = ((storedTarget & LOD_MASK) << 4) | (storedTarget & LOD_MASK);
-                out.current = storedTarget;
-                out.next = null;
-                out.weight = 1;
-                out.nextWeight = 0;
-                return;
-            }
-
-            const w = t * t * (3 - 2 * t);
-            out.current = current;
-            out.next = storedTarget;
+            out.current = currentLod;
+            out.next = storedTargetLod;
             out.weight = 1 - w;
             out.nextWeight = w;
             return;
         }
 
-        out.current = current;
+        // Update timer
+        this.time[index] = time;
+
+        if (targetLod !== currentLod || 
+            targetLod !== storedTargetLod) {
+            this.data[lodPtr] = (targetLod << 4) | targetLod;
+        }
+
+        out.current = targetLod;
         out.next = null;
         out.weight = 1;
         out.nextWeight = 0;
