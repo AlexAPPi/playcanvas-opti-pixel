@@ -34,7 +34,6 @@ import { IHierarchicalZBuffer } from "./OcclusionCulling/HZB/IHierarchicalZBuffe
 import { WebglHierarchicalZBuffer } from "./OcclusionCulling/HZB/Webgl/WebglHierarchicalZBuffer.js";
 import { WebgpuHierarchicalZBuffer } from "./OcclusionCulling/HZB/Webgpu/WebgpuHierarchicalZBuffer.js";
 import { WebglHZBCPUFBTester } from "./OcclusionCulling/HZB/Webgl/WebglHZBCPUFBTester.js";
-import { WebgpuOcclusionQueriesTester } from "./OcclusionCulling/Queries/Webgpu/WebgpuOcclusionQueriesTester.js";
 import { AABBStore } from "./Extras/AABBStore.js";
 import { IAABBStore } from "./Extras/IAABBStore.js";
 import { SimpleHierarchicalInstancer } from "./Instancer/SimpleHierarchicalInstancer.js";
@@ -72,8 +71,6 @@ export {
     getPixelFormatByArrayType,
 
     BoxMesh,
-
-    WebgpuOcclusionQueriesTester,
 
     WebglFrameOcclusionQueries,
     WebglOcclusionBoxMesh,
