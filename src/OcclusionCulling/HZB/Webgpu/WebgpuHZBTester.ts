@@ -64,6 +64,10 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
         return this._aabbStore.lock(boundingBox, matrix, extra1, extra2);
     }
 
+    public lockMinMaxScalars(data: ArrayLike<number>, offset: number, matrix?: pc.Mat4, extra1?: number, extra2?: number): TUnicalId {
+        return this._aabbStore.lockMinMaxScalars(data, offset, matrix, extra1, extra2);
+    }
+
     public unlock(id: TUnicalId): void {
         this._aabbStore.unlock(id);
     }

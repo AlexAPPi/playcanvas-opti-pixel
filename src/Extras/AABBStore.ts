@@ -3,7 +3,8 @@ import { IAABBStore } from "./IAABBStore.js";
 import { IndexManager } from "./IndexManager";
 import { Vec4F32Texture } from "./Vec4F32DataTexture";
 
-const _aabb = new pc.BoundingBox();
+const _aabb1 = new pc.BoundingBox();
+const _aabb2 = new pc.BoundingBox();
 
 export class AABBStore implements IAABBStore {
 
@@ -36,6 +37,26 @@ export class AABBStore implements IAABBStore {
         return index;
     }
 
+    public lockMinMaxScalars(data: ArrayLike<number>, offset: number, matrix?: pc.Mat4, extra1?: number, extra2?: number): number {
+
+        const index = this._indexManager.reserve();
+
+        _aabb2.center.set(
+            (data[offset]     + data[offset + 1]) * 0.5,
+            (data[offset + 2] + data[offset + 3]) * 0.5,
+            (data[offset + 4] + data[offset + 5]) * 0.5
+        );
+
+        _aabb2.halfExtents.set(
+            (data[offset + 1] - data[offset]) * 0.5,
+            (data[offset + 3] - data[offset + 2]) * 0.5,
+            (data[offset + 5] - data[offset + 4]) * 0.5
+        );
+
+        this.enqueueUpdate(index, _aabb2, matrix, extra1, extra2);
+        return index;
+    }
+
     public unlock(index: number): void {
         this._indexManager.free(index);
     }
@@ -45,8 +66,8 @@ export class AABBStore implements IAABBStore {
         let resultBoundingBox = boundingBox;
 
         if (matrix) {
-            _aabb.setFromTransformedAabb(boundingBox, matrix);
-            resultBoundingBox = _aabb;
+            _aabb1.setFromTransformedAabb(boundingBox, matrix);
+            resultBoundingBox = _aabb1;
         }
 
         const r1 = this._centersStore.tryEnqueueUpdateVec3(index, resultBoundingBox.center, extra1);

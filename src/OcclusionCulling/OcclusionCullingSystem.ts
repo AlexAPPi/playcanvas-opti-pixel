@@ -5,7 +5,6 @@ import { HierarchicalZBufferDebugger } from "./HZB/HierarchicalZBufferDebugger.j
 import { WebglHierarchicalZBuffer } from "./HZB/Webgl/WebglHierarchicalZBuffer.js";
 import { WebgpuHierarchicalZBuffer } from "./HZB/Webgpu/WebgpuHierarchicalZBuffer.js";
 import { WebglOcclusionQueriesTester } from "./Queries/Webgl/WebglOcclusionQueriesTester.js";
-import { WebgpuOcclusionQueriesTester } from "./Queries/Webgpu/WebgpuOcclusionQueriesTester.js";
 import { isGPU2CPUReadbackOcclusionCullingTester } from "./IOcclusionCullingTester.js";
 import { WebgpuHZBTester } from "./HZB/Webgpu/WebgpuHZBTester.js";
 import { QueriesDebugger } from "./Queries/QueriesDebugger.js";
@@ -28,7 +27,7 @@ export class OcclusionCullingSystem extends pc.EventHandler {
     private _hzbDebugger: HierarchicalZBufferDebugger | null = null;
 
     private _queriesLayerName: string = "";
-    private _queriesTester: WebglOcclusionQueriesTester | WebgpuOcclusionQueriesTester | null = null;
+    private _queriesTester: WebglOcclusionQueriesTester | null = null;
     private _queriesDebugger: QueriesDebugger | null = null;
 
     private _onPostRenderLayerHandle: pc.EventHandle | null = null;

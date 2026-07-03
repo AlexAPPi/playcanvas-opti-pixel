@@ -44,6 +44,18 @@ export interface IAABBStore {
     lock(boundingBox: pc.BoundingBox, matrix?: pc.Mat4, extra1?: number, extra2?: number): number;
 
     /**
+     * Locks a bounding box using min and max scalar values and returns its index
+     * 
+     * @param data - The array containing the bounding box data (min and max points) in local or world coordinates [minX, maxX, minY, maxY, minZ, maxZ]
+     * @param offset - The offset in the array where the bounding box data starts
+     * @param matrix - Optional transformation matrix
+     * @param extra1 - Extra parameter 1 (usage depends on implementation)
+     * @param extra2 - Extra parameter 2 (usage depends on implementation)
+     * @returns Index of the locked bounding box
+     */
+    lockMinMaxScalars(data: ArrayLike<number>, offset: number, matrix?: pc.Mat4, extra1?: number, extra2?: number): number;
+
+    /**
      * Unlocks a bounding box by its index
      * 
      * @param index - Index of the bounding box to unlock

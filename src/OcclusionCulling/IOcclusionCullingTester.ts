@@ -19,17 +19,17 @@ export type TFrustumResult = typeof FRUSTUM_UNKNOWN | typeof FRUSTUM_OUTSIDE | t
 
 export function isGPUOcclusionCullingTester(x: unknown): x is IOcclusionCullingTester {
     return !!x && (
-        (x as any)._ocTesterType === 'gpu2cpu_readback_oct'  ||
-        (x as any)._ocTesterType === 'gpu_indirect_draw_oct'
+        (x as any)._ocTesterType === "gpu2cpu_readback_oct"  ||
+        (x as any)._ocTesterType === "gpu_indirect_draw_oct"
     );
 }
 
 export function isGPU2CPUReadbackOcclusionCullingTester(x: unknown): x is IGPU2CPUReadbackOcclusionCullingTester {
-    return (x as any)?._ocTesterType === 'gpu2cpu_readback_oct';
+    return (x as any)?._ocTesterType === "gpu2cpu_readback_oct";
 }
 
 export function isGPUIndirectDrawOcclusionCullingTester(x: unknown): x is IGPUIndirectDrawOcclusionCullingTester {
-    return (x as any)?._ocTesterType === 'gpu_indirect_draw_oct';
+    return (x as any)?._ocTesterType === "gpu_indirect_draw_oct";
 }
 
 /**
@@ -50,6 +50,17 @@ export interface IOcclusionCullingTester {
      * @returns A unique identifier for the registered object.
      */
     lock(boundingBox: pc.BoundingBox, matrix?: pc.Mat4, extra1?: number, extra2?: number): TUnicalId;
+
+    /**
+     * Registers a BoundingBox for subsequent occlusion testing.
+     * @param data - The array containing the bounding box data (min and max points) in local or world coordinates [minX, maxX, minY, maxY, minZ, maxZ].
+     * @param offset - The offset in the array where the bounding box data starts.
+     * @param matrix - Optional transformation matrix (if a local BoundingBox is used).
+     * @param extra1 - Optional extra data 1.
+     * @param extra2 - Optional extra data 2.
+     * @returns A unique identifier for the registered object.
+     */
+    lockMinMaxScalars(data: ArrayLike<number>, offset: number, matrix?: pc.Mat4, extra1?: number, extra2?: number): TUnicalId;
 
     /**
      * Releases a previously registered identifier and removes associated data.
@@ -75,7 +86,7 @@ export interface IPrimitive {
  */
 export interface IGPUIndirectDrawOcclusionCullingTester extends IOcclusionCullingTester {
 
-    readonly _ocTesterType: 'gpu_indirect_draw_oct';
+    readonly _ocTesterType: "gpu_indirect_draw_oct";
 
     /**
      * Adds the object to the queue for occlusion testing.
@@ -104,7 +115,7 @@ export interface IGPUIndirectDrawOcclusionCullingTester extends IOcclusionCullin
  */
 export interface IGPU2CPUReadbackOcclusionCullingTester extends IOcclusionCullingTester {
 
-    readonly _ocTesterType: 'gpu2cpu_readback_oct';
+    readonly _ocTesterType: "gpu2cpu_readback_oct";
 
     /**
      * Return the result of the last occlusion test for the specified object.
