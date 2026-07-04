@@ -1,16 +1,17 @@
-import { BitSet } from "../../../Extras/BitSet.js";
 import { GPUIndexQueue } from "../../../Extras/GPUIndexQueue.js";
 import { IndexManager } from "../../../Extras/IndexManager.js";
 import { OCCLUSION_OCCLUDED, OCCLUSION_UNKNOWN, OCCLUSION_VISIBLE, TOcclusionResult } from "../../IOcclusionCullingTester.js";
 import { WebglReadbackBuffer } from "../../../Extras/WebglReadbackBuffer.js";
 import pc from "../../../engine.js";
 
+export const FLAG_OK = 1;
+
 export class HZBTFState {
 
     private _lock: boolean;
 
     public data: Uint32Array;
-    public keyStore: BitSet;
+    public flags: Uint8Array;
 
     public indexQueue: GPUIndexQueue;
     public outputBuffer: WebglReadbackBuffer<Uint32Array<ArrayBuffer>>;
@@ -28,7 +29,7 @@ export class HZBTFState {
 
         this.indexQueue.resize();
         this.data = new Uint32Array(this.indexQueue.capacity);
-        this.keyStore = new BitSet(this.indexQueue.capacity);
+        this.flags = new Uint8Array(this.indexQueue.capacity);
         this.outputBuffer?.destroy();
 
         const device = this.indexQueue.device as pc.WebglGraphicsDevice;
@@ -47,7 +48,7 @@ export class HZBTFState {
     public clear() {
         this.abortRead();
         this.indexQueue.clear();
-        this.keyStore.clear();
+        this.flags.fill(0);
     }
 
     public enqueue(index: number, extra?: number | number[]): number {
@@ -60,7 +61,7 @@ export class HZBTFState {
     }
 
     public getData(index: number): number {
-        if (!this.keyStore.get(index)) {
+        if ((this.flags[index] & FLAG_OK) === 0) {
             return -1;
         }
         return this.data[index];
@@ -68,7 +69,7 @@ export class HZBTFState {
 
     public getOcclusionStatus(index: number): TOcclusionResult {
 
-        if (!this.keyStore.get(index)) {
+        if ((this.flags[index] & FLAG_OK) === 0) {
             return OCCLUSION_UNKNOWN;
         }
 
@@ -94,7 +95,7 @@ export class HZBTFState {
         for (let i = 0; i < resultCount; i++) {
             const dataIndex = indexes[i];
             this.data[dataIndex] = outData[i];
-            this.keyStore.set(dataIndex, true);
+            this.flags[dataIndex] |= FLAG_OK;
         }
     }
 
