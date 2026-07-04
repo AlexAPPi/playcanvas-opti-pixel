@@ -27,10 +27,7 @@ export class BitSet {
             this._clean = true;
             const value = this._cleanValue ? 0xffffffff : 0;
             const arr = this._array;
-            const length = arr.length;
-            for (let i = 0; i < length; i++) {
-                arr[i] = value;
-            }
+            arr.fill(value);
         }
     }
 
