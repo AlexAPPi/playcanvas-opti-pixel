@@ -51,14 +51,11 @@ export abstract class ReadbackQueue<TReader extends IReadbackQueueItemReader> {
     private _optimizationOfConsumedResources() {
 
         // Stabilize the size, clean up unnecessary state holders
-        const used = this._readers.length - this._freeReaders.length;
+        const used = this._usedReaders.length
+                    + (this._tmpReader ? 1 : 0)
+                    + (this._finishedReader ? 1 : 0);
 
-        if (this._avgUsed === 0) {
-            this._avgUsed = used;
-        } else {
-            this._avgUsed += this._alpha * (used - this._avgUsed);
-        }
-
+        this._avgUsed += this._alpha * (used - this._avgUsed);
         this._targetFree = Math.floor(this._freeToUsedRatio * Math.max(used, this._avgUsed));
 
         this.shrinkFreePool(this._targetFree);
@@ -89,6 +86,8 @@ export abstract class ReadbackQueue<TReader extends IReadbackQueueItemReader> {
             }
         }
 
+        this._finishedReader = null;
+        this._tmpReader = null;
         this._readers.length = 0;
         this._freeReaders.length = 0;
         this._usedReaders.length = 0;
@@ -111,34 +110,30 @@ export abstract class ReadbackQueue<TReader extends IReadbackQueueItemReader> {
 
         for (let i = this._usedReaders.length - 1; i > -1; i--) {
 
+            // Take last used reader and check if it is ready to read
+            // If it is not ready, then we will check the next one, and so on.
             const reader = this._usedReaders[i];
 
             reader.frameUpdate();
 
             if (!reader.lock) {
 
-                this._finishedReader = reader;
-
-                // Skip read for prev frames states
-                // Outdated data can be ignored.
-                if (i > 0) {
-
-                    /*
-                    Where we can give warn:
-                    "performance warning: READ-usage buffer was written,
-                    then fenced, but written again before being read back.
-                    This discarded the shadow copy that was created to accelerate readback."
-                    */
-
-                    for (let j = 0; j < i; j++) {
-
-                        this._usedReaders[j].abortRead();
-                        this._freeReaders.push(this._usedReaders[j]);
-                    }
-
-                    this._usedReaders.splice(0, i);
+                // Free last finish reader
+                if (this._finishedReader) {
+                    this._freeReaders.push(this._finishedReader);
                 }
 
+                this._finishedReader = reader;
+
+                for (let j = 0; j < i; j++) {
+                    const prevFrameReader = this._usedReaders[j];
+                    prevFrameReader.abortRead();
+                    this._freeReaders.push(prevFrameReader);
+                }
+
+                // Remove all used readers that were processed
+                // and moved to free pool
+                this._usedReaders.splice(0, i + 1);
                 break;
             }
         }

@@ -4,13 +4,17 @@ export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer>> ext
 
     public declare device: pc.WebglGraphicsDevice;
     public readonly storageData: TData;
+    public get version() { return this._version; }
 
+    private _version: number = 0;
     private _lengthFactor: number = 1;
     private _itemByteSize: number = 1;
-    private _version: number = 0;
     private _syncVersion: number = -1;
     private _syncObject: WebGLSync | null = null;
     private _beginReadLength: number = 0;
+
+    private _handleOnDeviceDestroy: pc.EventHandle;
+    private _handleOnDeviceContextLost: pc.EventHandle;
 
     constructor(device: pc.WebglGraphicsDevice, capacity: number, itemByteSize: number = 4, arrayOrConstructor: TData | ArrayConstructorOf<TData>) {
 
@@ -39,8 +43,8 @@ export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer>> ext
         this._itemByteSize = itemByteSize;
         this.storageData = data;
 
-        this.device.on("destroy", this.destroy, this);
-        this.device.on("contextlost", this.abortRead, this);
+        this._handleOnDeviceDestroy = this.device.on("destroy", this.destroy, this);
+        this._handleOnDeviceContextLost = this.device.on("contextlost", this.abortRead, this);
     }
 
     public abortRead() {
@@ -49,13 +53,20 @@ export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer>> ext
 
         // dispose
         if (this._syncObject) {
+
             const gl = this.device.gl;
-            gl?.deleteSync(this._syncObject);
+            const syncObject = this._syncObject;
             this._syncObject = null;
+
+            gl?.deleteSync(syncObject);
         }
     }
 
     public destroy() {
+
+        this._handleOnDeviceDestroy?.off();
+        this._handleOnDeviceContextLost?.off();
+
         this.abortRead();
         super.destroy();
     }
@@ -70,77 +81,15 @@ export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer>> ext
         return sync;
     }
 
-    protected _clientWaitAsync(currentVersion: number, flags: number, interval: number): Promise<boolean> {
-
-        return new Promise<boolean>((resolve, reject) => {
-
-            const self = this;
-            const tmpSync = this._fenceSync();
-
-            if (!tmpSync) {
-                reject(new Error("failed fenceSync"));
-                return;
-            }
-
-            const gl = this.device.gl;
-            const sync = tmpSync;
-
-            let timeoutId: number | undefined;
-
-            function disposeTest() {
-
-                if (timeoutId) {
-                    clearTimeout(timeoutId);
-                    timeoutId = undefined;
-                }
-
-                gl?.deleteSync(sync);
-            }
-
-            function test() {
-
-                // Abort prev read
-                // Where we can give warn:
-                // "performance warning:
-                // READ-usage buffer was written,
-                // then fenced, but written again before being read back.
-                // This discarded the shadow copy that was created to accelerate readback."
-                if (currentVersion !== self._version) {
-                    disposeTest();
-                    resolve(false);
-                }
-                else {
-
-                    const res = gl.clientWaitSync(sync, flags, 0);
-
-                    // check again in a while
-                    if (res === gl.TIMEOUT_EXPIRED) {
-                        timeoutId = setTimeout(test, interval);
-                    }
-                    else {
-                        disposeTest();
-                        if (res === gl.WAIT_FAILED) {
-                            reject(new Error("webgl clientWaitSync sync failed"));
-                        }
-                        else {
-                            resolve(true);
-                        }
-                    }
-                }
-            }
-
-            test();
-        });
-    }
-
     protected _readBuffer(length: number) {
 
         const safeStorageLength = Math.floor(this.storageData.byteLength / this._itemByteSize);
         const safeLength = Math.min(length, safeStorageLength);
         const safeGetLength = safeLength * this._lengthFactor;
+        const bufferId = this.impl.bufferId;
 
         const gl = this.device.gl;
-        gl.bindBuffer(gl.ARRAY_BUFFER, this.impl.bufferId);
+        gl.bindBuffer(gl.ARRAY_BUFFER, bufferId);
         gl.getBufferSubData(gl.ARRAY_BUFFER, 0, this.storageData, 0, safeGetLength);
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
@@ -198,42 +147,29 @@ export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer>> ext
         return -1;
     }
 
-    public async read(length: number, intervalMs: number = 16) {
+    public clear(): void {
 
-        this.abortRead();
+        const gl = this.device.gl;
+        const byteSize = this.storage.byteLength;
+        const oldBufferId = this.impl.bufferId;
+        const newBufferId = gl.createBuffer();
 
-        const currentVersion = this._version;
-        const success = await this._clientWaitAsync(currentVersion, 0, intervalMs);
-
-        if (!success || currentVersion !== this._version) {
-            return 0;
+        // TODO: need more test other cases
+        // This approach showed the best performance, the buffers are small,
+        // so there is nothing wrong with creating them.
+        if (oldBufferId) {
+            gl.deleteBuffer(oldBufferId);
         }
 
-        return this._readBuffer(length);
+        gl.bindBuffer(gl.ARRAY_BUFFER, newBufferId);
+        gl.bufferData(gl.ARRAY_BUFFER, byteSize, gl.STREAM_READ);
+        gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+        this.impl.bufferId = newBufferId;
     }
 
     public override unlock(): void {
-
-        const gl = this.device.gl;
-
-        let bufferId = this.impl.bufferId;
-
-        if (!bufferId) {
-
-            bufferId = gl.createBuffer();
-
-            // Use READ for transform feedback buffer
-            gl.bindBuffer(gl.ARRAY_BUFFER, bufferId);
-            gl.bufferData(gl.ARRAY_BUFFER, this.storage, gl.STREAM_READ);
-
-            this.impl.bufferId = bufferId;
-        }
-        else {
-            gl.bindBuffer(gl.ARRAY_BUFFER, bufferId);
-            gl.bufferSubData(gl.ARRAY_BUFFER, 0, this.storage);
-        }
-
-        gl.bindBuffer(gl.ARRAY_BUFFER, null);
+        this.clear();
     }
 }
 

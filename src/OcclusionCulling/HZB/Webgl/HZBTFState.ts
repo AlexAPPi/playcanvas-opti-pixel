@@ -38,6 +38,18 @@ export class HZBTFState {
         this.outputBuffer = new WebglReadbackBuffer(device, capacity, 4, Uint32Array);
     }
 
+    protected _fillFromBuffer(resultCount: number) {
+
+        const indexes = this.indexQueue.indexes;
+        const outData = this.outputBuffer.storageData;
+
+        for (let i = 0; i < resultCount; i++) {
+            const dataIndex = indexes[i];
+            this.data[dataIndex] = outData[i];
+            this.flags[dataIndex] |= FLAG_OK;
+        }
+    }
+
     public destroy() {
         this.outputBuffer?.destroy();
         this.indexQueue?.destroy();
@@ -87,16 +99,12 @@ export class HZBTFState {
         this._lock = false;
     }
 
-    protected _fillFromBuffer(resultCount: number) {
+    public beforeFill(): void {
 
-        const indexes = this.indexQueue.indexes;
-        const outData = this.outputBuffer.storageData;
+        this.indexQueue.update();
 
-        for (let i = 0; i < resultCount; i++) {
-            const dataIndex = indexes[i];
-            this.data[dataIndex] = outData[i];
-            this.flags[dataIndex] |= FLAG_OK;
-        }
+        // Need clear buffer for make shadow copy
+        this.outputBuffer.clear();
     }
 
     public beginRead(): void {
@@ -130,31 +138,5 @@ export class HZBTFState {
         }
 
         return -1;
-    }
-
-    public async read(intervalMs: number) {
-
-        try {
-
-            this._lock = true;
-
-            let resultCount = Math.min(this.indexQueue.count, this.data.length);
-
-            if (resultCount > 0) {
-
-                resultCount = await this.outputBuffer.read(resultCount, intervalMs);
-
-                if (this._lock) {
-
-                    this._fillFromBuffer(resultCount);
-                }
-            }
-
-            return resultCount;
-        }
-        finally {
-
-            this._lock = false;
-        }
     }
 }

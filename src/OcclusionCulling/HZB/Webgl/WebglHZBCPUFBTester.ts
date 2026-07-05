@@ -43,10 +43,6 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
     private _aabbStore: IAABBStore;
     private _modelViewProjection = new pc.Mat4();
 
-    private _lastTime: number;
-    private _avgFrameTimeMs: number;
-    private _readbackIntervalMs: number;
-
     public get hzb() { return this._hzb; }
     public set hzb(v: WebglHierarchicalZBuffer) {
         this._hzb = v;
@@ -58,9 +54,6 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
         this._hzb = hzb;
         this._aabbStore = aabbStore;
         this._queue = new HZBTStateQueue(hzb.device, aabbStore.indexManager);
-        this._lastTime = performance.now();
-        this._avgFrameTimeMs = 20;
-        this._readbackIntervalMs = 20;
         this._updateScopes();
         this._updateShader();
     }
@@ -165,26 +158,10 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
     }
 
     public resize(): void {
-        this._queue.resize();
+        this._queue?.resize();
     }
 
     public frameUpdate() {
-
-        // calculation of the optimal time until
-        // completion of writing to the buffer
-        // and subsequent reading
-
-        const now = performance.now();
-        const frameTimeMs = now - this._lastTime;
-        this._lastTime = now;
-
-        const alphaUp = 0.5;
-        const alphaDown = 0.25;
-        const alpha = frameTimeMs > this._avgFrameTimeMs ? alphaUp : alphaDown;
-
-        this._avgFrameTimeMs += (frameTimeMs - this._avgFrameTimeMs) * alpha;
-        this._readbackIntervalMs = estimateReadbackDelayMs(this._avgFrameTimeMs);
-
         this._queue.frameUpdate();
     }
 
@@ -226,13 +203,16 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
 
             this._matrixViewProjectionScope.setValue(this._modelViewProjection.data);
 
-            state.indexQueue.update();
+            state.beforeFill();
+
+            const vertexBuffer = state.indexQueue.buffer;
+            const outputBuffer = state.outputBuffer;
 
             executeTransformFeedbackShader(
                 this._shader,
                 count,
-                state.indexQueue.buffer,
-                state.outputBuffer
+                vertexBuffer,
+                outputBuffer
             );
         }
 
@@ -249,20 +229,6 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
 
             if (state) {
                 state.beginRead();
-            }
-        }
-    }
-
-    public async executeAsync(camera: pc.Camera) {
-
-        if (this.hzb.enabled) {
-
-            this._aabbStore.update();
-
-            const state = this._internalTest(camera);
-
-            if (state) {
-                await state.read(this._readbackIntervalMs);
             }
         }
     }
