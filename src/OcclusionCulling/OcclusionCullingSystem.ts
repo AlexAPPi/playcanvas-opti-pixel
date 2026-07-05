@@ -115,7 +115,7 @@ export class OcclusionCullingSystem extends pc.EventHandler {
     private _initQueries() {
         this._queriesTester =
             this.app.graphicsDevice.isWebGL2 ? new WebglOcclusionQueriesTester(this.app, this.aabbStore) :
-            this.app.graphicsDevice.isWebGPU ? null : // TODO: webgpu now not supported
+            this.app.graphicsDevice.isWebGPU ? null : // Webgpu must use hzb
             null;
 
         if (this._queriesTester) {
