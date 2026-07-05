@@ -61,7 +61,7 @@ export class GPUIndexQueue {
         const numVertices = this._indexQueue.capacity;
         const bufferFormat = this._getBufferFormat();
         this._buffer = new pc.VertexBuffer(this._device, bufferFormat, numVertices, {
-            usage: pc.BUFFER_DYNAMIC,
+            usage: pc.BUFFER_STREAM,
             data: dataBuffer,
             storage: true
         });
