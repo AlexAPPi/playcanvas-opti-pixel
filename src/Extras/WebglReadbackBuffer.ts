@@ -151,21 +151,17 @@ export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer>> ext
 
         const gl = this.device.gl;
         const byteSize = this.storage.byteLength;
-        const oldBufferId = this.impl.bufferId;
-        const newBufferId = gl.createBuffer();
 
-        // TODO: need more test other cases
-        // This approach showed the best performance, the buffers are small,
-        // so there is nothing wrong with creating them.
-        if (oldBufferId) {
-            gl.deleteBuffer(oldBufferId);
+        let bufferId = this.impl.bufferId;
+
+        if (!bufferId) {
+            bufferId = gl.createBuffer();
+            this.impl.bufferId = bufferId;
         }
 
-        gl.bindBuffer(gl.ARRAY_BUFFER, newBufferId);
+        gl.bindBuffer(gl.ARRAY_BUFFER, bufferId);
         gl.bufferData(gl.ARRAY_BUFFER, byteSize, gl.STREAM_READ);
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
-
-        this.impl.bufferId = newBufferId;
     }
 
     public override unlock(): void {
