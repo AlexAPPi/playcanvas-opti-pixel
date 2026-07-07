@@ -711,6 +711,12 @@ export class SimpleHierarchicalInstancer implements IInstancer {
     }
 
     public update(dt: number, camera: pc.Camera, cameraPosition: pc.Vec3, onFrustumEnter?: TOnFrustumEnterThenUpdate) {
+        this._beforeUpdateRenders(dt);
+        this._updateRenders(camera, cameraPosition, onFrustumEnter);
+        this._afterUpdateRenders(dt);
+    }
+
+    protected _beforeUpdateRenders(dt: number) {
 
         this._time += dt;
 
@@ -733,9 +739,12 @@ export class SimpleHierarchicalInstancer implements IInstancer {
                 this._sortObjectsInStep ||= render.sortObjects;
             }
         }
+    }
 
-        this._updateRenders(camera, cameraPosition, onFrustumEnter);
+    protected _afterUpdateRenders(dt: number) {
 
+        const lods = this.LODs;
+        const numLods = lods.length;
         const sharedIndexes = this._sharedIndexes!;
         const sharedDepthStore = this._sharedDepthStoreU!;
 
