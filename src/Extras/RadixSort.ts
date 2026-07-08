@@ -4,6 +4,7 @@ const BIN_BITS = 1 << POWER;
 const BIN_SIZE = 1 << BIN_BITS;
 const BIN_MAX = BIN_SIZE - 1;
 const ITERATIONS = BIT_MAX / BIN_BITS;
+const ITERATIONS_MAX = ITERATIONS - 1;
 
 const bins = new Array<Uint32Array>(ITERATIONS);
 const bins_buffer = new ArrayBuffer((ITERATIONS + 1) * BIN_SIZE * 4);
@@ -14,7 +15,7 @@ for (let i = 0; i < (ITERATIONS + 1); i++) {
 	c += BIN_SIZE * 4;
 }
 
-const defaultGet = ( el: any ) => el;
+const defaultGet = (el: any) => el;
 
 export type TEditableArray<T> = {
     [index: number]: T;
@@ -125,7 +126,7 @@ export const radixSort = <T>(arr: TEditableArray<T>, aux: TEditableArray<T>, len
 		for (let j = end - 1; j >= start; j--)
 			b[start + --bin[(get(a[j]) >>> shift) & BIN_MAX]] = a[j];
 
-		if (depth == ITERATIONS - 1) return;
+		if (depth == ITERATIONS_MAX) return;
 
 		recurse(cache, depth, start);
 	};
