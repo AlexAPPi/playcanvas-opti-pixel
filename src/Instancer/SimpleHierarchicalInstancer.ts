@@ -730,15 +730,17 @@ export class SimpleHierarchicalInstancer implements IInstancer {
         const lods = this.LODs;
         const numLods = lods.length;
 
-        this._sortObjectsInStep = false;
+        let sortObjectsInStep = false;
 
         for (let lodIndex = 0; lodIndex < numLods; lodIndex++) {
             const render = lods[lodIndex].render;
             if (render) {
                 render.start();
-                this._sortObjectsInStep ||= render.sortObjects;
+                sortObjectsInStep ||= render.sortObjects;
             }
         }
+
+        this._sortObjectsInStep = sortObjectsInStep;
     }
 
     protected _afterUpdateRenders(dt: number) {
