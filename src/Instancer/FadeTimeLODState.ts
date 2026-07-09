@@ -47,6 +47,23 @@ export class FadeTimeLODState {
         }
     }
 
+    public getCurrentLod(index: number) {
+        const packed = this.data[index];
+        return (packed >> 4) & LOD_MASK;
+    }
+
+    public needFade(index: number, time: number) {
+
+        const storedTime = this.time[index];
+
+        if (storedTime > time) {
+
+            return true;
+        }
+
+        return false;
+    }
+
     public get(
         index: number,
         targetLod: number,
