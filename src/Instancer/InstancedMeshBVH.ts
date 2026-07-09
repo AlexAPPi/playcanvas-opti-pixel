@@ -5,7 +5,7 @@ import { HybridBuilder } from "../BVH/HybridBuilder.js";
 import { isIntersectedMargin } from "../BVH/Utils/FrustumUtils.js";
 import { convertBoxToArray } from "../BVH/Utils/ConvertBoxUtils.js";
 import { vec3ToArr } from "./Utils/ConvertVecUtils.js";
-import { IInstancer } from "./IInstancer.js";
+import { HierarchicalInstancer } from "./HierarchicalInstancer.js";
 
 // TODO getBoxFromSphere updated if change geometry (and create accessor)
 // TODO accurateCulling in bvh.js?
@@ -57,7 +57,7 @@ export class InstancedMeshBVH<TObject, TBoxType extends BoxType> {
     /**
      * The instanced mesh object that the BVH is managing.
      */
-    public target: IInstancer;
+    public target: HierarchicalInstancer;
 
     /**
      * The geometry bounding box of the target.
@@ -89,13 +89,13 @@ export class InstancedMeshBVH<TObject, TBoxType extends BoxType> {
     protected _sphereTarget: SphereTarget | undefined;
 
     /**
-     * @param target The target instanced mesh.
+     * @param target The target instancer.
      * @param boxTypeConstructor The bounding box type instanced mesh.
      * @param margin The margin applied for bounding box calculations (default is 0).
      * @param getBBoxFromBSphere Flag to determine if instance bounding boxes should be computed from the geometry bounding sphere. Faster but less precise (default is false).
      * @param accurateCulling Flag to enable accurate frustum culling without considering margin (default is true).
      */
-    constructor(target: IInstancer, boxTypeConstructor: TypedArrayConstructor<TBoxType>, margin = 0, getBBoxFromBSphere = false, accurateCulling = true) {
+    constructor(target: HierarchicalInstancer, boxTypeConstructor: TypedArrayConstructor<TBoxType>, margin = 0, getBBoxFromBSphere = false, accurateCulling = true) {
 
         this.target = target;
         this.accurateCulling = accurateCulling;

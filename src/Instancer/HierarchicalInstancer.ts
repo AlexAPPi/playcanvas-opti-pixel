@@ -1,13 +1,13 @@
 import pc from "../engine.js";
 import { BVHParams, InstancedMeshBVH } from "./InstancedMeshBVH.js";
-import SimpleHierarchicalInstancer, { InstancedMeshParams, TOnFrustumEnter, TOnFrustumEnterThenUpdate } from "./SimpleHierarchicalInstancer.js";
+import SimpleHierarchicalInstancer, { ISimpleHierarchicalInstancerParams, TOnFrustumEnter, TOnFrustumEnterThenUpdate } from "./SimpleHierarchicalInstancer.js";
 
 export class HierarchicalInstancer extends SimpleHierarchicalInstancer {
 
     public bvh: InstancedMeshBVH<number, Float32Array<ArrayBuffer>> | undefined;
     public autoUpdateBVH: boolean = true;
 
-    public constructor(device: pc.GraphicsDevice, params: InstancedMeshParams = {}) {
+    public constructor(device: pc.GraphicsDevice, params: ISimpleHierarchicalInstancerParams = {}) {
         super(device, params);
     }
 

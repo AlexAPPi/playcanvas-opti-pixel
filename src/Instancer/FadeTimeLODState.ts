@@ -53,7 +53,7 @@ export class FadeTimeLODState {
         time: number,
         fadeTime: number,
         out: ILODState
-    ): void {
+    ): ILODState {
 
         const packed = this.data[index];
 
@@ -93,7 +93,7 @@ export class FadeTimeLODState {
             out.next = storedTargetLod;
             out.weight = 1 - w;
             out.nextWeight = w;
-            return;
+            return out;
         }
 
         // Update timer
@@ -108,5 +108,6 @@ export class FadeTimeLODState {
         out.next = null;
         out.weight = 1;
         out.nextWeight = 0;
+        return out;
     }
 }

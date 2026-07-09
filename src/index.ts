@@ -36,7 +36,11 @@ import { WebgpuHierarchicalZBuffer } from "./OcclusionCulling/HZB/Webgpu/WebgpuH
 import { WebglHZBCPUFBTester } from "./OcclusionCulling/HZB/Webgl/WebglHZBCPUFBTester.js";
 import { AABBStore } from "./Extras/AABBStore.js";
 import { IAABBStore } from "./Extras/IAABBStore.js";
+import { FadeTimeLODState } from "./Instancer/FadeTimeLODState.js";
+import { FadeDistanceLODState } from "./Instancer/FadeDistanceLODState.js";
+import { BasicHierarchicalInstancer } from "./Instancer/BasicHierarchicalInstancer.js";
 import { SimpleHierarchicalInstancer } from "./Instancer/SimpleHierarchicalInstancer.js";
+import { InstancesFlags } from "./Instancer/InstancesFlags.js";
 
 export {
 
@@ -92,7 +96,12 @@ export {
     BVH,
     HybridBuilder,
 
+    InstancesFlags,
+    FadeTimeLODState,
+    FadeDistanceLODState,
+
     HierarchicalInstancer,
+    BasicHierarchicalInstancer,
     SimpleHierarchicalInstancer,
 };
 
