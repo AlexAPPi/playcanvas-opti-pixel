@@ -211,7 +211,7 @@ export class BasicHierarchicalInstancer implements IInstancer {
         return this._updateLevel(this.LODs, levelIndex, distance, hysteresis);
     }
 
-    public remoteLOD(levelIndex: number, destroyObject: boolean = true) {
+    public removeLOD(levelIndex: number, destroyObject: boolean = true) {
         const removed = this._removeLevel(this.LODs, levelIndex, destroyObject);
         this.updateInstanceBoundingBox();
         return removed;
@@ -225,7 +225,7 @@ export class BasicHierarchicalInstancer implements IInstancer {
         return this._updateLevel(this.shadowLODs, levelIndex, distance, hysteresis);
     }
 
-    public remoteShadowLOD(levelIndex: number, destroyObject: boolean = true) {
+    public removeShadowLOD(levelIndex: number, destroyObject: boolean = true) {
         return this._removeLevel(this.shadowLODs, levelIndex, destroyObject);
     }
 
