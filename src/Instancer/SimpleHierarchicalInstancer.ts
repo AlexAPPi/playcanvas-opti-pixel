@@ -194,8 +194,8 @@ export class SimpleHierarchicalInstancer extends BasicHierarchicalInstancer {
         const relativeCenterOfCamera = _vec31;
 
         // Need sort objects
-        const sortObjects = this._sortObjectsInStep && this._sortObjects;
-        const depthStore = this._sharedDepthStore!;
+        const depthStore = this._sharedDepthStore;
+        const sortObjects = this._sortObjectsInStep && this._sortObjects && depthStore;
         const fadeTimeLODState = this._fadeTimeLODState;
 
         let minIndex = count;

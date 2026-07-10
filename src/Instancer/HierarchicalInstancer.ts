@@ -61,8 +61,8 @@ export class HierarchicalInstancer extends SimpleHierarchicalInstancer {
         const lodFadeTime = this.lodFadeTime;
 
         // Need sort objects
-        const sortObjects = this._sortObjectsInStep && this._sortObjects;
-        const depthStore = this._sharedDepthStore!;
+        const depthStore = this._sharedDepthStore;
+        const sortObjects = this._sortObjectsInStep && this._sortObjects && depthStore;
         const fadeTimeLODState = this._fadeTimeLODState;
 
         this.bvh?.frustumCullingLOD(frustum, cameraPosition, lods, (node, level, min, max) => {
