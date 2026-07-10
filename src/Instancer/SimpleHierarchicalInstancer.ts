@@ -65,8 +65,9 @@ export class SimpleHierarchicalInstancer extends BasicHierarchicalInstancer {
     }
 
     public addLOD(meshInstanceList: pc.MeshInstance[] | null, root: pc.Entity | null, distance: number = 0, hysteresis: number = 0) {
-        super.addLOD(meshInstanceList, root, distance, hysteresis);
+        const levelIndex = super.addLOD(meshInstanceList, root, distance, hysteresis);
         this._setLodStateToMax(this.LODs);
+        return levelIndex;
     }
 
     protected _setLodStateToMax(lods: ILODLevel[]) {

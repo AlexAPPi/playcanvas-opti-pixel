@@ -195,10 +195,11 @@ export class BasicHierarchicalInstancer implements IInstancer {
         return src;
     }
 
-    public addLOD(meshInstanceList: pc.MeshInstance[] | null, root: pc.Entity | null, distance: number = 0, hysteresis: number = 0) {
-        this._addLevel(this.LODs, meshInstanceList, root, distance, hysteresis);
+    public addLOD(meshInstanceList: pc.MeshInstance[] | null, root: pc.Entity | null, distance: number = 0, hysteresis: number = 0): number {
+        const levelIndex = this._addLevel(this.LODs, meshInstanceList, root, distance, hysteresis);
         this._initOrDisposeSorterIfNeed(this.LODs);
         this.updateInstanceBoundingBox();
+        return levelIndex;
     }
 
     public updateLOD(levelIndex: number, distance: number, hysteresis: number) {
@@ -229,7 +230,7 @@ export class BasicHierarchicalInstancer implements IInstancer {
         return this._removeLevel(this.shadowLODs, levelIndex, destroyObject);
     }
 
-    protected _addLevel(lods: ILODLevel[], meshInstanceList: pc.MeshInstance[] | null, root: pc.Entity | null, distance: number, hysteresis: number) {
+    protected _addLevel(lods: ILODLevel[], meshInstanceList: pc.MeshInstance[] | null, root: pc.Entity | null, distance: number, hysteresis: number): number {
 
         // to avoid to use Math.sqrt every time
         distance = distance ** 2;
@@ -253,6 +254,8 @@ export class BasicHierarchicalInstancer implements IInstancer {
             hysteresis,
             render
         });
+
+        return index;
     }
 
     protected _updateLevel(lods: ILODLevel[], levelIndex: number, distance: number | null = null, hysteresis: number | null = null) {
