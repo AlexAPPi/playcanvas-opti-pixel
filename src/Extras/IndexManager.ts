@@ -3,8 +3,17 @@ import { BitSet, TOkForeachCallback } from "./BitSet.js";
 export class IndexManager {
 
     private _capacity: number;
+    private _availableCount: number;
     private _isAvailable: BitSet;
     private _isUint32: boolean;
+
+    public get reservedCount() {
+        return this._capacity - this._availableCount;
+    }
+
+    public get availableCount() {
+        return this._availableCount;
+    }
 
     public get isUint32() {
         return this._isUint32;
@@ -22,6 +31,7 @@ export class IndexManager {
 
         this._capacity = 0;
         this._isUint32 = uint32;
+        this._availableCount = 0;
         this._isAvailable = new BitSet(0, true);
         this.resize(capacity);
     }
@@ -36,9 +46,12 @@ export class IndexManager {
             return;
         }
 
+        let availableCount = 0;
         const next = new BitSet(newCapacity, true);
         next.copyValues(this._isAvailable);
+        next.forEachFilter(true, (idx) => { availableCount++; });
 
+        this._availableCount = availableCount;
         this._isAvailable = next;
         this._capacity = newCapacity;
 
@@ -54,6 +67,7 @@ export class IndexManager {
             throw new Error("No available indices to reserve");
         }
 
+        this._availableCount--;
         this._isAvailable.set(index, false);
         return index;
     }
@@ -68,6 +82,7 @@ export class IndexManager {
             throw new Error(`Index ${index} already freed`);
         }
 
+        this._availableCount++;
         this._isAvailable.set(index, true);
     }
 
