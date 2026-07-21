@@ -3,12 +3,11 @@ import { BitSet, TOkForeachCallback } from "./BitSet.js";
 export class IndexManager {
 
     private _capacity: number;
-    private _available: Uint32Array | Uint16Array;
-    private _availableCount: number;
     private _isAvailable: BitSet;
+    private _isUint32: boolean;
 
     public get isUint32() {
-        return this._available instanceof Uint32Array;
+        return this._isUint32;
     }
 
     public get capacity() {
@@ -22,10 +21,8 @@ export class IndexManager {
         }
 
         this._capacity = 0;
-        this._availableCount = 0;
-        this._available = uint32 ? new Uint32Array(0) : new Uint16Array(0);
-        this._isAvailable = new BitSet(0);
-
+        this._isUint32 = uint32;
+        this._isAvailable = new BitSet(0, true);
         this.resize(capacity);
     }
 
@@ -35,53 +32,29 @@ export class IndexManager {
             throw new RangeError("Capacity must be non-negative");
         }
 
-        if (newCapacity === this.capacity) {
+        if (newCapacity === this._capacity) {
             return;
         }
 
-        const useUint32 = this._available instanceof Uint32Array || newCapacity > 0xFFFF;
-        const newAvailable = useUint32 ? new Uint32Array(newCapacity) : new Uint16Array(newCapacity);
-        const newIsAvailable = new BitSet(newCapacity);
+        const next = new BitSet(newCapacity, true);
+        next.copyValues(this._isAvailable);
 
-        let newAvailableCount = 0;
-        for (let i = 0; i < this._availableCount; i++) {
-            const idx = this._available[i];
-            if (idx < newCapacity) {
-                newAvailable[newAvailableCount] = idx;
-                newIsAvailable.set(idx, true);
-                newAvailableCount++;
-            }
-        }
-
-        for (let i = 0; i < newCapacity; i++) {
-            if (!newIsAvailable.get(i)) {
-                newAvailable[newAvailableCount] = i;
-                newIsAvailable.set(i, true);
-                newAvailableCount++;
-            }
-        }
-
-        this._available = newAvailable;
-        this._isAvailable = newIsAvailable;
-        this._availableCount = newAvailableCount;
+        this._isAvailable = next;
         this._capacity = newCapacity;
+
+        // Once switched to Uint32 mode, it never switches back.
+        this._isUint32 = this._isUint32 || newCapacity > 0xffff;
     }
 
     public reserve(): number {
 
-        if (this._availableCount === 0) {
+        const index = this._isAvailable.findFirst(true);
+
+        if (index < 0) {
             throw new Error("No available indices to reserve");
         }
 
-        this._availableCount--;
-        const index = this._available[this._availableCount];
-
-        if (!this._isAvailable.get(index)) {
-            throw new Error(`Index ${index} already reserved`);
-        }
-
         this._isAvailable.set(index, false);
-
         return index;
     }
 
@@ -96,16 +69,9 @@ export class IndexManager {
         }
 
         this._isAvailable.set(index, true);
-
-        if (this._availableCount >= this._capacity) {
-            throw new Error("Available buffer overflow on free");
-        }
-
-        this._available[this._availableCount] = index;
-        this._availableCount++;
     }
 
-    public forEach(callback: TOkForeachCallback) {
+    public forEach(callback: TOkForeachCallback): void {
         this._isAvailable.forEachFilter(false, callback);
     }
 }

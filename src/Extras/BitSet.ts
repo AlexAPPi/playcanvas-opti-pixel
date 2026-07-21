@@ -43,29 +43,35 @@ export class BitSet {
 
         let cleanState = true;
 
-        const tailMask = this._lastIsOutcast
-            ? ((1 << this._bitsInLast) - 1) >>> 0
-            : 0xffffffff;
-
         for (let i = 0; i < lastIdx; i++) {
             const v = srcArr[i];
-            if (v !== cleanValue) cleanState = false;
+            if (v !== cleanValue) {
+                cleanState = false;
+            }
             dstArr[i] = v;
         }
 
         if (minLen > 0) {
-
             let v = srcArr[lastIdx];
 
             if (source._lastIsOutcast && lastIdx === srcLen - 1) {
-                v &= source._bitsInLast === 32
+                const srcMask = source._bitsInLast === 32
                     ? 0xffffffff
                     : ((1 << source._bitsInLast) - 1) >>> 0;
+                v &= srcMask;
             }
 
-            v &= tailMask;
+            if (this._lastIsOutcast && lastIdx === dstLen - 1) {
+                const tailMask = this._bitsInLast === 32
+                    ? 0xffffffff
+                    : ((1 << this._bitsInLast) - 1) >>> 0;
+                v &= tailMask;
+            }
 
-            if (v !== cleanValue) cleanState = false;
+            if (v !== cleanValue) {
+                cleanState = false;
+            }
+
             dstArr[lastIdx] = v;
         }
 
