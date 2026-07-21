@@ -1,7 +1,15 @@
 
 export type TOkForeachCallback = (index: number) => void | boolean;
 
-export class BitSet {
+export interface IReadonlyBitSet {
+    readonly size: number;
+    readonly clearValue: boolean;
+    get(index: number): boolean;
+    findFirst(value: boolean): number;
+    forEachFilter(value: boolean, callback: TOkForeachCallback): void;
+}
+
+export class BitSet implements IReadonlyBitSet {
 
     private _array: Uint32Array;
     private _clean: boolean;

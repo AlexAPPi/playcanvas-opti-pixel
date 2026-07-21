@@ -1,6 +1,6 @@
 import { BVH } from "./BVH/BVH.js";
 import { HybridBuilder } from "./BVH/HybridBuilder.js";
-import { BitSet } from "./Extras/BitSet.js";
+import { BitSet, IReadonlyBitSet } from "./Extras/BitSet.js";
 import { ValueSortQueue } from "./Extras/ValueSortQueue.js";
 import { GPUBufferTool } from "./Extras/GPUBufferTool.js";
 import { GPUElementQueue } from "./Extras/GPUElementQueue.js";
@@ -106,6 +106,7 @@ export {
 };
 
 export type {
+    IReadonlyBitSet,
     IPrimitive,
     IAABBStore,
     IHierarchicalZBuffer,
