@@ -1,4 +1,4 @@
-import { BitSet } from "./BitSet.js";
+import { BitSet, TOkForeachCallback } from "./BitSet.js";
 
 export class IndexManager {
 
@@ -103,5 +103,9 @@ export class IndexManager {
 
         this._available[this._availableCount] = index;
         this._availableCount++;
+    }
+
+    public forEach(callback: TOkForeachCallback) {
+        this._isAvailable.forEachFilter(false, callback);
     }
 }

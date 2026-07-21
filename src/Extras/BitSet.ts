@@ -11,6 +11,14 @@ export class BitSet {
     private _lastIsOutcast: boolean;
     private _lastFullWordIdx: number;
 
+    public get size() {
+        return this._size;
+    }
+
+    public get clearValue() {
+        return this._cleanValue;
+    }
+
     constructor(size: number, clearValue: boolean = false) {
         this._array = new Uint32Array(Math.ceil(size / 32));
         this._bitsInLast = size % 32 || 32;
@@ -20,6 +28,52 @@ export class BitSet {
         this._clean = false;
         this._size = size;
         this.clear();
+    }
+
+    public copyValues(source: BitSet) {
+
+        const cleanValue = this._cleanValue ? 0xffffffff : 0;
+        const srcArr = source._array;
+        const dstArr = this._array;
+
+        const dstLen = dstArr.length;
+        const srcLen = srcArr.length;
+        const minLen = Math.min(dstLen, srcLen);
+        const lastIdx = minLen - 1;
+
+        let cleanState = true;
+
+        const tailMask = this._lastIsOutcast
+            ? ((1 << this._bitsInLast) - 1) >>> 0
+            : 0xffffffff;
+
+        for (let i = 0; i < lastIdx; i++) {
+            const v = srcArr[i];
+            if (v !== cleanValue) cleanState = false;
+            dstArr[i] = v;
+        }
+
+        if (minLen > 0) {
+
+            let v = srcArr[lastIdx];
+
+            if (source._lastIsOutcast && lastIdx === srcLen - 1) {
+                v &= source._bitsInLast === 32
+                    ? 0xffffffff
+                    : ((1 << source._bitsInLast) - 1) >>> 0;
+            }
+
+            v &= tailMask;
+
+            if (v !== cleanValue) cleanState = false;
+            dstArr[lastIdx] = v;
+        }
+
+        if (dstLen > srcLen) {
+            dstArr.fill(cleanValue, srcLen);
+        }
+
+        this._clean = cleanState;
     }
 
     public clear() {
@@ -91,6 +145,17 @@ export class BitSet {
         }
 
         return prev;
+    }
+
+    public findFirst(value: boolean): number {
+
+        let firstIndex = -1;
+        this.forEachFilter(value, (index) => {
+            firstIndex = index;
+            return false;
+        });
+
+        return firstIndex;
     }
 
     public forEachFilter(value: boolean, callback: TOkForeachCallback): void {
