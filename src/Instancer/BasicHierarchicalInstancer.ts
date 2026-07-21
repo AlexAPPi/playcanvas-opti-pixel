@@ -164,6 +164,9 @@ export class BasicHierarchicalInstancer implements IInstancer {
         this._capacity = newCapacity;
         this.matricesTexture?.resize(newCapacity);
         this.colorsTexture?.resize(newCapacity);
+
+        // Resize sorter if need
+        this._initOrDisposeSorterIfNeed(this.LODs);
     }
 
     public computeMaxInstanceBoundingBox(src?: pc.BoundingBox): pc.BoundingBox {
