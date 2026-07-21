@@ -63,11 +63,6 @@ export class BasicHierarchicalInstancer implements IInstancer {
     public LODs: ILODLevel[] = [];
 
     /**
-     * Shadow LODs
-     */
-    public shadowLODs: ILODLevel[] = [];
-
-    /**
      * Texture storing matrices for instances.
      */
     public matricesTexture: SquareDataTexture<Float32Array>;
@@ -173,7 +168,6 @@ export class BasicHierarchicalInstancer implements IInstancer {
 
     public computeMaxInstanceBoundingBox(src?: pc.BoundingBox): pc.BoundingBox {
 
-        // TODO: Ignore shadows ?
         const levels = this.LODs;
 
         if (levels.length < 1) {
@@ -216,18 +210,6 @@ export class BasicHierarchicalInstancer implements IInstancer {
         const removed = this._removeLevel(this.LODs, levelIndex, destroyObject);
         this.updateInstanceBoundingBox();
         return removed;
-    }
-
-    public addShadowLOD(meshInstanceList: pc.MeshInstance[] | null, root: pc.Entity | null, distance: number = 0, hysteresis: number = 0) {
-        this._addLevel(this.shadowLODs, meshInstanceList, root, distance, hysteresis);
-    }
-
-    public updateShadowLOD(levelIndex: number, distance: number, hysteresis: number) {
-        return this._updateLevel(this.shadowLODs, levelIndex, distance, hysteresis);
-    }
-
-    public removeShadowLOD(levelIndex: number, destroyObject: boolean = true) {
-        return this._removeLevel(this.shadowLODs, levelIndex, destroyObject);
     }
 
     protected _addLevel(lods: ILODLevel[], meshInstanceList: pc.MeshInstance[] | null, root: pc.Entity | null, distance: number, hysteresis: number): number {
