@@ -64,6 +64,13 @@ export class FadeTimeLODState {
         return false;
     }
 
+    public set(index: number, currentLod: number, targetLod: number, skipFade: boolean = true) {
+        this.data[index] = ((currentLod & LOD_MASK) << 4) | (targetLod & LOD_MASK);
+        if (skipFade) {
+            this.time[index] = 0;
+        }
+    }
+
     public get(
         index: number,
         targetLod: number,
