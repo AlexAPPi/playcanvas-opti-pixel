@@ -80,41 +80,51 @@ export class FadeTimeLODState {
     ): ILODState {
 
         const packed = this.data[index];
+        const storedCurrentLod = (packed >> 4) & LOD_MASK;
+        const storedTargetLod = packed & LOD_MASK;
+        const storedTime = this.time[index];
 
-        let currentLod = (packed >> 4) & LOD_MASK;
-        let storedTargetLod = packed & LOD_MASK;
-        let storedTime = this.time[index];
+        let tmpCurrentLod = storedCurrentLod;
+        let tmpTargetLod = storedTargetLod;
+        let tmpStoredTime = storedTime;
 
         // The instance has not been animated for a long time,
         // or there was no animation in the past.
-        if (storedTime < time) {
+        if (tmpStoredTime < time) {
 
             // Since the update function is not called for elements that fall outside the frustum or occluded,
             // we check whether the animation still needs to play or if the playback time has long since
             // expired and a new LOD should be displayed.
-            const elapsed = time - storedTime;
+            const elapsed = time - tmpStoredTime;
 
             if (elapsed < fadeTime) {
 
-                if (storedTargetLod !== targetLod) {
-                    storedTargetLod = targetLod;
-                    storedTime = time + fadeTime;
+                tmpCurrentLod = tmpTargetLod;
+                tmpTargetLod = targetLod;
+                tmpStoredTime = time + fadeTime;
 
-                    this.data[index] = (currentLod << 4) | (storedTargetLod & LOD_MASK);
-                    this.time[index] = storedTime;
-                }
+                this.data[index] = (tmpCurrentLod << 4) | (tmpTargetLod & LOD_MASK);
+                this.time[index] = tmpStoredTime;
             }
         }
 
         // Animation in progress
-        if (storedTime > time) {
+        if (tmpStoredTime > time) {
 
-            const elapsed = storedTime - time;
+            const elapsed = tmpStoredTime - time;
             const progress = 1.0 - Math.min(1, Math.max(0, elapsed / fadeTime));
             const w = progress * progress * (3 - 2 * progress);
 
-            out.current = currentLod;
-            out.next = storedTargetLod;
+            if (tmpCurrentLod === tmpTargetLod) {
+                out.current = tmpTargetLod;
+                out.next = null;
+                out.weight = 1;
+                out.nextWeight = 0;
+                return out;
+            }
+
+            out.current = tmpCurrentLod;
+            out.next = tmpTargetLod;
             out.weight = 1 - w;
             out.nextWeight = w;
             return out;
@@ -123,7 +133,7 @@ export class FadeTimeLODState {
         // Update timer
         this.time[index] = time;
 
-        if (targetLod !== currentLod || 
+        if (targetLod !== storedCurrentLod || 
             targetLod !== storedTargetLod) {
             this.data[index] = (targetLod << 4) | targetLod;
         }
