@@ -111,10 +111,7 @@ export class FadeTimeLODState {
         // Animation in progress
         if (tmpStoredTime > time) {
 
-            const elapsed = tmpStoredTime - time;
-            const progress = 1.0 - Math.min(1, Math.max(0, elapsed / fadeTime));
-            const w = progress * progress * (3 - 2 * progress);
-
+            // Let's lock fade for our own time
             if (tmpCurrentLod === tmpTargetLod) {
                 out.current = tmpTargetLod;
                 out.next = null;
@@ -122,6 +119,10 @@ export class FadeTimeLODState {
                 out.nextWeight = 0;
                 return out;
             }
+
+            const elapsed = tmpStoredTime - time;
+            const progress = 1.0 - Math.min(1, Math.max(0, elapsed / fadeTime));
+            const w = progress * progress * (3 - 2 * progress);
 
             out.current = tmpCurrentLod;
             out.next = tmpTargetLod;
