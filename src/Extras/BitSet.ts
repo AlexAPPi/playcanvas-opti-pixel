@@ -1,11 +1,49 @@
-
+/**
+ * Callback used by bitset iteration helpers.
+ *
+ * Return `false` to stop iteration early.
+ */
 export type TOkForeachCallback = (index: number) => void | boolean;
 
+/**
+ * Read-only bitset interface.
+ *
+ * Provides access to bit values, search helpers, and filtered iteration.
+ */
 export interface IReadonlyBitSet {
+    /**
+     * Total number of bits in the set.
+     */
     readonly size: number;
+
+    /**
+     * The value returned by the bitset when it is in a fully cleared state.
+     */
     readonly clearValue: boolean;
+
+    /**
+     * Returns the bit value at the specified index.
+     *
+     * @param index Bit index.
+     * @returns Bit value at the given index.
+     */
     get(index: number): boolean;
+
+    /**
+     * Finds the first bit matching the requested value.
+     *
+     * @param value Bit value to search for.
+     * @returns The first matching index, or -1 if none was found.
+     */
     findFirst(value: boolean): number;
+
+    /**
+     * Iterates over all bits matching the requested value.
+     *
+     * @param value Bit value to filter by.
+     * @param callback Called for every matching bit index.
+     * @remarks Returning `false` from the callback stops iteration early.
+     */
     forEachFilter(value: boolean, callback: TOkForeachCallback): void;
 }
 
@@ -38,6 +76,14 @@ export class BitSet implements IReadonlyBitSet {
         this.clear();
     }
 
+    /**
+     * Copies bit values from another bitset.
+     *
+     * If source and destination sizes differ, the common range is copied and
+     * the remaining destination bits are filled with the destination clear value.
+     *
+     * @param source Source bitset.
+     */
     public copyValues(source: BitSet) {
 
         const cleanValue = this._cleanValue ? 0xffffffff : 0;
@@ -90,6 +136,11 @@ export class BitSet implements IReadonlyBitSet {
         this._clean = cleanState;
     }
 
+    /**
+     * Clears the bitset to its clean state.
+     *
+     * The resulting value of all bits is controlled by `clearValue`.
+     */
     public clear() {
         if (this._clean === false) {
             this._clean = true;
@@ -99,6 +150,12 @@ export class BitSet implements IReadonlyBitSet {
         }
     }
 
+    /**
+     * Returns the bit value at the specified index.
+     *
+     * @param index Bit index.
+     * @returns Bit value at the given index.
+     */
     public get(index: number): boolean {
 
         if (this._clean) {
@@ -110,6 +167,12 @@ export class BitSet implements IReadonlyBitSet {
         return ((this._array[word] >>> bit) & 1) !== 0;
     }
 
+    /**
+     * Sets the bit value at the specified index.
+     *
+     * @param index Bit index.
+     * @param value New bit value.
+     */
     public set(index: number, value: boolean) {
 
         if (this._cleanValue !== value) {
@@ -132,6 +195,13 @@ export class BitSet implements IReadonlyBitSet {
         }
     }
 
+    /**
+     * Replaces the bit value at the specified index and returns the previous value.
+     *
+     * @param index Bit index.
+     * @param value New bit value.
+     * @returns Previous bit value at the given index.
+     */
     public exchange(index: number, value: boolean): boolean {
 
         if (this._cleanValue !== value) {
@@ -161,6 +231,12 @@ export class BitSet implements IReadonlyBitSet {
         return prev;
     }
 
+    /**
+     * Finds the first bit matching the requested value.
+     *
+     * @param value Bit value to search for.
+     * @returns The first matching index, or -1 if none was found.
+     */
     public findFirst(value: boolean): number {
 
         let firstIndex = -1;
@@ -172,6 +248,13 @@ export class BitSet implements IReadonlyBitSet {
         return firstIndex;
     }
 
+    /**
+     * Iterates over all bits matching the requested value.
+     *
+     * @param value Bit value to filter by.
+     * @param callback Called for every matching bit index.
+     * @remarks Returning `false` from the callback stops iteration early.
+     */
     public forEachFilter(value: boolean, callback: TOkForeachCallback): void {
 
         const size = this._size;
