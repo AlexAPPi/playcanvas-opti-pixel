@@ -17,6 +17,7 @@ import { IInstancer } from "./IInstancer.js";
 import { ILODLevel } from "./ILODLevel.js";
 import { GPUInstancedList, instancingIndexSemantic } from "./InstancedList.js";
 import { LODRender } from "./LODRender.js";
+import { ILODRender } from "./ILODRender.js";
 
 /**
  * Parameters for configuring an `BasicHierarchicalInstancer` instance.
@@ -33,7 +34,6 @@ export interface IBasicHierarchicalInstancerParams {
 
 export class BasicHierarchicalInstancer implements IInstancer {
 
-    /** @internal */ _perObjectFrustumCulled = true;
     /** @internal */ _sortObjects = false;
     /** @internal */ _useOpacity = false;
 
@@ -215,6 +215,11 @@ export class BasicHierarchicalInstancer implements IInstancer {
         return removed;
     }
 
+    protected _createRender(meshInstanceList: pc.MeshInstance[], root: pc.Entity | null): ILODRender {
+        const instancedList = new GPUInstancedList(this.device, this.capacity);
+        return new LODRender(instancedList, meshInstanceList, root);
+    }
+
     protected _addLevel(lods: ILODLevel[], meshInstanceList: pc.MeshInstance[] | null, root: pc.Entity | null, distance: number, hysteresis: number): number {
 
         // to avoid to use Math.sqrt every time
@@ -226,11 +231,10 @@ export class BasicHierarchicalInstancer implements IInstancer {
             if (distance < lods[index].distance) break;
         }
 
-        let render: LODRender | undefined;
+        let render: ILODRender | undefined;
 
         if (meshInstanceList && meshInstanceList.length > 0) {
-            const instancedList = new GPUInstancedList(this.device, this.capacity);
-            render = new LODRender(instancedList, meshInstanceList, root);
+            render = this._createRender(meshInstanceList, root);
             this.patchMeshInstancesMaterials(meshInstanceList);
         }
 
@@ -271,8 +275,7 @@ export class BasicHierarchicalInstancer implements IInstancer {
         if (destroyObject) {
             const render = removedObj.render;
             if (render) {
-                render.list.destroy();
-                render.meshes.forEach(x => x?.destroy());
+                render.destroy();
             }
         }
 
@@ -613,7 +616,7 @@ export class BasicHierarchicalInstancer implements IInstancer {
             const render = lods[lodIndex].render;
             if (render) {
                 if (render.sortObjects) {
-                    render.list.sort(true, sharedIndexes, sharedDepthStore);
+                    render.sort(true, sharedIndexes, sharedDepthStore);
                 }
                 render.end();
             }

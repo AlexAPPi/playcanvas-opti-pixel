@@ -1,4 +1,4 @@
-import { LODRender } from "./LODRender";
+import { ILODRender } from "./ILODRender";
 
 export interface ILODLevel {
 
@@ -20,5 +20,5 @@ export interface ILODLevel {
     /**
      * The entities for renderer
      */
-    render?: LODRender;
+    render?: ILODRender;
 }

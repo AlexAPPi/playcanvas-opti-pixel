@@ -1,7 +1,8 @@
 import pc from "../engine.js";
+import { ILODRender } from "./ILODRender.js";
 import { GPUInstancedList } from "./InstancedList.js";
 
-export class LODRender {
+export class LODRender implements ILODRender {
 
     /**
      * The gpu instanced list
@@ -114,6 +115,10 @@ export class LODRender {
         this.list.push(index, opacity);
     }
 
+    public sort(reversed: boolean, buf: Uint32Array, depthStore: Uint32Array) {
+        this.list.sort(reversed, buf, depthStore);
+    }
+
     public end() {
 
         const count = this.list.count;
@@ -140,6 +145,11 @@ export class LODRender {
                 mesh.setParameter("local_matrix_instance", meshLocalMatrix.data);
             }
         }
+    }
+
+    public destroy(): void {
+        this.list.destroy();
+        this.meshes.forEach(x => x?.destroy());
     }
 }
 
