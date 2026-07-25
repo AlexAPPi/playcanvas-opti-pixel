@@ -19,6 +19,25 @@ import { GPUInstancedList, instancingIndexSemantic } from "./InstancedList.js";
 import { LODRender } from "./LODRender.js";
 import { ILODRender } from "./ILODRender.js";
 
+export interface IInstancerShaderChunks {
+    instancerInstanceVS: string;
+    instancerInstaceCrossFadeVS: string;
+    instancerInstanceMatrixVS: string;
+    instancerInstanceColorVS: string;
+    transformInstancingVS: string;
+    instancerDeclarationVS: string;
+    instancerMainEndVS: string;
+    instancerDeclarationPS: string;
+    instancerMainStartPS: string;
+    instancerDiffusePS: string;
+    instancerOpacityPS: string;
+}
+
+export interface IInstancerShaderChunksScope {
+    glsl?: IInstancerShaderChunks;
+    wgsl?: IInstancerShaderChunks;
+}
+
 /**
  * Parameters for configuring an `BasicHierarchicalInstancer` instance.
  */
@@ -312,31 +331,46 @@ export class BasicHierarchicalInstancer implements IInstancer {
         this._instanceAABBRadius = this._maxInstanceBoundingBox.halfExtents.length();
     }
 
-    protected _patchMaterial(material: pc.StandardMaterial) {
+    protected _patchMaterial(material: pc.StandardMaterial, shaderChunksScope?: IInstancerShaderChunksScope, updateMaterial: boolean = true) {
 
+        // TODO: add WGSL
         const glslChunks = material.getShaderChunks(pc.SHADERLANGUAGE_GLSL);
+        const instancerChunks = {
+            instancerInstanceVS,
+            instancerInstaceCrossFadeVS,
+            instancerInstanceMatrixVS,
+            instancerInstanceColorVS,
+            transformInstancingVS,
+            instancerDeclarationVS,
+            instancerMainEndVS,
+            instancerDeclarationPS,
+            instancerMainStartPS,
+            instancerDiffusePS,
+            instancerOpacityPS,
+            ...shaderChunksScope?.glsl,
+        };
 
         // Restore original user shader chunk code
 
         // VS
         let originalLitUserDeclarationVS = glslChunks.get("litUserDeclarationVS") ?? "/**/";
-        if (originalLitUserDeclarationVS === instancerDeclarationVS) {
+        if (originalLitUserDeclarationVS === instancerChunks.instancerDeclarationVS) {
             originalLitUserDeclarationVS = glslChunks.get("instancerUserDeclarationVS") ?? "/**/";
         }
 
         let originalLitUserMainEndVS = glslChunks.get("litUserMainEndVS") ?? "/**/";
-        if (originalLitUserMainEndVS === instancerMainEndVS) {
+        if (originalLitUserMainEndVS === instancerChunks.instancerMainEndVS) {
             originalLitUserMainEndVS = glslChunks.get("instancerUserMainEndVS") ?? "/**/";
         }
 
         // PS
         let originalLitUserDeclarationPS = glslChunks.get("litUserDeclarationPS") ?? "/**/";
-        if (originalLitUserDeclarationPS === instancerDeclarationPS) {
+        if (originalLitUserDeclarationPS === instancerChunks.instancerDeclarationPS) {
             originalLitUserDeclarationPS = glslChunks.get("instancerUserDeclarationPS") ?? "/**/";
         }
 
         let originalLitUserStartMainPS = glslChunks.get("litUserMainStartPS") ?? "/**/";
-        if (originalLitUserStartMainPS === instancerMainStartPS) {
+        if (originalLitUserStartMainPS === instancerChunks.instancerMainStartPS) {
             originalLitUserDeclarationPS = glslChunks.get("instancerUserMainStartPS") ?? "/**/";
         }
 
@@ -344,21 +378,21 @@ export class BasicHierarchicalInstancer implements IInstancer {
 
         glslChunks
             // Lit shader VS
-            .set("transformInstancingVS", transformInstancingVS)
-            .set("litUserDeclarationVS", instancerDeclarationVS)
-            .set("litUserMainEndVS", instancerMainEndVS)
+            .set("transformInstancingVS", instancerChunks.transformInstancingVS)
+            .set("litUserDeclarationVS", instancerChunks.instancerDeclarationVS)
+            .set("litUserMainEndVS", instancerChunks.instancerMainEndVS)
 
             // Lit shader PS
-            .set("litUserDeclarationPS", instancerDeclarationPS)
-            .set("litUserMainStartPS", instancerMainStartPS)
-            .set("diffusePS", instancerDiffusePS)
-            .set("opacityPS", instancerOpacityPS)
+            .set("litUserDeclarationPS", instancerChunks.instancerDeclarationPS)
+            .set("litUserMainStartPS", instancerChunks.instancerMainStartPS)
+            .set("diffusePS", instancerChunks.instancerDiffusePS)
+            .set("opacityPS", instancerChunks.instancerOpacityPS)
 
             // Instancer
-            .set("instancerInstanceVS", instancerInstanceVS)
-            .set("instancerInstanceCrossFadeVS", instancerInstaceCrossFadeVS)
-            .set("instancerInstanceMatrixVS", instancerInstanceMatrixVS)
-            .set("instancerInstanceColorVS", instancerInstanceColorVS)
+            .set("instancerInstanceVS", instancerChunks.instancerInstanceVS)
+            .set("instancerInstanceCrossFadeVS", instancerChunks.instancerInstaceCrossFadeVS)
+            .set("instancerInstanceMatrixVS", instancerChunks.instancerInstanceMatrixVS)
+            .set("instancerInstanceColorVS", instancerChunks.instancerInstanceColorVS)
 
             // Instancer user VS
             .set("instancerUserDeclarationVS", originalLitUserDeclarationVS)
@@ -386,7 +420,9 @@ export class BasicHierarchicalInstancer implements IInstancer {
             material.deleteParameter("uColorTexture");
         }
 
-        material.update();
+        if (updateMaterial) {
+            material.update();
+        }
     }
 
     /**
