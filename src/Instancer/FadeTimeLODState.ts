@@ -92,14 +92,15 @@ export class FadeTimeLODState {
         // or there was no animation in the past.
         if (tmpStoredTime < time) {
 
-            // Since the update function is not called for elements that fall outside the frustum or occluded,
-            // we check whether the animation still needs to play or if the playback time has long since
-            // expired and a new LOD should be displayed.
-            const elapsed = time - tmpStoredTime;
+            // Change target lod ?
+            if (tmpTargetLod !== targetLod) {
 
-            if (elapsed < fadeTime) {
+                // Since the update function is not called for elements that fall outside the frustum or occluded,
+                // we check whether the animation still needs to play or if the playback time has long since
+                // expired and a new LOD should be displayed.
+                const elapsed = time - tmpStoredTime;
 
-                if (tmpTargetLod !== targetLod) {
+                if (elapsed < fadeTime) {
 
                     tmpCurrentLod = tmpTargetLod;
                     tmpTargetLod = targetLod;
