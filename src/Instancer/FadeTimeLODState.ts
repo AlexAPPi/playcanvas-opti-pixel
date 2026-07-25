@@ -99,12 +99,15 @@ export class FadeTimeLODState {
 
             if (elapsed < fadeTime) {
 
-                tmpCurrentLod = tmpTargetLod;
-                tmpTargetLod = targetLod;
-                tmpStoredTime = time + fadeTime;
+                if (tmpTargetLod !== targetLod) {
 
-                this.data[index] = (tmpCurrentLod << 4) | (tmpTargetLod & LOD_MASK);
-                this.time[index] = tmpStoredTime;
+                    tmpCurrentLod = tmpTargetLod;
+                    tmpTargetLod = targetLod;
+                    tmpStoredTime = time + fadeTime;
+
+                    this.data[index] = (tmpCurrentLod << 4) | (tmpTargetLod & LOD_MASK);
+                    this.time[index] = tmpStoredTime;
+                }
             }
         }
 
