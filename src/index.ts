@@ -41,6 +41,8 @@ import { FadeDistanceLODState } from "./Instancer/FadeDistanceLODState.js";
 import { BasicHierarchicalInstancer } from "./Instancer/BasicHierarchicalInstancer.js";
 import { SimpleHierarchicalInstancer } from "./Instancer/SimpleHierarchicalInstancer.js";
 import { InstancesFlags } from "./Instancer/InstancesFlags.js";
+import { radixSort } from "./Extras/RadixSort.js";
+import { ILODRender } from "./Instancer/ILODRender.js";
 
 export {
 
@@ -54,6 +56,8 @@ export {
     OCCLUSION_OCCLUDED,
     OCCLUSION_ALGORITHM_TYPE_CONSERVATIVE,
     OCCLUSION_ALGORITHM_TYPE_ACCURATE,
+
+    radixSort,
 
     AABBStore,
 
@@ -106,6 +110,7 @@ export {
 };
 
 export type {
+    ILODRender,
     IReadonlyBitSet,
     IPrimitive,
     IAABBStore,
