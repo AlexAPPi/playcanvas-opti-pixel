@@ -10,16 +10,7 @@ export default `
 
     #if INSTANCING
 
-        attribute uint aInstanceIndex;
-
-        uint getInstanceId() {
-
-            #if INSTANCER_USE_CROSSFADE
-                return aInstanceIndex & 0xfffffu;
-            #else
-                return aInstanceIndex;
-            #endif
-        }
+        #include "instancerInstanceIdVS"
 
         #if INSTANCER_USE_CROSSFADE
         #include "instancerInstanceCrossFadeVS"

@@ -1,4 +1,5 @@
 import instancerInstanceVS from "./ShaderChunks/Vert/instance.js";
+import instancerInstanceIdVS from "./ShaderChunks/Vert/instanceId.js";
 import instancerInstaceCrossFadeVS from "./ShaderChunks/Vert/instanceCrossFade.js";
 import instancerInstanceMatrixVS from "./ShaderChunks/Vert/instanceMatrix.js";
 import instancerInstanceColorVS from "./ShaderChunks/Vert/instanceColor.js";
@@ -15,12 +16,13 @@ import pc from "../engine.js";
 import { SquareDataTexture } from "../Extras/SquareDataTexture.js";
 import { IInstancer } from "./IInstancer.js";
 import { ILODLevel } from "./ILODLevel.js";
-import { GPUInstancedList, instancingIndexSemantic } from "./InstancedList.js";
+import { GPUInstancedList, instancingIndexSemantic as instancingInstanceSemantic } from "./InstancedList.js";
 import { LODRender } from "./LODRender.js";
 import { ILODRender } from "./ILODRender.js";
 
 export interface IInstancerShaderChunks {
     instancerInstanceVS: string;
+    instancerInstanceIdVS: string;
     instancerInstaceCrossFadeVS: string;
     instancerInstanceMatrixVS: string;
     instancerInstanceColorVS: string;
@@ -34,8 +36,8 @@ export interface IInstancerShaderChunks {
 }
 
 export interface IInstancerShaderChunksScope {
-    glsl?: IInstancerShaderChunks;
-    wgsl?: IInstancerShaderChunks;
+    glsl?: Partial<IInstancerShaderChunks>;
+    wgsl?: Partial<IInstancerShaderChunks>;
 }
 
 /**
@@ -170,6 +172,18 @@ export class BasicHierarchicalInstancer implements IInstancer {
         this._needUpdateMaterials = true;
     }
 
+    protected _resizeRenders(): void {
+        const levels = this.LODs;
+        const numLevels = levels.length;
+        for (let levelIndex = 0; levelIndex < numLevels; levelIndex++) {
+            const level  = levels[levelIndex];
+            const render = level.render;
+            if (render) {
+                render.resize(this.capacity);
+            }
+        }
+    }
+
     public applySortingIfNeeded(): void {
         this._initOrDisposeSorterIfNeed(this.LODs);        
     }
@@ -183,6 +197,9 @@ export class BasicHierarchicalInstancer implements IInstancer {
         this._capacity = newCapacity;
         this.matricesTexture?.resize(newCapacity);
         this.colorsTexture?.resize(newCapacity);
+
+        // Resize renders
+        this._resizeRenders();
 
         // Resize sorter if need
         this._initOrDisposeSorterIfNeed(this.LODs);
@@ -236,7 +253,9 @@ export class BasicHierarchicalInstancer implements IInstancer {
 
     protected _createRender(meshInstanceList: pc.MeshInstance[], root: pc.Entity | null): ILODRender {
         const instancedList = new GPUInstancedList(this.device, this.capacity);
-        return new LODRender(instancedList, meshInstanceList, root);
+        const render = new LODRender(instancedList, meshInstanceList, root);
+        this._patchMeshInstancesMaterials(meshInstanceList);
+        return render;
     }
 
     protected _addLevel(lods: ILODLevel[], meshInstanceList: pc.MeshInstance[] | null, root: pc.Entity | null, distance: number, hysteresis: number): number {
@@ -254,7 +273,6 @@ export class BasicHierarchicalInstancer implements IInstancer {
 
         if (meshInstanceList && meshInstanceList.length > 0) {
             render = this._createRender(meshInstanceList, root);
-            this.patchMeshInstancesMaterials(meshInstanceList);
         }
 
         lods.splice(index, 0, {
@@ -301,7 +319,7 @@ export class BasicHierarchicalInstancer implements IInstancer {
         return removedObj;
     }
 
-    public patchMeshInstancesMaterials(meshInstanceList: pc.MeshInstance[]) {
+    protected _patchMeshInstancesMaterials(meshInstanceList: pc.MeshInstance[]) {
         const numMeshes = meshInstanceList.length;
         for (let i = 0; i < numMeshes; i++) {
             const mesh = meshInstanceList[i];
@@ -314,15 +332,18 @@ export class BasicHierarchicalInstancer implements IInstancer {
     }
 
     public updateMaterials() {
+
         const levels = this.LODs;
         const numLevels = levels.length;
         for (let levelIndex = 0; levelIndex < numLevels; levelIndex++) {
             const level  = levels[levelIndex];
             const render = level.render;
             if (render) {
-                this.patchMeshInstancesMaterials(render.meshes);
+                this._patchMeshInstancesMaterials(render.meshes);
             }
         }
+
+        this._needUpdateMaterials = false;
     }
 
     public updateInstanceBoundingBox() {
@@ -331,12 +352,36 @@ export class BasicHierarchicalInstancer implements IInstancer {
         this._instanceAABBRadius = this._maxInstanceBoundingBox.halfExtents.length();
     }
 
+    protected _setMaterialParamsAndDefine(material: pc.StandardMaterial) {
+
+        material.setParameter("uInstancerMatricesTexture", this.matricesTexture.texture);
+        material.setParameter("uInstancerLocalInstanceMatrix", pc.Mat4.IDENTITY.data);
+
+        material.setDefine("INSTANCER_USE_CROSSFADE", true);
+
+        if (this.colorsTexture) {
+            material.setDefine("INSTANCER_USE_CUSTOM_COLOR", true);
+            material.setDefine("INSTANCER_USE_CUSTOM_OPACITY", this._useOpacity);
+            material.setParameter("uInstancerColorTexture", this.colorsTexture.texture);
+        }
+        else {
+            material.setDefine("INSTANCER_USE_CUSTOM_COLOR", false);
+            material.setDefine("INSTANCER_USE_CUSTOM_OPACITY", false);
+            material.deleteParameter("uInstancerColorTexture");
+        }
+    }
+
+    protected _setMaterialAttributes(material: pc.StandardMaterial) {
+        material.setAttribute("aInstancerInstance", instancingInstanceSemantic);
+    }
+
     protected _patchMaterial(material: pc.StandardMaterial, shaderChunksScope?: IInstancerShaderChunksScope, updateMaterial: boolean = true) {
 
         // TODO: add WGSL
         const glslChunks = material.getShaderChunks(pc.SHADERLANGUAGE_GLSL);
         const instancerChunks = {
             instancerInstanceVS,
+            instancerInstanceIdVS,
             instancerInstaceCrossFadeVS,
             instancerInstanceMatrixVS,
             instancerInstanceColorVS,
@@ -371,7 +416,7 @@ export class BasicHierarchicalInstancer implements IInstancer {
 
         let originalLitUserStartMainPS = glslChunks.get("litUserMainStartPS") ?? "/**/";
         if (originalLitUserStartMainPS === instancerChunks.instancerMainStartPS) {
-            originalLitUserDeclarationPS = glslChunks.get("instancerUserMainStartPS") ?? "/**/";
+            originalLitUserStartMainPS = glslChunks.get("instancerUserMainStartPS") ?? "/**/";
         }
 
         material.shaderChunksVersion = "2.8";
@@ -390,6 +435,7 @@ export class BasicHierarchicalInstancer implements IInstancer {
 
             // Instancer
             .set("instancerInstanceVS", instancerChunks.instancerInstanceVS)
+            .set("instancerInstanceIdVS", instancerChunks.instancerInstanceIdVS)
             .set("instancerInstanceCrossFadeVS", instancerChunks.instancerInstaceCrossFadeVS)
             .set("instancerInstanceMatrixVS", instancerChunks.instancerInstanceMatrixVS)
             .set("instancerInstanceColorVS", instancerChunks.instancerInstanceColorVS)
@@ -400,25 +446,11 @@ export class BasicHierarchicalInstancer implements IInstancer {
 
             // Instancer user PS
             .set("instancerUserDeclarationPS", originalLitUserDeclarationPS)
-            .set("instancerMainStartPS", originalLitUserDeclarationPS)
+            .set("instancerUserMainStartPS", originalLitUserStartMainPS)
         ;
 
-        material.setAttribute("aInstanceIndex", instancingIndexSemantic);
-        material.setParameter("uMatricesTexture", this.matricesTexture.texture);
-        material.setParameter("local_matrix_instance", pc.Mat4.IDENTITY.data);
-
-        material.setDefine("INSTANCER_USE_CROSSFADE", true);
-
-        if (this.colorsTexture) {
-            material.setDefine("INSTANCER_USE_CUSTOM_COLOR", true);
-            material.setDefine("INSTANCER_USE_CUSTOM_OPACITY", this._useOpacity);
-            material.setParameter("uColorTexture", this.colorsTexture.texture);
-        }
-        else {
-            material.setDefine("INSTANCER_USE_CUSTOM_COLOR", false);
-            material.setDefine("INSTANCER_USE_CUSTOM_OPACITY", false);
-            material.deleteParameter("uColorTexture");
-        }
+        this._setMaterialAttributes(material);
+        this._setMaterialParamsAndDefine(material);
 
         if (updateMaterial) {
             material.update();
