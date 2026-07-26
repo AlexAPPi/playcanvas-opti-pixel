@@ -31,6 +31,11 @@ export interface ILODRender {
     computeMaxMeshBoundingBox(): pc.BoundingBox | null;
 
     /**
+     * Resize instances capacity
+     */
+    resize(newCapacity: number): void;
+
+    /**
      * Starts collecting instances for the next render pass.
      * Clears the internal list of queued objects.
      */

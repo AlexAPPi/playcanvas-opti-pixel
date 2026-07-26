@@ -106,6 +106,10 @@ export class LODRender implements ILODRender {
         return result;
     }
 
+    public resize(newCapacity: number) {
+        this.list.resize(newCapacity);
+    }
+
     public start() {
         this.list.clear();
     }
@@ -142,7 +146,7 @@ export class LODRender implements ILODRender {
                 const meshWorldMatrix = mesh.node.getWorldTransform();
                 const meshLocalMatrix = matrixes[i];
                 meshLocalMatrix.mul2(_tempMat41, meshWorldMatrix);
-                mesh.setParameter("local_matrix_instance", meshLocalMatrix.data);
+                mesh.setParameter("uInstancerLocalInstanceMatrix", meshLocalMatrix.data);
             }
         }
     }
