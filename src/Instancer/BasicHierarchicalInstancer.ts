@@ -58,6 +58,37 @@ export interface IInstancerShaderChunksScope {
     wgsl?: Partial<IInstancerShaderChunks>;
 }
 
+const defaultShaderChunksScope = {
+    glsl: {
+        instancerInstanceVS: GLSLInstancerInstanceVS,
+        instancerInstanceIdVS: GLSLInstancerInstanceIdVS,
+        instancerInstaceCrossFadeVS: GLSLInstancerInstaceCrossFadeVS,
+        instancerInstanceMatrixVS: GLSLInstancerInstanceMatrixVS,
+        instancerInstanceColorVS: GLSLInstancerInstanceColorVS,
+        transformInstancingVS: GLSLTransformInstancingVS,
+        instancerDeclarationVS: GLSLInstancerDeclarationVS,
+        instancerMainEndVS: GLSLInstancerMainEndVS,
+        instancerDeclarationPS: GLSLInstancerDeclarationPS,
+        instancerMainStartPS: GLSLInstancerMainStartPS,
+        instancerDiffusePS: GLSLInstancerDiffusePS,
+        instancerOpacityPS: GLSLInstancerOpacityPS,
+    },
+    wgsl: {
+        instancerInstanceVS: WGSLInstancerInstanceVS,
+        instancerInstanceIdVS: WGSLInstancerInstanceIdVS,
+        instancerInstaceCrossFadeVS: WGSLInstancerInstaceCrossFadeVS,
+        instancerInstanceMatrixVS: WGSLInstancerInstanceMatrixVS,
+        instancerInstanceColorVS: WGSLInstancerInstanceColorVS,
+        transformInstancingVS: WGSLTransformInstancingVS,
+        instancerDeclarationVS: WGSLInstancerDeclarationVS,
+        instancerMainEndVS: WGSLInstancerMainEndVS,
+        instancerDeclarationPS: WGSLInstancerDeclarationPS,
+        instancerMainStartPS: WGSLInstancerMainStartPS,
+        instancerDiffusePS: WGSLInstancerDiffusePS,
+        instancerOpacityPS: WGSLInstancerOpacityPS,
+    }
+};
+
 /**
  * Parameters for configuring an `BasicHierarchicalInstancer` instance.
  */
@@ -454,34 +485,12 @@ export class BasicHierarchicalInstancer implements IInstancer {
         const wgslChunks = material.getShaderChunks(pc.SHADERLANGUAGE_WGSL);
 
         const glslInstancerChunks = {
-            instancerInstanceVS: GLSLInstancerInstanceVS,
-            instancerInstanceIdVS: GLSLInstancerInstanceIdVS,
-            instancerInstaceCrossFadeVS: GLSLInstancerInstaceCrossFadeVS,
-            instancerInstanceMatrixVS: GLSLInstancerInstanceMatrixVS,
-            instancerInstanceColorVS: GLSLInstancerInstanceColorVS,
-            transformInstancingVS: GLSLTransformInstancingVS,
-            instancerDeclarationVS: GLSLInstancerDeclarationVS,
-            instancerMainEndVS: GLSLInstancerMainEndVS,
-            instancerDeclarationPS: GLSLInstancerDeclarationPS,
-            instancerMainStartPS: GLSLInstancerMainStartPS,
-            instancerDiffusePS: GLSLInstancerDiffusePS,
-            instancerOpacityPS: GLSLInstancerOpacityPS,
+            ...defaultShaderChunksScope.glsl,
             ...shaderChunksScope?.glsl,
         };
 
         const wgslInstancerChunks = {
-            instancerInstanceVS: WGSLInstancerInstanceVS,
-            instancerInstanceIdVS: WGSLInstancerInstanceIdVS,
-            instancerInstaceCrossFadeVS: WGSLInstancerInstaceCrossFadeVS,
-            instancerInstanceMatrixVS: WGSLInstancerInstanceMatrixVS,
-            instancerInstanceColorVS: WGSLInstancerInstanceColorVS,
-            transformInstancingVS: WGSLTransformInstancingVS,
-            instancerDeclarationVS: WGSLInstancerDeclarationVS,
-            instancerMainEndVS: WGSLInstancerMainEndVS,
-            instancerDeclarationPS: WGSLInstancerDeclarationPS,
-            instancerMainStartPS: WGSLInstancerMainStartPS,
-            instancerDiffusePS: WGSLInstancerDiffusePS,
-            instancerOpacityPS: WGSLInstancerOpacityPS,
+            ...defaultShaderChunksScope.wgsl,
             ...shaderChunksScope?.wgsl,
         };
 
