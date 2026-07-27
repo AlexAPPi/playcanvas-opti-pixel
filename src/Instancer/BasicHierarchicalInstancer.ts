@@ -1,16 +1,34 @@
-import instancerInstanceVS from "./ShaderChunks/Vert/instance.js";
-import instancerInstanceIdVS from "./ShaderChunks/Vert/instanceId.js";
-import instancerInstaceCrossFadeVS from "./ShaderChunks/Vert/instanceCrossFade.js";
-import instancerInstanceMatrixVS from "./ShaderChunks/Vert/instanceMatrix.js";
-import instancerInstanceColorVS from "./ShaderChunks/Vert/instanceColor.js";
-import transformInstancingVS from "./ShaderChunks/Vert/transformInstancing.js";
-import instancerDeclarationVS from "./ShaderChunks/Vert/instancerDeclaration.js";
-import instancerMainEndVS from "./ShaderChunks/Vert/instancerMainEnd.js";
+// GLSL VS
+import GLSLInstancerInstanceVS from "./ShaderChunks/Vert/GLSL/instance.js";
+import GLSLInstancerInstanceIdVS from "./ShaderChunks/Vert/GLSL/instanceId.js";
+import GLSLInstancerInstaceCrossFadeVS from "./ShaderChunks/Vert/GLSL/instanceCrossFade.js";
+import GLSLInstancerInstanceMatrixVS from "./ShaderChunks/Vert/GLSL/instanceMatrix.js";
+import GLSLInstancerInstanceColorVS from "./ShaderChunks/Vert/GLSL/instanceColor.js";
+import GLSLTransformInstancingVS from "./ShaderChunks/Vert/GLSL/transformInstancing.js";
+import GLSLInstancerDeclarationVS from "./ShaderChunks/Vert/GLSL/instancerDeclaration.js";
+import GLSLInstancerMainEndVS from "./ShaderChunks/Vert/GLSL/instancerMainEnd.js";
 
-import instancerDeclarationPS from "./ShaderChunks/Frag/instancerDeclaration.js";
-import instancerMainStartPS from "./ShaderChunks/Frag/instancerMainStart.js";
-import instancerDiffusePS from "./ShaderChunks/Frag/diffuse.js";
-import instancerOpacityPS from "./ShaderChunks/Frag/opacity.js";
+// WGSL VS
+import WGSLInstancerInstanceVS from "./ShaderChunks/Vert/WGSL/instance.js";
+import WGSLInstancerInstanceIdVS from "./ShaderChunks/Vert/WGSL/instanceId.js";
+import WGSLInstancerInstaceCrossFadeVS from "./ShaderChunks/Vert/WGSL/instanceCrossFade.js";
+import WGSLInstancerInstanceMatrixVS from "./ShaderChunks/Vert/WGSL/instanceMatrix.js";
+import WGSLInstancerInstanceColorVS from "./ShaderChunks/Vert/WGSL/instanceColor.js";
+import WGSLTransformInstancingVS from "./ShaderChunks/Vert/WGSL/transformInstancing.js";
+import WGSLInstancerDeclarationVS from "./ShaderChunks/Vert/WGSL/instancerDeclaration.js";
+import WGSLInstancerMainEndVS from "./ShaderChunks/Vert/WGSL/instancerMainEnd.js";
+
+// GLSL PS
+import GLSLInstancerDeclarationPS from "./ShaderChunks/Frag/GLSL/instancerDeclaration.js";
+import GLSLInstancerMainStartPS from "./ShaderChunks/Frag/GLSL/instancerMainStart.js";
+import GLSLInstancerDiffusePS from "./ShaderChunks/Frag/GLSL/diffuse.js";
+import GLSLInstancerOpacityPS from "./ShaderChunks/Frag/GLSL/opacity.js";
+
+// WGSL PS
+import WGSLInstancerDeclarationPS from "./ShaderChunks/Frag/WGSL/instancerDeclaration.js";
+import WGSLInstancerMainStartPS from "./ShaderChunks/Frag/WGSL/instancerMainStart.js";
+import WGSLInstancerDiffusePS from "./ShaderChunks/Frag/WGSL/diffuse.js";
+import WGSLInstancerOpacityPS from "./ShaderChunks/Frag/WGSL/opacity.js";
 
 import pc from "../engine.js";
 import { SquareDataTexture } from "../Extras/SquareDataTexture.js";
@@ -375,70 +393,50 @@ export class BasicHierarchicalInstancer implements IInstancer {
         material.setAttribute("aInstancerInstance", instancingInstanceSemantic);
     }
 
-    protected _patchMaterial(material: pc.StandardMaterial, shaderChunksScope?: IInstancerShaderChunksScope, updateMaterial: boolean = true) {
-
-        // TODO: add WGSL
-        const glslChunks = material.getShaderChunks(pc.SHADERLANGUAGE_GLSL);
-        const instancerChunks = {
-            instancerInstanceVS,
-            instancerInstanceIdVS,
-            instancerInstaceCrossFadeVS,
-            instancerInstanceMatrixVS,
-            instancerInstanceColorVS,
-            transformInstancingVS,
-            instancerDeclarationVS,
-            instancerMainEndVS,
-            instancerDeclarationPS,
-            instancerMainStartPS,
-            instancerDiffusePS,
-            instancerOpacityPS,
-            ...shaderChunksScope?.glsl,
-        };
+    protected _replaceMaterialShaderChunks(shaderChunkMap: ReturnType<pc.Material["getShaderChunks"]>, chunks: IInstancerShaderChunks) {
 
         // Restore original user shader chunk code
 
         // VS
-        let originalLitUserDeclarationVS = glslChunks.get("litUserDeclarationVS") ?? "/**/";
-        if (originalLitUserDeclarationVS === instancerChunks.instancerDeclarationVS) {
-            originalLitUserDeclarationVS = glslChunks.get("instancerUserDeclarationVS") ?? "/**/";
+        let originalLitUserDeclarationVS = shaderChunkMap.get("litUserDeclarationVS") ?? "/**/";
+        if (originalLitUserDeclarationVS === chunks.instancerDeclarationVS) {
+            originalLitUserDeclarationVS = shaderChunkMap.get("instancerUserDeclarationVS") ?? "/**/";
         }
 
-        let originalLitUserMainEndVS = glslChunks.get("litUserMainEndVS") ?? "/**/";
-        if (originalLitUserMainEndVS === instancerChunks.instancerMainEndVS) {
-            originalLitUserMainEndVS = glslChunks.get("instancerUserMainEndVS") ?? "/**/";
+        let originalLitUserMainEndVS = shaderChunkMap.get("litUserMainEndVS") ?? "/**/";
+        if (originalLitUserMainEndVS === chunks.instancerMainEndVS) {
+            originalLitUserMainEndVS = shaderChunkMap.get("instancerUserMainEndVS") ?? "/**/";
         }
 
         // PS
-        let originalLitUserDeclarationPS = glslChunks.get("litUserDeclarationPS") ?? "/**/";
-        if (originalLitUserDeclarationPS === instancerChunks.instancerDeclarationPS) {
-            originalLitUserDeclarationPS = glslChunks.get("instancerUserDeclarationPS") ?? "/**/";
+        let originalLitUserDeclarationPS = shaderChunkMap.get("litUserDeclarationPS") ?? "/**/";
+        if (originalLitUserDeclarationPS === chunks.instancerDeclarationPS) {
+            originalLitUserDeclarationPS = shaderChunkMap.get("instancerUserDeclarationPS") ?? "/**/";
         }
 
-        let originalLitUserStartMainPS = glslChunks.get("litUserMainStartPS") ?? "/**/";
-        if (originalLitUserStartMainPS === instancerChunks.instancerMainStartPS) {
-            originalLitUserStartMainPS = glslChunks.get("instancerUserMainStartPS") ?? "/**/";
+        let originalLitUserStartMainPS = shaderChunkMap.get("litUserMainStartPS") ?? "/**/";
+        if (originalLitUserStartMainPS === chunks.instancerMainStartPS) {
+            originalLitUserStartMainPS = shaderChunkMap.get("instancerUserMainStartPS") ?? "/**/";
         }
 
-        material.shaderChunksVersion = "2.8";
-
-        glslChunks
+        shaderChunkMap
             // Lit shader VS
-            .set("transformInstancingVS", instancerChunks.transformInstancingVS)
-            .set("litUserDeclarationVS", instancerChunks.instancerDeclarationVS)
-            .set("litUserMainEndVS", instancerChunks.instancerMainEndVS)
+            .set("transformInstancingVS", chunks.transformInstancingVS)
+            .set("litUserDeclarationVS", chunks.instancerDeclarationVS)
+            .set("litUserMainEndVS", chunks.instancerMainEndVS)
 
             // Lit shader PS
-            .set("litUserDeclarationPS", instancerChunks.instancerDeclarationPS)
-            .set("litUserMainStartPS", instancerChunks.instancerMainStartPS)
-            .set("diffusePS", instancerChunks.instancerDiffusePS)
-            .set("opacityPS", instancerChunks.instancerOpacityPS)
+            .set("litUserDeclarationPS", chunks.instancerDeclarationPS)
+            .set("litUserMainStartPS", chunks.instancerMainStartPS)
+            .set("diffusePS", chunks.instancerDiffusePS)
+            .set("opacityPS", chunks.instancerOpacityPS)
 
             // Instancer
-            .set("instancerInstanceVS", instancerChunks.instancerInstanceVS)
-            .set("instancerInstanceIdVS", instancerChunks.instancerInstanceIdVS)
-            .set("instancerInstanceCrossFadeVS", instancerChunks.instancerInstaceCrossFadeVS)
-            .set("instancerInstanceMatrixVS", instancerChunks.instancerInstanceMatrixVS)
-            .set("instancerInstanceColorVS", instancerChunks.instancerInstanceColorVS)
+            .set("instancerInstanceVS", chunks.instancerInstanceVS)
+            .set("instancerInstanceIdVS", chunks.instancerInstanceIdVS)
+            .set("instancerInstanceCrossFadeVS", chunks.instancerInstaceCrossFadeVS)
+            .set("instancerInstanceMatrixVS", chunks.instancerInstanceMatrixVS)
+            .set("instancerInstanceColorVS", chunks.instancerInstanceColorVS)
 
             // Instancer user VS
             .set("instancerUserDeclarationVS", originalLitUserDeclarationVS)
@@ -448,7 +446,49 @@ export class BasicHierarchicalInstancer implements IInstancer {
             .set("instancerUserDeclarationPS", originalLitUserDeclarationPS)
             .set("instancerUserMainStartPS", originalLitUserStartMainPS)
         ;
+    }
 
+    protected _patchMaterial(material: pc.StandardMaterial, shaderChunksScope?: IInstancerShaderChunksScope, updateMaterial: boolean = true) {
+
+        const glslChunks = material.getShaderChunks(pc.SHADERLANGUAGE_GLSL);
+        const wgslChunks = material.getShaderChunks(pc.SHADERLANGUAGE_WGSL);
+
+        const glslInstancerChunks = {
+            instancerInstanceVS: GLSLInstancerInstanceVS,
+            instancerInstanceIdVS: GLSLInstancerInstanceIdVS,
+            instancerInstaceCrossFadeVS: GLSLInstancerInstaceCrossFadeVS,
+            instancerInstanceMatrixVS: GLSLInstancerInstanceMatrixVS,
+            instancerInstanceColorVS: GLSLInstancerInstanceColorVS,
+            transformInstancingVS: GLSLTransformInstancingVS,
+            instancerDeclarationVS: GLSLInstancerDeclarationVS,
+            instancerMainEndVS: GLSLInstancerMainEndVS,
+            instancerDeclarationPS: GLSLInstancerDeclarationPS,
+            instancerMainStartPS: GLSLInstancerMainStartPS,
+            instancerDiffusePS: GLSLInstancerDiffusePS,
+            instancerOpacityPS: GLSLInstancerOpacityPS,
+            ...shaderChunksScope?.glsl,
+        };
+
+        const wgslInstancerChunks = {
+            instancerInstanceVS: WGSLInstancerInstanceVS,
+            instancerInstanceIdVS: WGSLInstancerInstanceIdVS,
+            instancerInstaceCrossFadeVS: WGSLInstancerInstaceCrossFadeVS,
+            instancerInstanceMatrixVS: WGSLInstancerInstanceMatrixVS,
+            instancerInstanceColorVS: WGSLInstancerInstanceColorVS,
+            transformInstancingVS: WGSLTransformInstancingVS,
+            instancerDeclarationVS: WGSLInstancerDeclarationVS,
+            instancerMainEndVS: WGSLInstancerMainEndVS,
+            instancerDeclarationPS: WGSLInstancerDeclarationPS,
+            instancerMainStartPS: WGSLInstancerMainStartPS,
+            instancerDiffusePS: WGSLInstancerDiffusePS,
+            instancerOpacityPS: WGSLInstancerOpacityPS,
+            ...shaderChunksScope?.wgsl,
+        };
+
+        material.shaderChunksVersion = "2.8";
+
+        this._replaceMaterialShaderChunks(glslChunks, glslInstancerChunks);
+        this._replaceMaterialShaderChunks(wgslChunks, wgslInstancerChunks);
         this._setMaterialAttributes(material);
         this._setMaterialParamsAndDefine(material);
 

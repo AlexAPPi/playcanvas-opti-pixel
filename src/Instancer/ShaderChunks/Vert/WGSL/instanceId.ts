@@ -1,10 +1,10 @@
 export default `
 
-    attribute uint aInstancerInstance;
+    attribute aInstancerInstance: u32;
 
-    uint getInstanceId() {
+    fn getInstanceId() -> u32 {
 
-        #if INSTANCER_USE_CROSSFADE
+        #ifdef INSTANCER_USE_CROSSFADE
             return aInstancerInstance & 0xfffffu;
         #else
             return aInstancerInstance;

@@ -9,7 +9,7 @@ export default `
     void getAlbedo() {
         dAlbedo = material_diffuse.rgb;
 
-        #if INSTANCER_USE_CUSTOM_COLOR
+        #ifdef INSTANCER_USE_CUSTOM_COLOR
         dAlbedo *= vInstancerCutomColor.rgb;
         #endif
 

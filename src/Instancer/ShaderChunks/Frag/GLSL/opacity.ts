@@ -6,12 +6,12 @@ export default `
     void getOpacity() {
         dAlpha = material_opacity;
 
-        #if INSTANCER_USE_CROSSFADE
+        #ifdef INSTANCER_USE_CROSSFADE
         dAlpha *= vInstancerCrossFade;
         #endif
 
-        #if INSTANCER_USE_CUSTOM_COLOR
-            #if INSTANCER_USE_CUSTOM_OPACITY
+        #ifdef INSTANCER_USE_CUSTOM_COLOR
+            #ifdef INSTANCER_USE_CUSTOM_OPACITY
             dAlpha *= vInstancerCutomColor.a;
             #endif
         #endif

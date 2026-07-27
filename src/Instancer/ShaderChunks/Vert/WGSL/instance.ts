@@ -1,22 +1,22 @@
 export default `
 
-    #if INSTANCER_USE_CROSSFADE
-    varying float vInstancerCrossFade;
+    #ifdef INSTANCER_USE_CROSSFADE
+    varying vInstancerCrossFade: f32;
     #endif
 
-    #if INSTANCER_USE_CUSTOM_COLOR
-    varying vec4 vInstancerCutomColor;
+    #ifdef INSTANCER_USE_CUSTOM_COLOR
+    varying vInstancerCutomColor: vec4f;
     #endif
 
-    #if INSTANCING
+    #ifdef INSTANCING
 
         #include "instancerInstanceIdVS"
 
-        #if INSTANCER_USE_CROSSFADE
+        #ifdef INSTANCER_USE_CROSSFADE
         #include "instancerInstanceCrossFadeVS"
         #endif
 
-        #if INSTANCER_USE_CUSTOM_COLOR
+        #ifdef INSTANCER_USE_CUSTOM_COLOR
         #include "instancerInstanceColorVS"
         #endif
 
