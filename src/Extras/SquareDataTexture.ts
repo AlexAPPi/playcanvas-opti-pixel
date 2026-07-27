@@ -93,6 +93,7 @@ export class SquareDataTexture<TArray extends TypedArrayType> {
     protected _pixelFormat: number | undefined;
     protected _defaultPixelValue: number | undefined;
     protected _rowToUpdate: boolean[];
+    protected _rowsUpdateCount: number;
 
     public get pixelsPerInstance() { return this._pixelsPerInstance; }
     public get channels() { return this._channels; }
@@ -147,6 +148,7 @@ export class SquareDataTexture<TArray extends TypedArrayType> {
             this._data = newData;
             this._rowToUpdate.length = size;
             this._rowToUpdate.fill(false);
+            this._rowsUpdateCount = 0;
 
             // Workaround for resize texture
             this._texture._levels[0] = newData;
@@ -169,7 +171,8 @@ export class SquareDataTexture<TArray extends TypedArrayType> {
             }
 
             this._data = array;
-            this._rowToUpdate = new Array(size);
+            this._rowToUpdate = new Array(size).fill(false);
+            this._rowsUpdateCount = 0;
             this._texture = new pc.Texture(this._device, {
                 name: name,
                 width: size,
@@ -208,7 +211,12 @@ export class SquareDataTexture<TArray extends TypedArrayType> {
 
         const elementsPerRow = this._texture.width / this._pixelsPerInstance;
         const rowIndex = Math.floor(index / elementsPerRow);
+        const prevUpdateStatus = this._rowToUpdate[rowIndex];
         this._rowToUpdate[rowIndex] = true;
+
+        if (!prevUpdateStatus) {
+            this._rowsUpdateCount++;
+        }
     }
 
     /**
@@ -321,6 +329,7 @@ export class SquareDataTexture<TArray extends TypedArrayType> {
 
     public upload() {
         this._rowToUpdate.fill(false);
+        this._rowsUpdateCount = 0;
         this._texture.upload();
     }
 
@@ -328,6 +337,10 @@ export class SquareDataTexture<TArray extends TypedArrayType> {
      * Upload updated data to GPU
      */
     public update(): void {
+
+        if (this._rowsUpdateCount < 1) {
+            return;
+        }
 
         const rowsInfo = this._getUpdateRowsInfo();
 
@@ -343,5 +356,6 @@ export class SquareDataTexture<TArray extends TypedArrayType> {
 
         this._updateRows(rowsInfo);
         this._rowToUpdate.fill(false);
+        this._rowsUpdateCount = 0;
     }
 }
