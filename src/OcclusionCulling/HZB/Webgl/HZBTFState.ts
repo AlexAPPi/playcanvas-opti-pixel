@@ -8,21 +8,17 @@ export const FLAG_OK = 1;
 
 export class HZBTFState {
 
-    private _lock: boolean;
-
     public data: Uint32Array;
     public flags: Uint8Array;
 
     public indexQueue: GPUIndexQueue;
     public outputBuffer: WebglReadbackBuffer<Uint32Array<ArrayBuffer>>;
 
-    public get lock() { return this._lock; }
     public get count() { return this.indexQueue.count; }
 
     constructor(device: pc.WebglGraphicsDevice, indexManager: IndexManager) {
         this.indexQueue = new GPUIndexQueue(device, indexManager, false, 0);
         this.resize();
-        this._lock = false;
     }
 
     public resize() {
@@ -58,17 +54,12 @@ export class HZBTFState {
     }
 
     public clear() {
-        this.abortRead();
+        this.outputBuffer.abortRead();
         this.indexQueue.clear();
         this.flags.fill(0);
     }
 
     public enqueue(index: number, extra?: number | number[]): number {
-
-        if (this._lock) {
-            return -1;
-        }
-
         return this.indexQueue.enqueue(index, extra);
     }
 
@@ -94,11 +85,6 @@ export class HZBTFState {
         return OCCLUSION_VISIBLE;
     }
 
-    public abortRead() {
-        this.outputBuffer.abortRead();
-        this._lock = false;
-    }
-
     public beforeFill(): void {
 
         this.indexQueue.update();
@@ -107,36 +93,21 @@ export class HZBTFState {
         this.outputBuffer.clear();
     }
 
-    public beginRead(): void {
-
-        if (this._lock) {
-            throw new Error("Reading started earlier");
-        }
-
-        const targetResultCount = Math.min(this.indexQueue.count, this.data.length);
-
-        // Skip empty read
-        if (targetResultCount > 0) {
-            this.outputBuffer.beginRead(targetResultCount);
-            this._lock = true;
-        }
+    public abortRead(): void {
+        this.outputBuffer.abortRead();
     }
 
-    public frameUpdate(): number {
+    public beginRead(): void {
+        const targetResultCount = Math.min(this.indexQueue.count, this.data.length);
+        this.outputBuffer.beginRead(targetResultCount);
+    }
 
-        if (this._lock) {
+    public zeroSync(): number {
+        return this.outputBuffer.zeroSync();
+    }
 
-            const resultCount = this.outputBuffer.checkRead();
-
-            if (resultCount !== -1) {
-
-                this._lock = false;
-                this._fillFromBuffer(resultCount);
-
-                return resultCount;
-            }
-        }
-
-        return -1;
+    public read() {
+        const resultCount = this.outputBuffer.read();
+        this._fillFromBuffer(resultCount);
     }
 }

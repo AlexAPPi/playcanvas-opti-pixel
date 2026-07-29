@@ -10,9 +10,7 @@ import { IndexQueue } from "./Extras/IndexQueue.js";
 import { IndexQueueEx } from "./Extras/IndexQueueEx.js";
 import { NumberQueue } from "./Extras/NumberQueue.js";
 import { Random } from "./Extras/Random.js";
-import { ReadbackQueue } from "./Extras/ReadbackQueue.js";
 import { getPixelFormatByArrayType, getSquareTextureSize, SquareDataTexture } from "./Extras/SquareDataTexture.js";
-import { WebglReadbackBuffer } from "./Extras/WebglReadbackBuffer.js";
 import { HierarchicalInstancer } from "./Instancer/HierarchicalInstancer.js";
 import { HierarchicalZBufferDebugger } from "./OcclusionCulling/HZB/HierarchicalZBufferDebugger.js";
 import { IHierarchicalZBufferTester } from "./OcclusionCulling/HZB/IHierarchicalZBufferTester.js";
@@ -71,8 +69,6 @@ export {
     IndexQueueEx,
     NumberQueue,
     Random,
-    ReadbackQueue,
-    WebglReadbackBuffer,
 
     SquareDataTexture,
     getSquareTextureSize,

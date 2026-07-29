@@ -214,22 +214,15 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
                 vertexBuffer,
                 outputBuffer
             );
-        }
 
-        return state;
+            state.beginRead();
+        }
     }
 
     public execute(camera: pc.Camera) {
-
         if (this.hzb.enabled) {
-
             this._aabbStore.update();
-
-            const state = this._internalTest(camera);
-
-            if (state) {
-                state.beginRead();
-            }
+            this._internalTest(camera);
         }
     }
 

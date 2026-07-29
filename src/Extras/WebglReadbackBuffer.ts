@@ -4,12 +4,9 @@ export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer>> ext
 
     public declare device: pc.WebglGraphicsDevice;
     public readonly storageData: TData;
-    public get version() { return this._version; }
 
-    private _version: number = 0;
     private _lengthFactor: number = 1;
     private _itemByteSize: number = 1;
-    private _syncVersion: number = -1;
     private _syncObject: WebGLSync | null = null;
     private _beginReadLength: number = 0;
 
@@ -44,12 +41,24 @@ export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer>> ext
         this.storageData = data;
 
         this._handleOnDeviceDestroy = this.device.on("destroy", this.destroy, this);
-        this._handleOnDeviceContextLost = this.device.on("contextlost", this.abortRead, this);
+        this._handleOnDeviceContextLost = this.device.on("contextlost", this._onContextLost, this);
     }
 
-    public abortRead() {
+    protected _onContextLost() {
+        this.deleteBuf();
+        this.deleteSync();
+    }
 
-        this._version++;
+    public deleteBuf() {
+        let bufferId = this.impl.bufferId;
+        if (bufferId) {
+            this.impl.bufferId = undefined;
+            const gl = this.device.gl;
+            gl?.deleteBuffer(bufferId);
+        }
+    }
+
+    public deleteSync() {
 
         // dispose
         if (this._syncObject) {
@@ -62,12 +71,18 @@ export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer>> ext
         }
     }
 
+    public abortRead() {
+        this.deleteBuf();
+        this.deleteSync();
+    }
+
     public destroy() {
 
         this._handleOnDeviceDestroy?.off();
         this._handleOnDeviceContextLost?.off();
 
-        this.abortRead();
+        this.deleteSync();
+        this.deleteBuf();
         super.destroy();
     }
 
@@ -93,6 +108,10 @@ export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer>> ext
         gl.getBufferSubData(gl.ARRAY_BUFFER, 0, this.storageData, 0, safeGetLength);
         gl.bindBuffer(gl.ARRAY_BUFFER, null);
 
+        // Delete buffer
+        this.impl.bufferId = null;
+        gl.deleteBuffer(bufferId);
+
         return safeLength;
     }
 
@@ -102,49 +121,38 @@ export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer>> ext
             throw new Error("Reading started earlier");
         }
 
-        this.abortRead();
         this._beginReadLength = length;
 
         // Skip empty read
         if (length > 0) {
-
-            const sync = this._fenceSync();
-            this._syncVersion = this._version;
-            this._syncObject  = sync;
+            this._syncObject = this._fenceSync();
         }
     }
 
-    public checkRead(): number {
+    public zeroSync(): number {
 
-        if (this._syncObject &&
-            this._syncVersion === this._version) {
-
-            const gl = this.device.gl;
-            const res = gl.clientWaitSync(this._syncObject, 0, 0);
-
-            // result ready
-            if (res !== gl.TIMEOUT_EXPIRED) {
-
-                // dispose
-                gl.deleteSync(this._syncObject);
-                this._syncObject = null;
-
-                // failed read
-                if (res === gl.WAIT_FAILED) {
-                    return 0;
-                }
-
-                return this._readBuffer(this._beginReadLength);   
-            }
+        if (!this._syncObject) {
+            throw new Error("Reading not started");
         }
+
+        const gl = this.device.gl;
+        const res = gl.clientWaitSync(this._syncObject, 0, 0);
+
+        if (res === gl.WAIT_FAILED) {
+            this.deleteSync();
+        }
+
+        return res;
+    }
+
+    public read() {
 
         // If empty read
-        if (this._beginReadLength < 1) {
-
-            return 0;
+        if (this._beginReadLength > 0) {
+            return this._readBuffer(this._beginReadLength);
         }
 
-        return -1;
+        return 0;
     }
 
     public clear(): void {
