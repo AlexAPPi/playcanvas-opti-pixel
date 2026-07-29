@@ -140,7 +140,7 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
             }
         });
 
-        const gl = (this._hzb.device as pc.WebglGraphicsDevice).gl;
+        const gl = this._hzb.device.gl;
         const glProgram = this._shader.impl.glProgram;
 
         gl.transformFeedbackVaryings(glProgram, ["out_flags"], gl.INTERLEAVED_ATTRIBS);
