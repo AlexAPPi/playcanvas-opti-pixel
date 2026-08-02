@@ -136,7 +136,7 @@ export class HZBTStateQueue {
         this.shrinkFreePool(this._targetFree);
     }
 
-    public frameUpdate() {
+    public frameUpdate(dt: number) {
 
         const gl = this.device.gl;
         const freeReaders = this._freeReaders;
@@ -155,6 +155,7 @@ export class HZBTStateQueue {
             }
 
             if (res === gl.WAIT_FAILED) {
+                item.abortRead();
                 usedReaders.splice(itemIndex, 1);
                 freeReaders.push(item);
                 itemIndex--;

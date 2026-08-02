@@ -161,8 +161,8 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
         this._queue?.resize();
     }
 
-    public frameUpdate() {
-        this._queue.frameUpdate();
+    public frameUpdate(dt: number) {
+        this._queue.frameUpdate(dt);
     }
 
     public enqueue(index: number, extra?: number | number[] | undefined) {
@@ -220,7 +220,7 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
     }
 
     public execute(camera: pc.Camera) {
-        if (this.hzb.enabled) {
+        if (this.hzb.enabled && !this.hzb.resizePending) {
             this._aabbStore.update();
             this._internalTest(camera);
         }

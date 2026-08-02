@@ -15,6 +15,7 @@ export class HZBTFState {
     public outputBuffer: WebglReadbackBuffer<Uint32Array<ArrayBuffer>>;
 
     public get count() { return this.indexQueue.count; }
+    public get beginReadTime() { return this.outputBuffer.beginReadTime; }
 
     constructor(device: pc.WebglGraphicsDevice, indexManager: IndexManager) {
         this.indexQueue = new GPUIndexQueue(device, indexManager, false, 0);

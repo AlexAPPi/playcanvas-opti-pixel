@@ -22,6 +22,7 @@ export class OcclusionCullingSystem extends pc.EventHandler {
     private _autoUpdate: boolean = false;
     private _drawHZB: boolean = false;
 
+    private _hzbQueryLayerName: string = "";
     private _hzb: WebglHierarchicalZBuffer | WebgpuHierarchicalZBuffer | null = null;
     private _hzbTester: WebglHZBCPUFBTester | WebgpuHZBTester | null = null;
     private _hzbDebugger: HierarchicalZBufferDebugger | null = null;
@@ -38,6 +39,8 @@ export class OcclusionCullingSystem extends pc.EventHandler {
     public get hzb(): IHierarchicalZBuffer | null { return this._hzb; }
     public get hzbTester() { return this._hzbTester; }
     public get hzbDebugger() { return this._hzbDebugger; }
+    public get hzbQueryLayerName() { return this._hzbQueryLayerName; }
+    public set hzbQueryLayerName(name: string) { this._hzbQueryLayerName = name; }
 
     public get drawHZB() { return this._drawHZB; }
     public set drawHZB(value: boolean) { this._drawHZB = value; }
@@ -97,10 +100,16 @@ export class OcclusionCullingSystem extends pc.EventHandler {
         }
     }
 
-    private _resizeHZB() {
+    private _resizeHZB(byEvent: boolean = false) {
 
         if (this._hzb) {
-            this._hzb?.resize();
+
+            if (this._hzb instanceof WebglHierarchicalZBuffer && byEvent) {
+                this._hzb.resizeWithDelay();
+            }
+            else {
+                this._hzb.resize();
+            }
 
             if (this._hzbTester) {
                 this._hzbTester.hzb = this._hzb;
@@ -123,23 +132,22 @@ export class OcclusionCullingSystem extends pc.EventHandler {
         }
     }
 
-    private _onFrameUpdate(ms: number) {
+    private _onFrameUpdate(dt: number) {
 
         if (this.drawHZB) {
             this._hzbDebugger?.debug(this.hzbDebugger?.hzb.mipLevels);
         }
 
-        this._hzbTester?.frameUpdate();
-        this._queriesTester?.frameUpdate();
+        this._hzbTester?.frameUpdate(dt);
+        this._queriesTester?.frameUpdate(dt);
     }
 
-    private _updateHZBAndHandleReadbackTester() {
+    private _updateHzbAndHandleReadbackTester() {
 
         if (this._autoUpdate && this._camera) {
 
-            if (this._hzb) {
-                this._hzb.update(this._camera);
-            }
+            // Build HZB for the current frame
+            this._hzb?.update(this._camera);
 
             if (isGPU2CPUReadbackOcclusionCullingTester(this._hzbTester)) {
                 this._hzbTester.execute(this._camera);
@@ -148,21 +156,22 @@ export class OcclusionCullingSystem extends pc.EventHandler {
     }
 
     private _onFrameEnd() {
-        this._updateHZBAndHandleReadbackTester();
+        this._updateHzbAndHandleReadbackTester();
     }
 
     private _onResizeCanvas() {
-        this._resizeHZB();
+        this._resizeHZB(true);
     }
 
     private _onPostRenderLayer(renderCameraComponent: pc.CameraComponent, layer: pc.Layer, transperent: boolean) {
 
         // Test not in transperent layer
-        if (!transperent &&
-            this._autoUpdate &&
-            this._camera === renderCameraComponent.camera && 
-            this._queriesLayerName === layer.name) {
-            this._queriesTester?.execute(this._camera);
+        if (!transperent && this._autoUpdate && this._camera === renderCameraComponent.camera) {
+
+            // Test occlusion queries for the current frame
+            if (this._queriesLayerName === layer.name) {
+                this._queriesTester?.execute(this._camera);
+            }
         }
     }
 

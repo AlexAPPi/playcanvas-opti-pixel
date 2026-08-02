@@ -7,6 +7,8 @@ import { getCameraDepthTexture } from "../../../Extras/CameraHelpers.js";
 export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
 
     private _enabled: boolean;
+    private _resizePending: boolean;
+    private _resizeTimeout: number | null;
     private _device: pc.WebglGraphicsDevice;
     private _copyShader: pc.Shader;
     private _shader: pc.Shader;
@@ -64,6 +66,10 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         this.resize(this.screenWidth, this.screenHeight, this._maxSize);
     }
 
+    public get resizePending() {
+        return this._resizePending;
+    }
+
     public get uvFactor(): [number, number] {
         return [this._uvFactorX, this._uvFactorY];
     }
@@ -76,6 +82,8 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
      */
     constructor(device: pc.WebglGraphicsDevice, maxSize: number = 256) {
         this._enabled = true;
+        this._resizePending = false;
+        this._resizeTimeout = null;
         this._device = device;
         this._maxSize = maxSize;
         this._dispatchThreadIdToBufferUVScope = this._device.scope.resolve("uDispatchThreadIdToBufferUV");
@@ -97,6 +105,19 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
 
     public isColor() {
         return true;
+    }
+
+    public resizeWithDelay(delay: number = 300) {
+
+        if (this._resizeTimeout) {
+            clearTimeout(this._resizeTimeout);
+        }
+
+        this._resizePending = true;
+        this._resizeTimeout = setTimeout(() => {
+            this.resize();
+            this._resizePending = false;
+        }, delay);
     }
 
     public resize(width: number = this.screenWidth, height: number = this.screenHeight, maxSize: number = this.maxSize) {
@@ -319,6 +340,12 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
     }
 
     protected _dispose() {
+
+        if (this._resizeTimeout) {
+            clearTimeout(this._resizeTimeout);
+            this._resizeTimeout = null;
+        }
+
         this._quadRenderPasses?.forEach(x => x?.destroy());
         this._renderTargets?.forEach(x => x?.destroy());
         this._buffers?.forEach(x => x?.destroy());

@@ -9,10 +9,13 @@ export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer>> ext
     private _itemByteSize: number = 1;
     private _syncObject: WebGLSync | null = null;
     private _beginReadLength: number = 0;
+    private _beginReadTime: number = 0;
 
     private _handleOnDeviceDestroy: pc.EventHandle;
     private _handleOnDeviceContextLost: pc.EventHandle;
 
+    public get beginReadTime() { return this._beginReadTime; }
+    
     constructor(device: pc.WebglGraphicsDevice, capacity: number, itemByteSize: number = 4, arrayOrConstructor: TData | ArrayConstructorOf<TData>) {
 
         const data = tryCreateStorage(arrayOrConstructor, capacity, itemByteSize);
@@ -122,6 +125,7 @@ export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer>> ext
         }
 
         this._beginReadLength = length;
+        this._beginReadTime = performance.now();
 
         // Skip empty read
         if (length > 0) {
@@ -156,6 +160,9 @@ export class WebglReadbackBuffer<TData extends ArrayBufferView<ArrayBuffer>> ext
     }
 
     public clear(): void {
+
+        this.deleteSync();
+        this.deleteBuf();
 
         const gl = this.device.gl;
         const byteSize = this.storage.byteLength;

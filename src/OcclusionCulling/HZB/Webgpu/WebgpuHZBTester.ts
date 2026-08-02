@@ -167,7 +167,7 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
         this._updateShader(defines, includes);
     }
 
-    public frameUpdate(): void {
+    public frameUpdate(dt: number): void {
         this._indirectQueue.clear();
         this._indirectDataStore.reset();
     }

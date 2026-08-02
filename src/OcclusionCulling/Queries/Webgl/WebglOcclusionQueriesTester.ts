@@ -39,7 +39,7 @@ export class WebglOcclusionQueriesTester implements IGPU2CPUReadbackOcclusionCul
     public resize() {
     }
 
-    public frameUpdate() {
+    public frameUpdate(dt: number) {
 
         if (this._tmpFrame) {
             console.warn('The test for the previous frame was not run, a reset was performed');

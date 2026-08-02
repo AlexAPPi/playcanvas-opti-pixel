@@ -23,7 +23,7 @@ export interface IHierarchicalZBufferTester extends IOcclusionCullingTester {
 
     hzb: IHierarchicalZBuffer;
 
-    frameUpdate(): void;
+    frameUpdate(dt: number): void;
 
     getDebugInfo(index: number): IDebugInfo;
 }
