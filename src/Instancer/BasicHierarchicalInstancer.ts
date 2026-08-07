@@ -1,35 +1,3 @@
-// GLSL VS
-import GLSLInstancerInstanceVS from "./ShaderChunks/Vert/GLSL/instance.js";
-import GLSLInstancerInstanceIdVS from "./ShaderChunks/Vert/GLSL/instanceId.js";
-import GLSLInstancerInstaceCrossFadeVS from "./ShaderChunks/Vert/GLSL/instanceCrossFade.js";
-import GLSLInstancerInstanceMatrixVS from "./ShaderChunks/Vert/GLSL/instanceMatrix.js";
-import GLSLInstancerInstanceColorVS from "./ShaderChunks/Vert/GLSL/instanceColor.js";
-import GLSLTransformInstancingVS from "./ShaderChunks/Vert/GLSL/transformInstancing.js";
-import GLSLInstancerDeclarationVS from "./ShaderChunks/Vert/GLSL/instancerDeclaration.js";
-import GLSLInstancerMainEndVS from "./ShaderChunks/Vert/GLSL/instancerMainEnd.js";
-
-// WGSL VS
-import WGSLInstancerInstanceVS from "./ShaderChunks/Vert/WGSL/instance.js";
-import WGSLInstancerInstanceIdVS from "./ShaderChunks/Vert/WGSL/instanceId.js";
-import WGSLInstancerInstaceCrossFadeVS from "./ShaderChunks/Vert/WGSL/instanceCrossFade.js";
-import WGSLInstancerInstanceMatrixVS from "./ShaderChunks/Vert/WGSL/instanceMatrix.js";
-import WGSLInstancerInstanceColorVS from "./ShaderChunks/Vert/WGSL/instanceColor.js";
-import WGSLTransformInstancingVS from "./ShaderChunks/Vert/WGSL/transformInstancing.js";
-import WGSLInstancerDeclarationVS from "./ShaderChunks/Vert/WGSL/instancerDeclaration.js";
-import WGSLInstancerMainEndVS from "./ShaderChunks/Vert/WGSL/instancerMainEnd.js";
-
-// GLSL PS
-import GLSLInstancerDeclarationPS from "./ShaderChunks/Frag/GLSL/instancerDeclaration.js";
-import GLSLInstancerMainStartPS from "./ShaderChunks/Frag/GLSL/instancerMainStart.js";
-import GLSLInstancerDiffusePS from "./ShaderChunks/Frag/GLSL/diffuse.js";
-import GLSLInstancerOpacityPS from "./ShaderChunks/Frag/GLSL/opacity.js";
-
-// WGSL PS
-import WGSLInstancerDeclarationPS from "./ShaderChunks/Frag/WGSL/instancerDeclaration.js";
-import WGSLInstancerMainStartPS from "./ShaderChunks/Frag/WGSL/instancerMainStart.js";
-import WGSLInstancerDiffusePS from "./ShaderChunks/Frag/WGSL/diffuse.js";
-import WGSLInstancerOpacityPS from "./ShaderChunks/Frag/WGSL/opacity.js";
-
 import pc from "../engine.js";
 import { SquareDataTexture } from "../Extras/SquareDataTexture.js";
 import { IInstancer } from "./IInstancer.js";
@@ -37,57 +5,7 @@ import { ILODLevel } from "./ILODLevel.js";
 import { GPUInstancedList, instancingIndexSemantic as instancingInstanceSemantic } from "./InstancedList.js";
 import { LODRender } from "./LODRender.js";
 import { ILODRender } from "./ILODRender.js";
-
-export interface IInstancerShaderChunks {
-    instancerInstanceVS: string;
-    instancerInstanceIdVS: string;
-    instancerInstaceCrossFadeVS: string;
-    instancerInstanceMatrixVS: string;
-    instancerInstanceColorVS: string;
-    transformInstancingVS: string;
-    instancerDeclarationVS: string;
-    instancerMainEndVS: string;
-    instancerDeclarationPS: string;
-    instancerMainStartPS: string;
-    instancerDiffusePS: string;
-    instancerOpacityPS: string;
-}
-
-export interface IInstancerShaderChunksScope {
-    glsl?: Partial<IInstancerShaderChunks>;
-    wgsl?: Partial<IInstancerShaderChunks>;
-}
-
-const defaultShaderChunksScope = {
-    glsl: {
-        instancerInstanceVS: GLSLInstancerInstanceVS,
-        instancerInstanceIdVS: GLSLInstancerInstanceIdVS,
-        instancerInstaceCrossFadeVS: GLSLInstancerInstaceCrossFadeVS,
-        instancerInstanceMatrixVS: GLSLInstancerInstanceMatrixVS,
-        instancerInstanceColorVS: GLSLInstancerInstanceColorVS,
-        transformInstancingVS: GLSLTransformInstancingVS,
-        instancerDeclarationVS: GLSLInstancerDeclarationVS,
-        instancerMainEndVS: GLSLInstancerMainEndVS,
-        instancerDeclarationPS: GLSLInstancerDeclarationPS,
-        instancerMainStartPS: GLSLInstancerMainStartPS,
-        instancerDiffusePS: GLSLInstancerDiffusePS,
-        instancerOpacityPS: GLSLInstancerOpacityPS,
-    },
-    wgsl: {
-        instancerInstanceVS: WGSLInstancerInstanceVS,
-        instancerInstanceIdVS: WGSLInstancerInstanceIdVS,
-        instancerInstaceCrossFadeVS: WGSLInstancerInstaceCrossFadeVS,
-        instancerInstanceMatrixVS: WGSLInstancerInstanceMatrixVS,
-        instancerInstanceColorVS: WGSLInstancerInstanceColorVS,
-        transformInstancingVS: WGSLTransformInstancingVS,
-        instancerDeclarationVS: WGSLInstancerDeclarationVS,
-        instancerMainEndVS: WGSLInstancerMainEndVS,
-        instancerDeclarationPS: WGSLInstancerDeclarationPS,
-        instancerMainStartPS: WGSLInstancerMainStartPS,
-        instancerDiffusePS: WGSLInstancerDiffusePS,
-        instancerOpacityPS: WGSLInstancerOpacityPS,
-    }
-};
+import { defaultShaderChunksMapScope, IInstancerShaderChunkMap, IInstancerShaderChunkMapScope } from "./InstancerShaderChunks.js";
 
 /**
  * Parameters for configuring an `BasicHierarchicalInstancer` instance.
@@ -424,7 +342,7 @@ export class BasicHierarchicalInstancer implements IInstancer {
         material.setAttribute("aInstancerInstance", instancingInstanceSemantic);
     }
 
-    protected _replaceMaterialShaderChunks(shaderChunkMap: ReturnType<pc.Material["getShaderChunks"]>, chunks: IInstancerShaderChunks) {
+    protected _replaceMaterialShaderChunks(shaderChunkMap: ReturnType<pc.Material["getShaderChunks"]>, chunks: IInstancerShaderChunkMap) {
 
         // Restore original user shader chunk code
 
@@ -479,19 +397,19 @@ export class BasicHierarchicalInstancer implements IInstancer {
         ;
     }
 
-    protected _patchMaterial(material: pc.StandardMaterial, shaderChunksScope?: IInstancerShaderChunksScope, updateMaterial: boolean = true) {
+    protected _patchMaterial(material: pc.StandardMaterial, shaderChunkMapScope?: IInstancerShaderChunkMapScope, updateMaterial: boolean = true) {
 
         const glslChunks = material.getShaderChunks(pc.SHADERLANGUAGE_GLSL);
         const wgslChunks = material.getShaderChunks(pc.SHADERLANGUAGE_WGSL);
 
         const glslInstancerChunks = {
-            ...defaultShaderChunksScope.glsl,
-            ...shaderChunksScope?.glsl,
+            ...defaultShaderChunksMapScope.glsl,
+            ...shaderChunkMapScope?.glsl,
         };
 
         const wgslInstancerChunks = {
-            ...defaultShaderChunksScope.wgsl,
-            ...shaderChunksScope?.wgsl,
+            ...defaultShaderChunksMapScope.wgsl,
+            ...shaderChunkMapScope?.wgsl,
         };
 
         material.shaderChunksVersion = "2.8";
