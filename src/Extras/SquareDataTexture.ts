@@ -45,14 +45,15 @@ export function getSquareTextureInfo<TConstructor extends TypedArrayConstructorT
     arrayType: TConstructor,
     channels: TChannelSize,
     pixelsPerInstance: number,
-    capacity: number
+    capacity: number,
+    layers: number = 1
 ): {
     size: number,
     array: InstanceType<TConstructor>,
     pixelFormat: ReturnType<typeof getPixelFormatByArrayType>
 } {
     const size = getSquareTextureSize(capacity, pixelsPerInstance);
-    const array = new arrayType(size * size * channels) as unknown as InstanceType<TConstructor>;
+    const array = new arrayType(size * size * channels * layers) as unknown as InstanceType<TConstructor>;
     const pixelFormat = getPixelFormatByArrayType(arrayType, channels);
 
     return { array, size, pixelFormat };
@@ -232,12 +233,13 @@ export class SquareDataTexture<TArray extends TypedArrayType> {
         this.enqueueUpdate(index);
 
         const dataIndex = index * this._stride;
+        const data = this._data;
 
         let inIndex = offset;
         let tmpIndex = dataIndex;
 
         for (; inIndex < this._stride;) {
-            this._data[tmpIndex++] = inData[inIndex++];
+            data[tmpIndex++] = inData[inIndex++];
         }
     }
 
@@ -343,18 +345,19 @@ export class SquareDataTexture<TArray extends TypedArrayType> {
         }
 
         const rowsInfo = this._getUpdateRowsInfo();
+        const numRowsUpdated = rowsInfo.length;
 
-        if (rowsInfo.length === 0) {
+        if (numRowsUpdated < 1) {
             return;
         }
 
-        if (!this.partialUpdate ||
-            rowsInfo.length > this.maxUpdateCalls) {
+        if (!this.partialUpdate || numRowsUpdated > this.maxUpdateCalls) {
             this._texture.dirtyAll();
-            return;
+        }
+        else {
+            this._updateRows(rowsInfo);
         }
 
-        this._updateRows(rowsInfo);
         this._rowToUpdate.fill(false);
         this._rowsUpdateCount = 0;
     }
