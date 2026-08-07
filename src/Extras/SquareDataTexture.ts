@@ -226,7 +226,7 @@ export class SquareDataTexture<TArray extends TypedArrayType> {
      * enabling partial or full instance data replacement during the next GPU upload cycle.
      * @param index The index of the instance to update.
      * @param inData The new data to be written into the instance slot.
-     * @param offset The byte offset within the instance data where the update begins. Default is 0.
+     * @param offset The offset within the instance data where the update begins. Default is 0.
      */
     public enqueueDataUpdate(index: number, inData: TArray, offset: number = 0): void {
 
