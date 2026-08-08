@@ -151,7 +151,7 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
     protected _rowsInfo: IUpdateRowInfo[];
     protected _rowsInfoCount: number;
     protected _u8Proxy: Uint8Array;
-    protected _alignedUpload: Uint8Array;
+    protected _alignedUpload: Uint8Array<ArrayBuffer>;
     protected _writeDest: IGpuTextureWriteDest;
     protected _writeLayout: IGpuTextureWriteLayout;
     protected _writeSize: IGpuTextureWriteSize;

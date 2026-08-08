@@ -56,8 +56,8 @@ export class SquareDataTextureArray<TArray extends TypedArrayType>
     protected _fullUploadPending: boolean;
     protected _rowsInfo: IUpdateLayerRowInfo[];
     protected _rowsInfoCount: number;
-    protected _u8Proxy: Uint8Array;
-    protected _alignedUpload: Uint8Array;
+    protected _u8Proxy: Uint8Array<ArrayBufferLike>;
+    protected _alignedUpload: Uint8Array<ArrayBuffer>;
     protected _writeDest: IGpuTextureWriteDest;
     protected _writeLayout: IGpuTextureWriteLayout;
     protected _writeSize: IGpuTextureWriteSize;
