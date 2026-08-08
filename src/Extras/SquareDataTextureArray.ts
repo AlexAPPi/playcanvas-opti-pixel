@@ -3,7 +3,7 @@ import { BitSet } from "./BitSet.js";
 import { type TypedArrayType, type TypedArrayConstructorType } from "./TypedArray.js";
 import {
     createGpuTextureWriteScratch,
-    getSquareTextureInfo,
+    getPixelFormatByArrayType,
     getSquareTextureSize,
     type IGpuTextureWriteDest,
     type IGpuTextureWriteLayout,
@@ -103,7 +103,7 @@ export class SquareDataTextureArray<
         this._rowsInfo = [];
         this._rowBitSet = null!;
         this._layerViews = null!;
-        this._layerProxies = null!;
+        this._layerProxies = [];
         this._layerStride = 0;
         this._u8Proxy = new Uint8Array(0);
         this._alignedUpload = new Uint8Array(0);
@@ -113,12 +113,7 @@ export class SquareDataTextureArray<
         this._writeLayout = writeScratch.layout;
         this._writeSize = writeScratch.size;
 
-        this._createOrResizeTexture(capacity, name);
-
-        this._layerProxies = new Array(this._layers);
-        for (let layer = 0; layer < this._layers; layer++) {
-            this._layerProxies[layer] = this._createLayerProxy(layer);
-        }
+        this._createOrResizeTexture(capacity, layers, name);
     }
 
     /** Override in typed subclasses to construct {@link TLayerProxy}. */
@@ -146,14 +141,15 @@ export class SquareDataTextureArray<
 
     private _createLayerViews(
         data: InstanceType<TypedArrayConstructorType<TArray>>,
-        size: number
+        size: number,
+        layers: number
     ): InstanceType<TypedArrayConstructorType<TArray>>[] {
 
         this._layerStride = size * size * this._channels;
 
-        const views: InstanceType<TypedArrayConstructorType<TArray>>[] = new Array(this._layers);
+        const views: InstanceType<TypedArrayConstructorType<TArray>>[] = new Array(layers);
 
-        for (let layer = 0; layer < this._layers; layer++) {
+        for (let layer = 0; layer < layers; layer++) {
             const start = layer * this._layerStride;
             views[layer] = data.subarray(start, start + this._layerStride) as InstanceType<TypedArrayConstructorType<TArray>>;
         }
@@ -161,12 +157,46 @@ export class SquareDataTextureArray<
         return views;
     }
 
-    private _initScratchForSize(size: number): void {
+    private _syncLayerProxies(layers: number): void {
+
+        const proxies = this._layerProxies;
+        const reuse = Math.min(proxies.length, layers);
+
+        if (proxies.length !== layers) {
+            proxies.length = layers;
+        }
+
+        for (let layer = reuse; layer < layers; layer++) {
+            proxies[layer] = this._createLayerProxy(layer);
+        }
+    }
+
+    private _copyLayersData(
+        oldData: InstanceType<TypedArrayConstructorType<TArray>>,
+        newData: InstanceType<TypedArrayConstructorType<TArray>>,
+        oldLayers: number,
+        newLayers: number,
+        oldLayerStride: number,
+        newLayerStride: number
+    ): void {
+
+        const copyLayers = Math.min(oldLayers, newLayers);
+        const copyCount = Math.min(oldLayerStride, newLayerStride);
+
+        for (let layer = 0; layer < copyLayers; layer++) {
+            newData.set(
+                oldData.subarray(layer * oldLayerStride, layer * oldLayerStride + copyCount),
+                layer * newLayerStride
+            );
+        }
+    }
+
+    private _initScratchForSize(size: number, layers: number): void {
 
         this._size = size;
-        this._rowBitSet = new BitSet(this._layers * size);
+        this._rowBitSet = new BitSet(layers * size);
 
-        const infoCapacity = this._layers * size;
+        const infoCapacity = layers * size;
         const rowsInfo = this._rowsInfo;
 
         if (rowsInfo.length < infoCapacity) {
@@ -191,82 +221,91 @@ export class SquareDataTextureArray<
         this._texture._needsMipmapsUpload = false;
     }
 
-    private _createOrResizeTexture(count: number, name?: string): void {
+    private _createGpuTexture(size: number, layers: number, name?: string, format?: number): void {
 
+        const pixelFormat = format ?? this._pixelFormat ?? getPixelFormatByArrayType(
+            this._arrayConstructor,
+            this._channels
+        );
+
+        this._texture = new pc.Texture(this._device, {
+            name: name ?? "SquareDataTextureArray",
+            width: size,
+            height: size,
+            format: pixelFormat,
+            mipmaps: false,
+            minFilter: pc.FILTER_NEAREST,
+            magFilter: pc.FILTER_NEAREST,
+            addressU: pc.ADDRESS_CLAMP_TO_EDGE,
+            addressV: pc.ADDRESS_CLAMP_TO_EDGE,
+            addressW: pc.ADDRESS_CLAMP_TO_EDGE,
+            arrayLength: layers,
+            storage: true
+        });
+    }
+
+    private _createOrResizeTexture(count: number, layers: number = this._layers, name?: string): void {
+
+        if (!(count >= 0) || (count | 0) !== count) {
+            throw new Error("SquareDataTextureArray: capacity must be a non-negative integer");
+        }
+
+        if (!(layers >= 1) || (layers | 0) !== layers) {
+            throw new Error("SquareDataTextureArray: layers must be an integer >= 1");
+        }
+
+        const size = getSquareTextureSize(count, this._pixelsPerInstance);
+        const oldLayers = this._layers;
+        const oldLayerStride = this._layerStride;
+        const oldData = this._data;
+        const hadTexture = !!this._texture;
+        const sizeChanged = !hadTexture || size !== this._texture.width;
+        const layersChanged = !hadTexture || layers !== oldLayers;
+
+        // Capacity can grow/shrink within the same square size without realloc.
         this._capacity = count;
 
-        if (this._texture) {
-
-            const size = getSquareTextureSize(this._capacity, this._pixelsPerInstance);
-
-            if (size === this._texture.width) {
-                return;
-            }
-
-            const oldData = this._data;
-            const newData = new this._arrayConstructor(size * size * this._channels * this._layers);
-
-            if (this._defaultPixelValue !== undefined) {
-                newData.fill(this._defaultPixelValue);
-            }
-
-            const oldLayerStride = this._layerStride;
-            const newLayerStride = size * size * this._channels;
-
-            for (let layer = 0; layer < this._layers; layer++) {
-                const copyCount = Math.min(oldLayerStride, newLayerStride);
-                newData.set(
-                    oldData.subarray(layer * oldLayerStride, layer * oldLayerStride + copyCount),
-                    layer * newLayerStride
-                );
-            }
-
-            this._data = newData;
-            this._layerViews = this._createLayerViews(newData, size);
-            this._initScratchForSize(size);
-
-            // Workaround for resize texture — engine reads _levels[0] during/after resize.
-            this._texture._levels[0] = this._layerViews as any;
-            this._texture.resize(size, size);
-            this._attachLevelsAndUpload();
+        if (hadTexture && !sizeChanged && !layersChanged) {
+            return;
         }
-        else {
 
-            const { array, size, pixelFormat } = getSquareTextureInfo(
-                this._arrayConstructor,
-                this._channels,
-                this._pixelsPerInstance,
-                this._capacity,
-                this._layers
-            );
+        const newLayerStride = size * size * this._channels;
+        const newData = new this._arrayConstructor(newLayerStride * layers);
 
-            const finalPixelFormat = this._pixelFormat ?? pixelFormat;
-
-            if (this._defaultPixelValue !== undefined) {
-                array.fill(this._defaultPixelValue);
-            }
-
-            this._data = array;
-            this._layerViews = this._createLayerViews(array, size);
-            this._initScratchForSize(size);
-
-            this._texture = new pc.Texture(this._device, {
-                name: name,
-                width: size,
-                height: size,
-                format: finalPixelFormat,
-                mipmaps: false,
-                minFilter: pc.FILTER_NEAREST,
-                magFilter: pc.FILTER_NEAREST,
-                addressU: pc.ADDRESS_CLAMP_TO_EDGE,
-                addressV: pc.ADDRESS_CLAMP_TO_EDGE,
-                addressW: pc.ADDRESS_CLAMP_TO_EDGE,
-                arrayLength: this._layers,
-                storage: true
-            });
-
-            this._attachLevelsAndUpload();
+        if (this._defaultPixelValue !== undefined) {
+            newData.fill(this._defaultPixelValue);
         }
+
+        if (hadTexture && oldData && oldLayerStride > 0) {
+            this._copyLayersData(oldData, newData, oldLayers, layers, oldLayerStride, newLayerStride);
+        }
+
+        this._layers = layers;
+        this._data = newData;
+        this._layerViews = this._createLayerViews(newData, size, layers);
+        this._syncLayerProxies(layers);
+        this._initScratchForSize(size, layers);
+
+        if (!hadTexture) {
+            this._createGpuTexture(size, layers, name, this._pixelFormat);
+            this._attachLevelsAndUpload();
+            return;
+        }
+
+        if (layersChanged) {
+            // arrayLength is immutable — recreate GPU texture (identity changes).
+            const textureName = this._texture.name;
+            const textureFormat = this._texture.format;
+            this._texture.destroy();
+            this._createGpuTexture(size, layers, textureName, textureFormat);
+            this._attachLevelsAndUpload();
+            return;
+        }
+
+        // Capacity/size change only — keep the same Texture object.
+        // resize() recreates the GPU impl and clears levels; attach restores them.
+        this._texture.resize(size, size);
+        this._attachLevelsAndUpload();
     }
 
     /**
@@ -288,8 +327,20 @@ export class SquareDataTextureArray<
         }
     }
 
-    public resize(count: number): void {
-        this._createOrResizeTexture(count);
+    /**
+     * Resize instance capacity. Optionally change layer count in the same call.
+     * Changing layers recreates the GPU texture (`arrayLength` is immutable).
+     */
+    public resize(count: number, layers: number = this._layers): void {
+        this._createOrResizeTexture(count, layers);
+    }
+
+    /**
+     * Resize texture-array depth (`sampler2DArray` layers).
+     * Recreates the GPU texture; existing layer proxies for kept indices are reused.
+     */
+    public resizeLayers(layers: number): void {
+        this._createOrResizeTexture(this._capacity, layers);
     }
 
     public enqueueUpdate(index: number): void {
@@ -310,10 +361,6 @@ export class SquareDataTextureArray<
         const size = this._size;
         const elementsPerRow = size / this._pixelsPerInstance;
         const rowIndex = (index / elementsPerRow) | 0;
-
-        if (rowIndex < 0 || rowIndex >= size) {
-            return;
-        }
 
         if (this._rowBitSet.exchange(layer * size + rowIndex, true) === false) {
             this._rowsUpdateCount++;
@@ -390,6 +437,8 @@ export class SquareDataTextureArray<
         const layers = this._layers;
         const rowsInfo = this._rowsInfo;
 
+        // Need one full-layer region descriptor per layer
+        // (rowsInfo is sized to layers * size).
         for (let layer = 0; layer < layers; layer++) {
             const info = rowsInfo[layer];
             info.layer = layer;
@@ -410,6 +459,7 @@ export class SquareDataTextureArray<
             const device = this._device as pc.WebglGraphicsDevice;
 
             this._suppressEngineUpload();
+
             device.setTexture(this._texture, 0);
             device.setUnpackFlipY(false);
             device.setUnpackPremultiplyAlpha(this._texture.premultiplyAlpha);

@@ -327,10 +327,6 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
         const elementsPerRow = size / this._pixelsPerInstance;
         const rowIndex = (index / elementsPerRow) | 0;
 
-        if (rowIndex < 0 || rowIndex >= size) {
-            return;
-        }
-
         if (this._rowBitSet.exchange(rowIndex, true) === false) {
             this._rowsUpdateCount++;
         }
