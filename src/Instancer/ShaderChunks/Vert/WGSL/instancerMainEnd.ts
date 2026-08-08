@@ -2,6 +2,10 @@ export default `
 
     #ifdef INSTANCING
 
+        #ifdef INSTANCER_USE_LAYERS
+        output.vInstancerLayer = getInstanceLayer();
+        #endif
+
         #ifdef INSTANCER_USE_CROSSFADE
         output.vInstancerCrossFade = getInstanceCrossFade();
         #endif
@@ -13,6 +17,10 @@ export default `
         #include "instancerUserMainEndVS"
 
     #else
+
+        #ifdef INSTANCER_USE_LAYERS
+        output.vInstancerLayer = 0u;
+        #endif
 
         #ifdef INSTANCER_USE_CROSSFADE
         output.vInstancerCrossFade = 1.0;

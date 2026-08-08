@@ -114,9 +114,9 @@ export class LODRender implements ILODRender {
         this.list.clear();
     }
 
-    public enqueue(index: number, opacity: number) {
+    public enqueue(index: number, opacity: number, layer: number = 0) {
         opacity = Math.min(255, Math.max(0, opacity * 255));
-        this.list.push(index, opacity);
+        this.list.push(index, opacity, layer);
     }
 
     public sort(reversed: boolean, buf: Uint32Array, depthStore: Uint32Array) {

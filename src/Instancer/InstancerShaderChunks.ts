@@ -1,6 +1,8 @@
 // GLSL VS
 import GLSLInstancerInstanceVS from "./ShaderChunks/Vert/GLSL/instance.js";
+import GLSLInstancerInstanceAttrVS from "./ShaderChunks/Vert/GLSL/instanceAttr.js";
 import GLSLInstancerInstanceIdVS from "./ShaderChunks/Vert/GLSL/instanceId.js";
+import GLSLInstancerInstanceLayerVS from "./ShaderChunks/Vert/GLSL/instanceLayer.js";
 import GLSLInstancerInstaceCrossFadeVS from "./ShaderChunks/Vert/GLSL/instanceCrossFade.js";
 import GLSLInstancerInstanceMatrixVS from "./ShaderChunks/Vert/GLSL/instanceMatrix.js";
 import GLSLInstancerInstanceColorVS from "./ShaderChunks/Vert/GLSL/instanceColor.js";
@@ -10,7 +12,9 @@ import GLSLInstancerMainEndVS from "./ShaderChunks/Vert/GLSL/instancerMainEnd.js
 
 // WGSL VS
 import WGSLInstancerInstanceVS from "./ShaderChunks/Vert/WGSL/instance.js";
+import WGSLInstancerInstanceAttrVS from "./ShaderChunks/Vert/WGSL/instanceAttr.js";
 import WGSLInstancerInstanceIdVS from "./ShaderChunks/Vert/WGSL/instanceId.js";
+import WGSLInstancerInstanceLayerVS from "./ShaderChunks/Vert/WGSL/instanceLayer.js";
 import WGSLInstancerInstaceCrossFadeVS from "./ShaderChunks/Vert/WGSL/instanceCrossFade.js";
 import WGSLInstancerInstanceMatrixVS from "./ShaderChunks/Vert/WGSL/instanceMatrix.js";
 import WGSLInstancerInstanceColorVS from "./ShaderChunks/Vert/WGSL/instanceColor.js";
@@ -32,7 +36,9 @@ import WGSLInstancerOpacityPS from "./ShaderChunks/Frag/WGSL/opacity.js";
 
 export interface IInstancerShaderChunkMap {
     instancerInstanceVS: string;
+    instancerInstanceAttrVS: string;
     instancerInstanceIdVS: string;
+    instancerInstanceLayerVS: string;
     instancerInstaceCrossFadeVS: string;
     instancerInstanceMatrixVS: string;
     instancerInstanceColorVS: string;
@@ -58,7 +64,9 @@ export interface IInstancerShaderDefaultChunkMapScope {
 export const defaultShaderChunksMapScope: IInstancerShaderDefaultChunkMapScope = {
     glsl: {
         instancerInstanceVS: GLSLInstancerInstanceVS,
+        instancerInstanceAttrVS: GLSLInstancerInstanceAttrVS,
         instancerInstanceIdVS: GLSLInstancerInstanceIdVS,
+        instancerInstanceLayerVS: GLSLInstancerInstanceLayerVS,
         instancerInstaceCrossFadeVS: GLSLInstancerInstaceCrossFadeVS,
         instancerInstanceMatrixVS: GLSLInstancerInstanceMatrixVS,
         instancerInstanceColorVS: GLSLInstancerInstanceColorVS,
@@ -72,7 +80,9 @@ export const defaultShaderChunksMapScope: IInstancerShaderDefaultChunkMapScope =
     },
     wgsl: {
         instancerInstanceVS: WGSLInstancerInstanceVS,
+        instancerInstanceAttrVS: WGSLInstancerInstanceAttrVS,
         instancerInstanceIdVS: WGSLInstancerInstanceIdVS,
+        instancerInstanceLayerVS: WGSLInstancerInstanceLayerVS,
         instancerInstaceCrossFadeVS: WGSLInstancerInstaceCrossFadeVS,
         instancerInstanceMatrixVS: WGSLInstancerInstanceMatrixVS,
         instancerInstanceColorVS: WGSLInstancerInstanceColorVS,

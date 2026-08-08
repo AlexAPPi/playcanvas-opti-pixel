@@ -1,5 +1,9 @@
 export default `
 
+    #ifdef INSTANCER_USE_LAYERS
+    flat varying uint vInstancerLayer;
+    #endif
+
     #ifdef INSTANCER_USE_CROSSFADE
     varying float vInstancerCrossFade;
     #endif
@@ -10,7 +14,12 @@ export default `
 
     #ifdef INSTANCING
 
+        #include "instancerInstanceAttrVS"
         #include "instancerInstanceIdVS"
+
+        #ifdef INSTANCER_USE_LAYERS
+        #include "instancerInstanceLayerVS"
+        #endif
 
         #ifdef INSTANCER_USE_CROSSFADE
         #include "instancerInstanceCrossFadeVS"

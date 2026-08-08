@@ -317,6 +317,7 @@ export class BasicHierarchicalInstancer implements IInstancer {
         material.setParameter("uInstancerMatricesTexture", this.matricesTexture.texture);
         material.setParameter("uInstancerLocalInstanceMatrix", pc.Mat4.IDENTITY.data);
 
+        material.setDefine("INSTANCER_USE_LAYERS", false);
         material.setDefine("INSTANCER_USE_CROSSFADE", true);
 
         if (this.colorsTexture) {
@@ -375,7 +376,9 @@ export class BasicHierarchicalInstancer implements IInstancer {
 
             // Instancer
             .set("instancerInstanceVS", chunks.instancerInstanceVS)
+            .set("instancerInstanceAttrVS", chunks.instancerInstanceAttrVS)
             .set("instancerInstanceIdVS", chunks.instancerInstanceIdVS)
+            .set("instancerInstanceLayerVS", chunks.instancerInstanceLayerVS)
             .set("instancerInstanceCrossFadeVS", chunks.instancerInstaceCrossFadeVS)
             .set("instancerInstanceMatrixVS", chunks.instancerInstanceMatrixVS)
             .set("instancerInstanceColorVS", chunks.instancerInstanceColorVS)

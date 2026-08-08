@@ -2,6 +2,10 @@ export default `
 
     #include "instancerUserDeclarationPS"
 
+    #ifdef INSTANCER_USE_LAYERS
+    varying @interpolate(flat) vInstancerLayer: u32;
+    #endif
+
     #ifdef INSTANCER_USE_CROSSFADE
     varying vInstancerCrossFade: f32;
     #endif
