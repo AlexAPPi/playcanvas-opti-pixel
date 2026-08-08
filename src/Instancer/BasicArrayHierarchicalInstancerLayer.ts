@@ -307,7 +307,6 @@ export class BasicArrayHierarchicalInstancerLayer<
         const host = this._host;
 
         material.setParameter("uInstancerMatricesTexture", host.matricesTextureArray.texture);
-        material.setParameter("uInstancerMatricesLayer", this._layer);
         material.setParameter("uInstancerLocalInstanceMatrix", pc.Mat4.IDENTITY.data);
         material.setParameter("uInstancerInstanceLayer", this._layer);
 
