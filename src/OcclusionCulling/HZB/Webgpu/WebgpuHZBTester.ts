@@ -216,7 +216,7 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
             this._compute.setParameter("cameraPosition", _cameraPosition);
             this._compute.setParameter("indirectDrawBuffer", indirectDrawBuffer);
             this._compute.setParameter("hzb", hzbTexture);
-            this._compute.setParameter("indirectDataBuffer", indirectDataBuffer.buffer);
+            this._compute.setParameter("indirectDataBuffer", indirectDataBuffer.buffer!);
             this._compute.setParameter("boundingBoxCenters", aabbStore.centersTexture);
             this._compute.setParameter("boundingBoxHalfExtents", aabbStore.halfExtentsTexture);
             this._compute.setParameter("indirectDrawQueueBuffer", indirectDrawQueueBuffer);
