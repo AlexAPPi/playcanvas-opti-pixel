@@ -11,6 +11,23 @@ import { IndexQueueEx } from "./Extras/IndexQueueEx.js";
 import { NumberQueue } from "./Extras/NumberQueue.js";
 import { Random } from "./Extras/Random.js";
 import { getPixelFormatByArrayType, getSquareTextureSize, SquareDataTexture } from "./Extras/SquareDataTexture.js";
+import { SquareDataTextureArray } from "./Extras/SquareDataTextureArray.js";
+import { SquareDataTextureLayerProxy } from "./Extras/SquareDataTextureLayerProxy.js";
+import {
+    ColorDataTexture,
+    ColorDataTextureArray,
+    ColorDataTextureLayerProxy,
+} from "./Extras/ColorDataTexture.js";
+import {
+    Mat4DataTexture,
+    Mat4DataTextureArray,
+    Mat4DataTextureLayerProxy,
+} from "./Extras/Mat4DataTexture.js";
+import {
+    Vec4F32DataTextureArray,
+    Vec4F32DataTextureLayerProxy,
+    Vec4F32Texture
+} from "./Extras/Vec4F32DataTexture.js";
 import { HierarchicalInstancer } from "./Instancer/HierarchicalInstancer.js";
 import { HierarchicalZBufferDebugger } from "./OcclusionCulling/HZB/HierarchicalZBufferDebugger.js";
 import { IHierarchicalZBufferTester } from "./OcclusionCulling/HZB/IHierarchicalZBufferTester.js";
@@ -71,6 +88,17 @@ export {
     Random,
 
     SquareDataTexture,
+    SquareDataTextureArray,
+    SquareDataTextureLayerProxy,
+    Mat4DataTexture,
+    Mat4DataTextureArray,
+    Mat4DataTextureLayerProxy,
+    ColorDataTexture,
+    ColorDataTextureArray,
+    ColorDataTextureLayerProxy,
+    Vec4F32Texture,
+    Vec4F32DataTextureArray,
+    Vec4F32DataTextureLayerProxy,
     getSquareTextureSize,
     getPixelFormatByArrayType,
 
