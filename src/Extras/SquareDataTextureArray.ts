@@ -309,22 +309,57 @@ export class SquareDataTextureArray<
     }
 
     /**
-     * WebGPU: own upload (engine array path skips 256-byte bytesPerRow).
-     * WebGL2: engine upload for texStorage3D.
+     * Keep engine levels in sync for resize/debug, but always upload pixels ourselves.
+     * WebGPU: engine array upload skips 256-byte bytesPerRow.
+     * WebGL2: engine upload is bypassed — we own texStorage3D + texSubImage3D.
      */
     private _attachLevelsAndUpload(): void {
 
         this._texture._levels[0] = this._layerViews as any;
+        this._suppressEngineUpload();
+        this._uploadAllLayers();
+        this._suppressEngineUpload();
+    }
 
-        if (this._device.isWebGPU) {
-            this._suppressEngineUpload();
-            this._uploadAllLayers();
-            this._suppressEngineUpload();
+    /**
+     * Ensure the GL texture exists, parameters are applied, and texStorage3D has run.
+     * Must run before any texSubImage3D — otherwise ANGLE validates against the default
+     * unsized RGBA image and FLOAT uploads fail with format/type/internalFormat.
+     */
+    private _ensureWebglArrayStorage(device: pc.WebglGraphicsDevice): void {
+
+        const texture = this._texture;
+        const impl = texture.impl;
+        const gl = device.gl;
+
+        // Never let setTexture/engine flush pull stale _levels through its upload path.
+        this._suppressEngineUpload();
+
+        if (!impl._glTexture) {
+            impl.initialize(device, texture);
         }
-        else {
-            this._texture.upload();
-            this._suppressEngineUpload();
+
+        device.activeTexture(0);
+        device.bindTexture(texture);
+
+        if (impl.dirtyParameterFlags) {
+            device.setTextureParameters(texture);
+            impl.dirtyParameterFlags = 0;
         }
+
+        if (!impl._glCreated) {
+            gl.texStorage3D(
+                impl._glTarget,
+                texture.numLevels,
+                impl._glInternalFormat,
+                texture.width,
+                texture.height,
+                texture.arrayLength
+            );
+            impl._glCreated = true;
+        }
+
+        this._suppressEngineUpload();
     }
 
     /**
@@ -452,24 +487,24 @@ export class SquareDataTextureArray<
     protected _updateRows(info: IUpdateLayerRowInfo[], count: number): void {
 
         const channels = this._channels;
-        const layerStride = this._layerStride;
 
         if (this._device.isWebGL2) {
 
             const device = this._device as pc.WebglGraphicsDevice;
+            this._ensureWebglArrayStorage(device);
 
-            this._suppressEngineUpload();
-
-            device.setTexture(this._texture, 0);
             device.setUnpackFlipY(false);
             device.setUnpackPremultiplyAlpha(this._texture.premultiplyAlpha);
             device.setUnpackAlignment(1);
 
             const gl = device.gl;
+            const impl = this._texture.impl;
             const width = this._size;
-            const glFormat = this._texture.impl._glFormat;
-            const glPixelType = this._texture.impl._glPixelType;
-            const data = this._data;
+            const glFormat = impl._glFormat;
+            const glPixelType = impl._glPixelType;
+            const glTarget = impl._glTarget;
+            const layerViews = this._layerViews;
+            const elementsPerRow = width * channels;
 
             for (let i = 0; i < count; i++) {
                 const region = info[i];
@@ -478,7 +513,7 @@ export class SquareDataTextureArray<
                 const rowCount = region.count;
 
                 gl.texSubImage3D(
-                    gl.TEXTURE_2D_ARRAY,
+                    glTarget,
                     0,
                     0,
                     row,
@@ -488,8 +523,8 @@ export class SquareDataTextureArray<
                     1,
                     glFormat,
                     glPixelType,
-                    data,
-                    layer * layerStride + row * width * channels
+                    layerViews[layer],
+                    row * elementsPerRow
                 );
             }
 

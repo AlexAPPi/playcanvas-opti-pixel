@@ -209,6 +209,7 @@ export class Mat4DataTextureArray extends SquareDataTextureArray<Float32Array, M
             pixelsPerInstance: _pixelsPerInstance,
             capacity: params.capacity,
             layers: params.layers,
+            pixelFormat: pc.PIXELFORMAT_RGBA32F,
             name: params.name ?? "Mat4DataTextureArray"
         });
     }
