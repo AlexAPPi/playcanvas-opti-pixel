@@ -1,135 +1,37 @@
 import pc from "../engine.js";
 import { BitSet } from "./BitSet.js";
 import { type TypedArrayType, type TypedArrayConstructorType } from "./TypedArray.js";
+import {
+    createGpuTextureWriteScratch,
+    getSquareTextureInfo,
+    getSquareTextureSize,
+    type IGpuTextureWriteDest,
+    type IGpuTextureWriteLayout,
+    type IGpuTextureWriteSize,
+    type ISquareDataTextureParams,
+    type IUpdateRowInfo,
+    type TChannelSize
+} from "./SquareDataTexture.js";
+import {
+    SquareDataTextureLayerProxy,
+    type ISquareDataTextureArrayLayerHost
+} from "./SquareDataTextureLayerProxy.js";
 
-export type TChannelSize = 1 | 2 | 4;
-
-export interface IUpdateRowInfo {
-    row: number;
-    count: number;
+export interface IUpdateLayerRowInfo extends IUpdateRowInfo {
+    layer: number;
 }
 
-/** Mutable scratch for `GPUQueue.writeTexture` destination. */
-export interface IGpuTextureWriteDest {
-    texture: GPUTexture;
-    mipLevel: number;
-    origin: { x: number; y: number; z: number };
-}
-
-/** Mutable scratch for `GPUQueue.writeTexture` data layout. */
-export interface IGpuTextureWriteLayout {
-    offset: number;
-    bytesPerRow: number;
-    rowsPerImage: number;
-}
-
-/** Mutable scratch for `GPUQueue.writeTexture` copy size. */
-export interface IGpuTextureWriteSize {
-    width: number;
-    height: number;
-    depthOrArrayLayers: number;
-}
-
-export function createGpuTextureWriteScratch(): {
-    dest: IGpuTextureWriteDest;
-    layout: IGpuTextureWriteLayout;
-    size: IGpuTextureWriteSize;
-} {
-    return {
-        dest: { texture: null!, mipLevel: 0, origin: { x: 0, y: 0, z: 0 } },
-        layout: { offset: 0, bytesPerRow: 0, rowsPerImage: 0 },
-        size: { width: 0, height: 0, depthOrArrayLayers: 1 }
-    };
-}
-
-export function getSquareTextureSize(capacity: number, pixelsPerInstance: number): number {
-    return Math.max(pixelsPerInstance, Math.ceil(Math.sqrt(capacity / pixelsPerInstance)) * pixelsPerInstance);
-}
-
-export function getPixelFormatByArrayType(arrayType: TypedArrayConstructorType<TypedArrayType>, channels: TChannelSize): number {
-
-    if (arrayType.name === Float32Array.name) {
-        if (channels === 1) return pc.PIXELFORMAT_R32F;
-        if (channels === 2) throw new Error("Unsupported format");
-        return pc.PIXELFORMAT_RGBA32F;
-    }
-
-    if (arrayType.name === Uint32Array.name) {
-        if (channels === 1) return pc.PIXELFORMAT_R32U;
-        if (channels === 2) return pc.PIXELFORMAT_RG32U;
-        return pc.PIXELFORMAT_RGBA32U;
-    }
-
-    if (arrayType.name === Uint16Array.name) {
-        if (channels === 1) return pc.PIXELFORMAT_R16U;
-        if (channels === 2) return pc.PIXELFORMAT_RG16U;
-        return pc.PIXELFORMAT_RGBA16U;
-    }
-
-    if (arrayType.name === Uint8Array.name) {
-        if (channels === 1) return pc.PIXELFORMAT_R8U;
-        if (channels === 2) return pc.PIXELFORMAT_RG8U;
-        return pc.PIXELFORMAT_RGBA8U;
-    }
-
-    throw new Error("Unsupported format");
-}
-
-export function getSquareTextureInfo<TConstructor extends TypedArrayConstructorType<TypedArrayType>>(
-    arrayType: TConstructor,
-    channels: TChannelSize,
-    pixelsPerInstance: number,
-    capacity: number,
-    layers: number = 1
-): {
-    size: number,
-    array: InstanceType<TConstructor>,
-    pixelFormat: ReturnType<typeof getPixelFormatByArrayType>
-} {
-    const size = getSquareTextureSize(capacity, pixelsPerInstance);
-    const array = new arrayType(size * size * channels * layers) as unknown as InstanceType<TConstructor>;
-    const pixelFormat = getPixelFormatByArrayType(arrayType, channels);
-
-    return { array, size, pixelFormat };
-}
-
-/** Data + dirty queue + GPU sync. No exclusive ownership of the Texture. */
-export interface ISquareDataTextureWriter<TArray extends TypedArrayType> {
-    partialUpdate: boolean;
-    maxUpdateCalls: number;
-    readonly pixelsPerInstance: number;
-    readonly channels: TChannelSize;
-    readonly texture: pc.Texture;
-    readonly data: InstanceType<TypedArrayConstructorType<TArray>>;
-    enqueueUpdate(index: number): void;
-    enqueueDataUpdate(index: number, inData: TArray, offset?: number): void;
-    upload(): void;
-    update(): void;
-}
-
-/** Owns capacity + GPU resource lifetime (Host). */
-export interface ISquareDataTexture<TArray extends TypedArrayType>
-    extends ISquareDataTextureWriter<TArray> {
-    readonly capacity: number;
-    resize(count: number): void;
-    destroy(): void;
-}
-
-export interface ISquareDataTextureParams<TArray extends TypedArrayType> {
-    arrayConstructor: TypedArrayConstructorType<TArray>,
-    channels: TChannelSize,
-    pixelsPerInstance: number,
-    capacity?: number,
-    pixelFormat?: number,
-    defaultPixelValue?: number,
-    name?: string
+export interface ISquareDataTextureArrayParams<TArray extends TypedArrayType> extends ISquareDataTextureParams<TArray> {
+    layers: number;
 }
 
 /**
- * Square data texture Host (`sampler2D`).
- * Owns CPU buffer + GPU texture lifetime; writers use {@link ISquareDataTextureWriter}.
+ * Square data texture backed by a 2D texture array (`sampler2DArray`).
+ * Each layer has the same square layout / capacity as {@link SquareDataTexture}.
+ * Per-layer writer access: {@link getLayer} / {@link layerProxies}.
  */
-export class SquareDataTexture<TArray extends TypedArrayType> implements ISquareDataTexture<TArray> {
+export class SquareDataTextureArray<TArray extends TypedArrayType>
+    implements ISquareDataTextureArrayLayerHost<TArray> {
 
     public partialUpdate = true;
     public maxUpdateCalls = Infinity;
@@ -137,9 +39,13 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
     protected _arrayConstructor: TypedArrayConstructorType<TArray>;
     protected _device: pc.GraphicsDevice;
     protected _capacity: number;
+    protected _layers: number;
     protected _size: number;
     protected _texture: pc.Texture;
     protected _data: InstanceType<TypedArrayConstructorType<TArray>>;
+    protected _layerViews: InstanceType<TypedArrayConstructorType<TArray>>[];
+    protected _layerProxies: SquareDataTextureLayerProxy<TArray>[];
+    protected _layerStride: number;
     protected _stride: number;
     protected _channels: TChannelSize;
     protected _pixelsPerInstance: number;
@@ -148,7 +54,7 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
     protected _rowBitSet: BitSet;
     protected _rowsUpdateCount: number;
     protected _fullUploadPending: boolean;
-    protected _rowsInfo: IUpdateRowInfo[];
+    protected _rowsInfo: IUpdateLayerRowInfo[];
     protected _rowsInfoCount: number;
     protected _u8Proxy: Uint8Array;
     protected _alignedUpload: Uint8Array;
@@ -158,32 +64,42 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
 
     public get pixelsPerInstance() { return this._pixelsPerInstance; }
     public get channels() { return this._channels; }
+    public get layers() { return this._layers; }
     public get capacity() { return this._capacity; }
     public get texture() { return this._texture; }
     public get data() { return this._data; }
+    public get layerViews() { return this._layerViews; }
+    public get layerProxies() { return this._layerProxies; }
 
-    constructor(device: pc.GraphicsDevice, params: ISquareDataTextureParams<TArray>) {
+    constructor(device: pc.GraphicsDevice, params: ISquareDataTextureArrayParams<TArray>) {
 
         const {
-            arrayConstructor, channels, pixelsPerInstance,
+            arrayConstructor, channels, pixelsPerInstance, layers,
             capacity = 512, pixelFormat, defaultPixelValue,
-            name = "SquareDataTexture"
+            name = "SquareDataTextureArray"
         } = params;
+
+        if (layers < 1) {
+            throw new Error("SquareDataTextureArray: layers must be >= 1");
+        }
 
         this._device = device;
         this._channels = channels;
         this._arrayConstructor = arrayConstructor;
         this._pixelsPerInstance = pixelsPerInstance;
+        this._layers = layers;
         this._pixelFormat = pixelFormat;
         this._defaultPixelValue = defaultPixelValue;
         this._stride = pixelsPerInstance * channels;
         this._size = 0;
-        this._capacity = 0;
         this._rowsUpdateCount = 0;
         this._fullUploadPending = false;
         this._rowsInfoCount = 0;
         this._rowsInfo = [];
         this._rowBitSet = null!;
+        this._layerViews = null!;
+        this._layerProxies = null!;
+        this._layerStride = 0;
         this._u8Proxy = new Uint8Array(0);
         this._alignedUpload = new Uint8Array(0);
 
@@ -193,22 +109,59 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
         this._writeSize = writeScratch.size;
 
         this._createOrResizeTexture(capacity, name);
+
+        this._layerProxies = new Array(this._layers);
+        for (let layer = 0; layer < this._layers; layer++) {
+            this._layerProxies[layer] = new SquareDataTextureLayerProxy(this, layer);
+        }
     }
 
     public destroy(): void {
         this._texture?.destroy();
     }
 
+    public getLayerData(layer: number): InstanceType<TypedArrayConstructorType<TArray>> {
+        if (layer < 0 || layer >= this._layers) {
+            throw new Error(`SquareDataTextureArray: layer ${layer} is out of range [0, ${this._layers})`);
+        }
+        return this._layerViews[layer];
+    }
+
+    public getLayer(layer: number): SquareDataTextureLayerProxy<TArray> {
+        if (layer < 0 || layer >= this._layers) {
+            throw new Error(`SquareDataTextureArray: layer ${layer} is out of range [0, ${this._layers})`);
+        }
+        return this._layerProxies[layer];
+    }
+
+    private _createLayerViews(
+        data: InstanceType<TypedArrayConstructorType<TArray>>,
+        size: number
+    ): InstanceType<TypedArrayConstructorType<TArray>>[] {
+
+        this._layerStride = size * size * this._channels;
+
+        const views: InstanceType<TypedArrayConstructorType<TArray>>[] = new Array(this._layers);
+
+        for (let layer = 0; layer < this._layers; layer++) {
+            const start = layer * this._layerStride;
+            views[layer] = data.subarray(start, start + this._layerStride) as InstanceType<TypedArrayConstructorType<TArray>>;
+        }
+
+        return views;
+    }
+
     private _initScratchForSize(size: number): void {
 
         this._size = size;
-        this._rowBitSet = new BitSet(size);
+        this._rowBitSet = new BitSet(this._layers * size);
 
+        const infoCapacity = this._layers * size;
         const rowsInfo = this._rowsInfo;
 
-        if (rowsInfo.length < size) {
-            for (let i = rowsInfo.length; i < size; i++) {
-                rowsInfo[i] = { row: 0, count: 0 };
+        if (rowsInfo.length < infoCapacity) {
+            for (let i = rowsInfo.length; i < infoCapacity; i++) {
+                rowsInfo[i] = { layer: 0, row: 0, count: 0 };
             }
         }
 
@@ -241,20 +194,29 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
             }
 
             const oldData = this._data;
-            const newData = new this._arrayConstructor(size * size * this._channels);
+            const newData = new this._arrayConstructor(size * size * this._channels * this._layers);
 
             if (this._defaultPixelValue !== undefined) {
                 newData.fill(this._defaultPixelValue);
             }
 
-            const copyCount = Math.min(oldData.length, newData.length);
-            newData.set(oldData.subarray(0, copyCount));
+            const oldLayerStride = this._layerStride;
+            const newLayerStride = size * size * this._channels;
+
+            for (let layer = 0; layer < this._layers; layer++) {
+                const copyCount = Math.min(oldLayerStride, newLayerStride);
+                newData.set(
+                    oldData.subarray(layer * oldLayerStride, layer * oldLayerStride + copyCount),
+                    layer * newLayerStride
+                );
+            }
 
             this._data = newData;
+            this._layerViews = this._createLayerViews(newData, size);
             this._initScratchForSize(size);
 
-            // Workaround for resize texture.
-            this._texture._levels[0] = newData;
+            // Workaround for resize texture — engine reads _levels[0] during/after resize.
+            this._texture._levels[0] = this._layerViews as any;
             this._texture.resize(size, size);
             this._attachLevelsAndUpload();
         }
@@ -264,7 +226,8 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
                 this._arrayConstructor,
                 this._channels,
                 this._pixelsPerInstance,
-                this._capacity
+                this._capacity,
+                this._layers
             );
 
             const finalPixelFormat = this._pixelFormat ?? pixelFormat;
@@ -274,6 +237,7 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
             }
 
             this._data = array;
+            this._layerViews = this._createLayerViews(array, size);
             this._initScratchForSize(size);
 
             this._texture = new pc.Texture(this._device, {
@@ -286,6 +250,8 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
                 magFilter: pc.FILTER_NEAREST,
                 addressU: pc.ADDRESS_CLAMP_TO_EDGE,
                 addressV: pc.ADDRESS_CLAMP_TO_EDGE,
+                addressW: pc.ADDRESS_CLAMP_TO_EDGE,
+                arrayLength: this._layers,
                 storage: true
             });
 
@@ -294,16 +260,16 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
     }
 
     /**
-     * WebGPU: own upload (engine path skips 256-byte bytesPerRow).
-     * WebGL2: engine upload.
+     * WebGPU: own upload (engine array path skips 256-byte bytesPerRow).
+     * WebGL2: engine upload for texStorage3D.
      */
     private _attachLevelsAndUpload(): void {
 
-        this._texture._levels[0] = this._data as any;
+        this._texture._levels[0] = this._layerViews as any;
 
         if (this._device.isWebGPU) {
             this._suppressEngineUpload();
-            this._uploadAll();
+            this._uploadAllLayers();
             this._suppressEngineUpload();
         }
         else {
@@ -316,7 +282,7 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
         this._createOrResizeTexture(count);
     }
 
-    public enqueueUpdate(index: number): void {
+    public enqueueUpdate(layer: number, index: number): void {
 
         if (!this.partialUpdate) {
             this._fullUploadPending = true;
@@ -331,16 +297,16 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
             return;
         }
 
-        if (this._rowBitSet.exchange(rowIndex, true) === false) {
+        if (this._rowBitSet.exchange(layer * size + rowIndex, true) === false) {
             this._rowsUpdateCount++;
         }
     }
 
-    public enqueueDataUpdate(index: number, inData: TArray, offset: number = 0): void {
+    public enqueueDataUpdate(layer: number, index: number, inData: TArray, offset: number = 0): void {
 
-        this.enqueueUpdate(index);
+        this.enqueueUpdate(layer, index);
 
-        const dataIndex = index * this._stride;
+        const dataIndex = layer * this._layerStride + index * this._stride;
         const data = this._data;
         const stride = this._stride;
 
@@ -354,36 +320,45 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
 
     protected _fillRowsInfo(): void {
 
+        const size = this._size;
         const bitSet = this._rowBitSet;
         const rowsInfo = this._rowsInfo;
 
         let infoCount = 0;
+        let regionLayer = -1;
         let regionRow = -1;
         let regionCount = 0;
 
-        bitSet.forEachFilter(true, (row) => {
+        bitSet.forEachFilter(true, (flat) => {
+
+            const layer = (flat / size) | 0;
+            const row = flat - layer * size;
 
             if (regionCount === 0) {
+                regionLayer = layer;
                 regionRow = row;
                 regionCount = 1;
                 return;
             }
 
-            if (row === regionRow + regionCount) {
+            if (layer === regionLayer && row === regionRow + regionCount) {
                 regionCount++;
                 return;
             }
 
             const info = rowsInfo[infoCount++];
+            info.layer = regionLayer;
             info.row = regionRow;
             info.count = regionCount;
 
+            regionLayer = layer;
             regionRow = row;
             regionCount = 1;
         });
 
         if (regionCount > 0) {
             const info = rowsInfo[infoCount++];
+            info.layer = regionLayer;
             info.row = regionRow;
             info.count = regionCount;
         }
@@ -391,18 +366,26 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
         this._rowsInfoCount = infoCount;
     }
 
-    protected _uploadAll(): void {
+    protected _uploadAllLayers(): void {
 
-        const info = this._rowsInfo[0];
-        info.row = 0;
-        info.count = this._size;
+        const size = this._size;
+        const layers = this._layers;
+        const rowsInfo = this._rowsInfo;
 
-        this._updateRows(this._rowsInfo, 1);
+        for (let layer = 0; layer < layers; layer++) {
+            const info = rowsInfo[layer];
+            info.layer = layer;
+            info.row = 0;
+            info.count = size;
+        }
+
+        this._updateRows(rowsInfo, layers);
     }
 
-    protected _updateRows(info: IUpdateRowInfo[], count: number): void {
+    protected _updateRows(info: IUpdateLayerRowInfo[], count: number): void {
 
         const channels = this._channels;
+        const layerStride = this._layerStride;
 
         if (this._device.isWebGL2) {
 
@@ -422,20 +405,23 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
 
             for (let i = 0; i < count; i++) {
                 const region = info[i];
+                const layer = region.layer;
                 const row = region.row;
                 const rowCount = region.count;
 
-                gl.texSubImage2D(
-                    gl.TEXTURE_2D,
+                gl.texSubImage3D(
+                    gl.TEXTURE_2D_ARRAY,
                     0,
                     0,
                     row,
+                    layer,
                     width,
                     rowCount,
+                    1,
                     glFormat,
                     glPixelType,
                     data,
-                    row * width * channels
+                    layer * layerStride + row * width * channels
                 );
             }
 
@@ -450,6 +436,7 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
             const bytesPerPixel = formatInfo!.size!;
             const bytesPerRowUnaligned = width * bytesPerPixel;
             const bytesPerRow = Math.ceil(bytesPerRowUnaligned / 256) * 256;
+            const layerBytes = width * width * bytesPerPixel;
 
             const proxy = this._u8Proxy;
             const dest = this._writeDest;
@@ -464,10 +451,10 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
             writeSize.width = width;
             writeSize.depthOrArrayLayers = 1;
             origin.x = 0;
-            origin.z = 0;
 
             for (let i = 0; i < count; i++) {
                 const region = info[i];
+                const layer = region.layer;
                 const row = region.row;
                 const rowCount = region.count;
                 const requiredBufferSize = bytesPerRow * rowCount;
@@ -477,9 +464,10 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
                 }
 
                 const alignedData = this._alignedUpload;
+                const layerByteOffset = layer * layerBytes;
 
                 for (let subRow = 0; subRow < rowCount; subRow++) {
-                    const srcStart = (row + subRow) * bytesPerRowUnaligned;
+                    const srcStart = layerByteOffset + (row + subRow) * bytesPerRowUnaligned;
                     const destStart = subRow * bytesPerRow;
 
                     for (let b = 0; b < bytesPerRowUnaligned; b++) {
@@ -488,6 +476,7 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
                 }
 
                 origin.y = row;
+                origin.z = layer;
                 layout.rowsPerImage = rowCount;
                 writeSize.height = rowCount;
 
@@ -499,7 +488,7 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
     }
 
     public upload(): void {
-        this._uploadAll();
+        this._uploadAllLayers();
         this._suppressEngineUpload();
         this._clearDirty();
     }
@@ -507,7 +496,7 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
     public update(): void {
 
         if (this._fullUploadPending) {
-            this._uploadAll();
+            this._uploadAllLayers();
         }
         else if (this._rowsUpdateCount < 1) {
             return;
@@ -516,7 +505,7 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
             this._fillRowsInfo();
 
             if (this._rowsInfoCount > this.maxUpdateCalls) {
-                this._uploadAll();
+                this._uploadAllLayers();
             }
             else {
                 this._updateRows(this._rowsInfo, this._rowsInfoCount);
