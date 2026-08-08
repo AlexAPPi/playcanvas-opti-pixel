@@ -53,11 +53,13 @@ import { AABBStore } from "./Extras/AABBStore.js";
 import { IAABBStore } from "./Extras/IAABBStore.js";
 import { FadeTimeLODState } from "./Instancer/FadeTimeLODState.js";
 import { FadeDistanceLODState } from "./Instancer/FadeDistanceLODState.js";
-import { BasicHierarchicalInstancer } from "./Instancer/BasicHierarchicalInstancer.js";
+import { BasicHierarchicalInstancer, IBasicHierarchicalInstancerParams } from "./Instancer/BasicHierarchicalInstancer.js";
+import { BasicArrayHierarchicalInstancer, BasicArrayHierarchicalInstancerLayer, type IBasicArrayHierarchicalInstancerParams } from "./Instancer/BasicArrayHierarchicalInstancer.js";
 import { SimpleHierarchicalInstancer } from "./Instancer/SimpleHierarchicalInstancer.js";
 import { InstancesFlags } from "./Instancer/InstancesFlags.js";
 import { radixSort } from "./Extras/RadixSort.js";
 import { ILODRender } from "./Instancer/ILODRender.js";
+import { ILODLevel } from "./Instancer/ILODLevel.js";
 
 export {
 
@@ -130,10 +132,13 @@ export {
 
     HierarchicalInstancer,
     BasicHierarchicalInstancer,
+    BasicArrayHierarchicalInstancer,
+    BasicArrayHierarchicalInstancerLayer,
     SimpleHierarchicalInstancer,
 };
 
 export type {
+    ILODLevel,
     ILODRender,
     IReadonlyBitSet,
     IPrimitive,
@@ -142,5 +147,7 @@ export type {
     IOcclusionCullingTester,
     IHierarchicalZBufferTester,
     IGPU2CPUReadbackOcclusionCullingTester,
-    IGPUIndirectDrawOcclusionCullingTester
+    IGPUIndirectDrawOcclusionCullingTester,
+    IBasicHierarchicalInstancerParams,
+    IBasicArrayHierarchicalInstancerParams
 };
