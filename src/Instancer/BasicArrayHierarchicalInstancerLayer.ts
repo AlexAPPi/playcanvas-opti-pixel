@@ -11,8 +11,12 @@ import { defaultShaderChunksMapScope, IInstancerShaderChunkMap, IInstancerShader
 /**
  * Per-layer view of {@link BasicArrayHierarchicalInstancer}: own LODs, sorter,
  * material/opacity flags; shares capacity and texture arrays with the host.
+ *
+ * @typeParam THost — owning {@link BasicArrayHierarchicalInstancer} (or subclass).
  */
-export class BasicArrayHierarchicalInstancerLayer {
+export class BasicArrayHierarchicalInstancerLayer<
+    THost extends BasicArrayHierarchicalInstancer<any> = BasicArrayHierarchicalInstancer<any>
+> {
 
     /** @internal */ _sortObjects = false;
     /** @internal */ _useOpacity = false;
@@ -31,7 +35,7 @@ export class BasicArrayHierarchicalInstancerLayer {
     protected _sharedDepthStoreU: Uint32Array | null = null;
     protected _sharedIndexes: Uint32Array | null = null;
 
-    protected _host: BasicArrayHierarchicalInstancer;
+    protected _host: THost;
     protected _layer: number;
 
     /**
@@ -51,12 +55,14 @@ export class BasicArrayHierarchicalInstancerLayer {
 
     public get layer(): number { return this._layer; }
 
+    public get host(): THost { return this._host; }
+
     public get device(): pc.GraphicsDevice { return this._host.device; }
 
     public get capacity(): number { return this._host.capacity; }
 
     /** @internal — constructed by {@link BasicArrayHierarchicalInstancer} only. */
-    public constructor(host: BasicArrayHierarchicalInstancer, layer: number) {
+    public constructor(host: THost, layer: number) {
         this._host = host;
         this._layer = layer;
         this.matricesTexture = host.matricesTextureArray.getLayer(layer);

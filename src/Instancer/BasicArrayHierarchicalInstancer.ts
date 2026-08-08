@@ -25,12 +25,17 @@ export interface IBasicArrayHierarchicalInstancerParams {
 /**
  * Hierarchical instancer backed by `sampler2DArray` data textures.
  * Shared capacity / texture arrays; per-layer LODs and material/sort state via {@link getLayer}.
+ *
+ * @typeParam TLayer — layer view type returned by {@link getLayer}. Override {@link _createLayer}
+ * to construct a specialized subclass.
  */
-export class BasicArrayHierarchicalInstancer {
+export class BasicArrayHierarchicalInstancer<
+    TLayer extends BasicArrayHierarchicalInstancerLayer<any> = BasicArrayHierarchicalInstancerLayer<any>
+> {
 
     protected _capacity: number;
     protected _layers: number;
-    protected _layerList: BasicArrayHierarchicalInstancerLayer[];
+    protected _layerList: TLayer[];
 
     /**
      * Instanced mesh graphics device
@@ -71,7 +76,7 @@ export class BasicArrayHierarchicalInstancer {
         this._syncLayers(layers);
     }
 
-    public getLayer(layer: number): BasicArrayHierarchicalInstancerLayer {
+    public getLayer(layer: number): TLayer {
 
         if (layer < 0 || layer >= this._layerList.length) {
             throw new Error(`BasicArrayHierarchicalInstancer: layer ${layer} OOB (layers=${this._layers})`);
@@ -83,8 +88,8 @@ export class BasicArrayHierarchicalInstancer {
     /**
      * Factory for layer views. Override to supply a specialized layer subclass.
      */
-    protected _createLayer(layer: number): BasicArrayHierarchicalInstancerLayer {
-        return new BasicArrayHierarchicalInstancerLayer(this, layer);
+    protected _createLayer(layer: number): TLayer {
+        return new BasicArrayHierarchicalInstancerLayer(this, layer) as TLayer;
     }
 
     protected _syncLayers(layers: number): void {
