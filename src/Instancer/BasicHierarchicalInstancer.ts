@@ -1,5 +1,6 @@
 import pc from "../engine.js";
-import { SquareDataTexture } from "../Extras/SquareDataTexture.js";
+import { ColorDataTexture } from "../Extras/ColorDataTexture.js";
+import { Mat4DataTexture } from "../Extras/Mat4DataTexture.js";
 import { IInstancer } from "./IInstancer.js";
 import { ILODLevel } from "./ILODLevel.js";
 import { GPUInstancedList, instancingIndexSemantic as instancingInstanceSemantic } from "./InstancedList.js";
@@ -53,12 +54,12 @@ export class BasicHierarchicalInstancer implements IInstancer {
     /**
      * Texture storing matrices for instances.
      */
-    public matricesTexture: SquareDataTexture<Float32Array>;
+    public matricesTexture: Mat4DataTexture;
 
     /**
      * Texture storing colors for instances.
      */
-    public colorsTexture: SquareDataTexture<Uint8Array> = null!;
+    public colorsTexture: ColorDataTexture = null!;
 
     /**
      * The capacity of the instance buffers.
@@ -117,10 +118,7 @@ export class BasicHierarchicalInstancer implements IInstancer {
 
     protected _initMatricesTexture(): void {
         this.matricesTexture?.destroy();
-        this.matricesTexture = new SquareDataTexture(this.device, {
-            arrayConstructor: Float32Array,
-            channels: 4,
-            pixelsPerInstance: 4,
+        this.matricesTexture = new Mat4DataTexture(this.device, {
             capacity: this.capacity
         });
         this._needUpdateMaterials = true;
@@ -128,13 +126,8 @@ export class BasicHierarchicalInstancer implements IInstancer {
 
     protected _initColorsTexture(): void {
         this.colorsTexture?.destroy();
-        this.colorsTexture = new SquareDataTexture(this.device, {
-            arrayConstructor: Uint8Array,
-            channels: 4,
-            pixelsPerInstance: 1,
-            capacity: this.capacity,
-            pixelFormat: pc.PIXELFORMAT_RGBA8,
-            defaultPixelValue: 255
+        this.colorsTexture = new ColorDataTexture(this.device, {
+            capacity: this.capacity
         });
         this._needUpdateMaterials = true;
     }
@@ -430,15 +423,7 @@ export class BasicHierarchicalInstancer implements IInstancer {
      * @param matrix A `Mat4` representing the local transformation to apply to the instance.
      */
     public setMatrixAt(id: number, matrix: pc.Mat4): void {
-
-        const inData = matrix.data;
-        const outData = this.matricesTexture.data;
-        const offset = id * 16;
-        for (let i = 0; i < 16; i++) {
-            outData[offset + i] = inData[i];
-        }
-
-        this.matricesTexture.enqueueUpdate(id);
+        this.matricesTexture.setMatrixAt(id, matrix);
     }
 
     /**
@@ -447,14 +432,8 @@ export class BasicHierarchicalInstancer implements IInstancer {
      * @param matrix Optional `Mat4` to store the result.
      * @returns The transformation matrix of the instance.
      */
-    public getMatrixAt(id: number, matrix = _tempMat41): pc.Mat4 {
-        const outData = matrix.data;
-        const inData = this.matricesTexture.data;
-        const offset = id * 16;
-        for (let i = 0; i < 16; i++) {
-            outData[i] = inData[offset + i];
-        }
-        return matrix;
+    public getMatrixAt(id: number, matrix?: pc.Mat4): pc.Mat4 {
+        return this.matricesTexture.getMatrixAt(id, matrix);
     }
 
     /**
@@ -463,13 +442,8 @@ export class BasicHierarchicalInstancer implements IInstancer {
      * @param target Optional `Vec3` to store the result.
      * @returns The position of the instance as a `Vec3`.
      */
-    public getPositionAt(index: number, target = _tempVec31): pc.Vec3 {
-        const offset = index * 16;
-        const array = this.matricesTexture.data;
-        target.x = array[offset + 12];
-        target.y = array[offset + 13];
-        target.z = array[offset + 14];
-        return target;
+    public getPositionAt(index: number, target?: pc.Vec3): pc.Vec3 {
+        return this.matricesTexture.getPositionAt(index, target);
     }
 
     /**
@@ -479,69 +453,11 @@ export class BasicHierarchicalInstancer implements IInstancer {
      * @returns The max scale
      */
     public getPositionAndMaxScaleOnAxisAt(index: number, position: pc.Vec3): number {
-
-        const offset = index * 16;
-        const array = this.matricesTexture.data;
-
-        const te0 = array[offset + 0];
-        const te1 = array[offset + 1];
-        const te2 = array[offset + 2];
-        const scaleXSq = te0 * te0 + te1 * te1 + te2 * te2;
-
-        const te4 = array[offset + 4];
-        const te5 = array[offset + 5];
-        const te6 = array[offset + 6];
-        const scaleYSq = te4 * te4 + te5 * te5 + te6 * te6;
-
-        const te8 = array[offset + 8];
-        const te9 = array[offset + 9];
-        const te10 = array[offset + 10];
-        const scaleZSq = te8 * te8 + te9 * te9 + te10 * te10;
-
-        position.x = array[offset + 12];
-        position.y = array[offset + 13];
-        position.z = array[offset + 14];
-
-        return Math.sqrt(Math.max(scaleXSq, scaleYSq, scaleZSq));
+        return this.matricesTexture.getPositionAndMaxScaleOnAxisAt(index, position);
     }
 
     public applyMatrixAtToSphere(index: number, sphere: pc.BoundingSphere, center: pc.Vec3, radius: number): void {
-
-        const offset = index * 16;
-        const array = this.matricesTexture.data;
-
-        const te0 = array[offset + 0];
-        const te1 = array[offset + 1];
-        const te2 = array[offset + 2];
-        const te3 = array[offset + 3];
-        const te4 = array[offset + 4];
-        const te5 = array[offset + 5];
-        const te6 = array[offset + 6];
-        const te7 = array[offset + 7];
-        const te8 = array[offset + 8];
-        const te9 = array[offset + 9];
-        const te10 = array[offset + 10];
-        const te11 = array[offset + 11];
-        const te12 = array[offset + 12];
-        const te13 = array[offset + 13];
-        const te14 = array[offset + 14];
-        const te15 = array[offset + 15];
-
-        const position = sphere.center;
-        const x = center.x;
-        const y = center.y;
-        const z = center.z;
-        const w = 1 / (te3 * x + te7 * y + te11 * z + te15);
-
-        position.x = (te0 * x + te4 * y + te8 * z + te12) * w;
-        position.y = (te1 * x + te5 * y + te9 * z + te13) * w;
-        position.z = (te2 * x + te6 * y + te10 * z + te14) * w;
-
-        const scaleXSq = te0 * te0 + te1 * te1 + te2 * te2;
-        const scaleYSq = te4 * te4 + te5 * te5 + te6 * te6;
-        const scaleZSq = te8 * te8 + te9 * te9 + te10 * te10;
-
-        sphere.radius = radius * Math.sqrt(Math.max(scaleXSq, scaleYSq, scaleZSq));
+        this.matricesTexture.applyMatrixAtToSphere(index, sphere, center, radius);
     }
 
     /**
@@ -555,14 +471,7 @@ export class BasicHierarchicalInstancer implements IInstancer {
             this._initColorsTexture();
         }
 
-        const offset = id * 4;
-        const data = this.colorsTexture.data;
-        data[offset    ] = Math.min(Math.max(0, color.r * 255), 255);
-        data[offset + 1] = Math.min(Math.max(0, color.g * 255), 255);
-        data[offset + 2] = Math.min(Math.max(0, color.b * 255), 255);
-        data[offset + 3] = Math.min(Math.max(0, color.a * 255), 255);
-
-        this.colorsTexture.enqueueUpdate(id);
+        this.colorsTexture.setColorAt(id, color);
     }
 
     /**
@@ -571,14 +480,8 @@ export class BasicHierarchicalInstancer implements IInstancer {
      * @param color Optional `Color` to store the result.
      * @returns The color of the instance.
      */
-    public getColorAt(id: number, color: pc.Color = _tempCol): pc.Color {
-        const offset = id * 4;
-        const data = this.colorsTexture.data;
-        color.r = data[offset]     / 255;
-        color.g = data[offset + 1] / 255;
-        color.b = data[offset + 2] / 255;
-        color.a = data[offset + 3] / 255;
-        return color;
+    public getColorAt(id: number, color?: pc.Color): pc.Color {
+        return this.colorsTexture.getColorAt(id, color);
     }
 
     /**
@@ -599,8 +502,7 @@ export class BasicHierarchicalInstancer implements IInstancer {
             this._useOpacity = true;
         }
 
-        this.colorsTexture.data[id * 4 + 3] = Math.min(Math.max(0, value * 255), 255);
-        this.colorsTexture.enqueueUpdate(id);
+        this.colorsTexture.setOpacityAt(id, value);
     }
 
     /**
@@ -610,7 +512,7 @@ export class BasicHierarchicalInstancer implements IInstancer {
      */
     public getOpacityAt(id: number): number {
         if (!this._useOpacity) return 1;
-        return this.colorsTexture.data[id * 4 + 3] / 255;
+        return this.colorsTexture.getOpacityAt(id);
     }
 
     protected _beforeUpdateRenders(dt: number) {
@@ -677,6 +579,3 @@ export class BasicHierarchicalInstancer implements IInstancer {
 export default BasicHierarchicalInstancer;
 
 const _defaultCapacity = 1000;
-const _tempCol = new pc.Color();
-const _tempMat41 = new pc.Mat4();
-const _tempVec31 = new pc.Vec3();

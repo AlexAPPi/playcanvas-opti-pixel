@@ -1,5 +1,5 @@
 import pc from "../engine.js";
-import { type TypedArrayType, type TypedArrayConstructorType } from "./TypedArray.js";
+import { TypedArrayConstructorType, type TypedArrayType } from "./TypedArray.js";
 import { type ISquareDataTextureWriter, type TChannelSize } from "./SquareDataTexture.js";
 
 /**
@@ -7,16 +7,66 @@ import { type ISquareDataTextureWriter, type TChannelSize } from "./SquareDataTe
  * Implemented structurally by the array (no reverse import).
  */
 export interface ISquareDataTextureArrayLayerHost<TArray extends TypedArrayType> {
+
+    /**
+     * If true, the texture will be updated only if the data has changed.
+     */
     partialUpdate: boolean;
+
+    /**
+     * Maximum number of update calls per frame.
+     */
     maxUpdateCalls: number;
+
+    /**
+     * Number of pixels per instance.
+     */
     readonly pixelsPerInstance: number;
+
+    /**
+     * Number of channels per pixel.
+     */
     readonly channels: TChannelSize;
+
+    /**
+     * Maximum number of instances that the texture can hold.
+     */
     readonly capacity: number;
+
+    /**
+     * Texture.
+     */
     readonly texture: pc.Texture;
+
+    /**
+     * Data for each layer.
+     */
     readonly layerViews: InstanceType<TypedArrayConstructorType<TArray>>[];
-    enqueueUpdate(layer: number, index: number): void;
-    enqueueDataUpdate(layer: number, index: number, inData: TArray, offset?: number): void;
+
+    /**
+     * Update data for specific layer.
+     * @param layer - Layer index.
+     * @param index - Index of the instance.
+     */
+    enqueueUpdateLayer(layer: number, index: number): void;
+
+    /**
+     * 
+     * @param layer - Layer index.
+     * @param index - Index of the instance.
+     * @param inData - Data to update.
+     * @param offset - Offset in the data.
+     */
+    enqueueDataUpdateLayer(layer: number, index: number, inData: TArray, offset?: number): void;
+
+    /**
+     * Upload the texture to the GPU.
+     */
     upload(): void;
+
+    /**
+     * Update the texture on the GPU.
+     */
     update(): void;
 }
 
@@ -53,11 +103,11 @@ export class SquareDataTextureLayerProxy<TArray extends TypedArrayType> implemen
     }
 
     public enqueueUpdate(index: number): void {
-        this._parent.enqueueUpdate(this._layer, index);
+        this._parent.enqueueUpdateLayer(this._layer, index);
     }
 
     public enqueueDataUpdate(index: number, inData: TArray, offset: number = 0): void {
-        this._parent.enqueueDataUpdate(this._layer, index, inData, offset);
+        this._parent.enqueueDataUpdateLayer(this._layer, index, inData, offset);
     }
 
     public upload(): void {

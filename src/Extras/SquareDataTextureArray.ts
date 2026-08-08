@@ -29,9 +29,14 @@ export interface ISquareDataTextureArrayParams<TArray extends TypedArrayType> ex
  * Square data texture backed by a 2D texture array (`sampler2DArray`).
  * Each layer has the same square layout / capacity as {@link SquareDataTexture}.
  * Per-layer writer access: {@link getLayer} / {@link layerProxies}.
+ *
+ * @typeParam TArray - CPU buffer element type
+ * @typeParam TLayerProxy - per-layer writer proxy (defaults to {@link SquareDataTextureLayerProxy})
  */
-export class SquareDataTextureArray<TArray extends TypedArrayType>
-    implements ISquareDataTextureArrayLayerHost<TArray> {
+export class SquareDataTextureArray<
+    TArray extends TypedArrayType,
+    TLayerProxy extends SquareDataTextureLayerProxy<TArray> = SquareDataTextureLayerProxy<TArray>
+> implements ISquareDataTextureArrayLayerHost<TArray> {
 
     public partialUpdate = true;
     public maxUpdateCalls = Infinity;
@@ -44,7 +49,7 @@ export class SquareDataTextureArray<TArray extends TypedArrayType>
     protected _texture: pc.Texture;
     protected _data: InstanceType<TypedArrayConstructorType<TArray>>;
     protected _layerViews: InstanceType<TypedArrayConstructorType<TArray>>[];
-    protected _layerProxies: SquareDataTextureLayerProxy<TArray>[];
+    protected _layerProxies: TLayerProxy[];
     protected _layerStride: number;
     protected _stride: number;
     protected _channels: TChannelSize;
@@ -69,7 +74,7 @@ export class SquareDataTextureArray<TArray extends TypedArrayType>
     public get texture() { return this._texture; }
     public get data() { return this._data; }
     public get layerViews() { return this._layerViews; }
-    public get layerProxies() { return this._layerProxies; }
+    public get layerProxies(): TLayerProxy[] { return this._layerProxies; }
 
     constructor(device: pc.GraphicsDevice, params: ISquareDataTextureArrayParams<TArray>) {
 
@@ -112,8 +117,13 @@ export class SquareDataTextureArray<TArray extends TypedArrayType>
 
         this._layerProxies = new Array(this._layers);
         for (let layer = 0; layer < this._layers; layer++) {
-            this._layerProxies[layer] = new SquareDataTextureLayerProxy(this, layer);
+            this._layerProxies[layer] = this._createLayerProxy(layer);
         }
+    }
+
+    /** Override in typed subclasses to construct {@link TLayerProxy}. */
+    protected _createLayerProxy(layer: number): TLayerProxy {
+        return new SquareDataTextureLayerProxy(this, layer) as TLayerProxy;
     }
 
     public destroy(): void {
@@ -127,7 +137,7 @@ export class SquareDataTextureArray<TArray extends TypedArrayType>
         return this._layerViews[layer];
     }
 
-    public getLayer(layer: number): SquareDataTextureLayerProxy<TArray> {
+    public getLayer(layer: number): TLayerProxy {
         if (layer < 0 || layer >= this._layers) {
             throw new Error(`SquareDataTextureArray: layer ${layer} is out of range [0, ${this._layers})`);
         }
@@ -282,7 +292,15 @@ export class SquareDataTextureArray<TArray extends TypedArrayType>
         this._createOrResizeTexture(count);
     }
 
-    public enqueueUpdate(layer: number, index: number): void {
+    public enqueueUpdate(index: number): void {
+        this.enqueueUpdateLayer(0, index);
+    }
+
+    public enqueueDataUpdate(index: number, inData: TArray, offset: number = 0): void {
+        this.enqueueDataUpdateLayer(0, index, inData, offset);
+    }
+
+    public enqueueUpdateLayer(layer: number, index: number): void {
 
         if (!this.partialUpdate) {
             this._fullUploadPending = true;
@@ -302,9 +320,9 @@ export class SquareDataTextureArray<TArray extends TypedArrayType>
         }
     }
 
-    public enqueueDataUpdate(layer: number, index: number, inData: TArray, offset: number = 0): void {
+    public enqueueDataUpdateLayer(layer: number, index: number, inData: TArray, offset: number = 0): void {
 
-        this.enqueueUpdate(layer, index);
+        this.enqueueUpdateLayer(layer, index);
 
         const dataIndex = layer * this._layerStride + index * this._stride;
         const data = this._data;
