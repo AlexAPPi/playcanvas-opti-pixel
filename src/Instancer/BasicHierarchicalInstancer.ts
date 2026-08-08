@@ -316,9 +316,11 @@ export class BasicHierarchicalInstancer implements IInstancer {
 
         material.setParameter("uInstancerMatricesTexture", this.matricesTexture.texture);
         material.setParameter("uInstancerLocalInstanceMatrix", pc.Mat4.IDENTITY.data);
+        material.setParameter("uInstancerInstanceLayer", 0);
 
         material.setDefine("INSTANCER_USE_LAYERS", false);
         material.setDefine("INSTANCER_USE_CROSSFADE", true);
+        material.setDefine("INSTANCER_USE_EXTRAPAD", true);
 
         if (this.colorsTexture) {
             material.setDefine("INSTANCER_USE_CUSTOM_COLOR", true);

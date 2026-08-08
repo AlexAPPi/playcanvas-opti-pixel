@@ -4,10 +4,10 @@ import { radixSort } from "../Extras/RadixSort.js";
 
 export const maxInstancedListCapacity = 2 ** 20 - 1;
 
-function packDataToU32(index: number, opacity: number, layer: number) {
+function packDataToU32(index: number, opacity: number, extraPad: number) {
     return (index & 0xfffff)
         | ((opacity & 0xff) << 20)
-        | ((layer & 0xf) << 28);
+        | ((extraPad & 0xf) << 28);
 }
 
 export class InstancedList {
@@ -47,9 +47,9 @@ export class InstancedList {
         }
     }
 
-    public push(index: number, opacity: number = 255, layer: number = 0) {
+    public push(index: number, opacity: number = 255, extraPad: number = 0) {
         const queueIndex = this._count++;
-        const dataValue = packDataToU32(index, opacity, layer);
+        const dataValue = packDataToU32(index, opacity, extraPad);
         this._data[queueIndex] = dataValue;
         //this._queueHash = Math.imul(this._queueHash, 4294967311) + dataValue;
     }

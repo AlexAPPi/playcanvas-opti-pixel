@@ -46,9 +46,9 @@ export interface ILODRender {
      *
      * @param index The instance index in the buffer.
      * @param opacity Opacity value in the range from 0 to 1.
-     * @param layer The layer index. Default is 0.
+     * @param extraPad The extra value. Default is 0.
      */
-    enqueue(index: number, opacity: number, layer?: number): void;
+    enqueue(index: number, opacity: number, extraPad?: number): void;
 
     /**
      * Sorts the collected instances.

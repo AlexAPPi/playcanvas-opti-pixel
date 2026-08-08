@@ -1,10 +1,10 @@
 export default `
 
-    // (id & 0xfffff) | ((opacity & 0xff) << 20) | ((layer & 0xf) << 28)
+    // (id & 0xfffff) | ((opacity & 0xff) << 20) | ((extraPad & 0xf) << 28)
     attribute aInstancerInstance: u32;
 
     fn getInstanceIdFromAttribute() -> u32 {
-        #if defined(INSTANCER_USE_CROSSFADE) || defined(INSTANCER_USE_LAYERS)
+        #if defined(INSTANCER_USE_CROSSFADE) || defined(INSTANCER_USE_EXTRAPAD)
             return aInstancerInstance & 0xfffffu;
         #else
             return aInstancerInstance;
@@ -20,8 +20,8 @@ export default `
         #endif
     }
 
-    fn getInstanceLayerFromAttribute() -> u32 {
-        #ifdef INSTANCER_USE_LAYERS
+    fn getInstanceExtraPadFromAttribute() -> u32 {
+        #ifdef INSTANCER_USE_EXTRAPAD
             return (aInstancerInstance >> 28u) & 0xfu;
         #else
             return 0u;
