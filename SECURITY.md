@@ -2,12 +2,27 @@
 
 ## Supported Versions
 
-Security fixes are provided for the latest released version of `playcanvas-opti-pixel` on npm.
+Security updates are provided only for the **latest stable release** of `playcanvas-opti-pixel` published on [npm](https://www.npmjs.com/package/playcanvas-opti-pixel).
+
+A **stable version** is always a release in the `X.Y` form (for example `1.1`, `2.0`, `2.1`).
+
+Versions with a patch component (`X.Y.Z`, for example `1.0.1`, `1.0.13`) are **not** considered stable. Pre-release, alpha, beta, RC, and other non-stable tags are also not stable.
+
+The following are **not** considered supported for security fixes:
+
+- Non-stable `X.Y.Z` releases (for example `1.0.1`)
+- Older stable `X.Y` releases once a newer stable version is available
+- Pre-release, alpha, beta, RC, or other non-stable tags
+- Unpublished commits, forks, or custom builds not matching an npm release
 
 | Version | Supported          |
 | ------- | ------------------ |
-| latest  | :white_check_mark: |
-| older   | :x:                |
+| Latest stable (`X.Y`, e.g. `1.1`, `2.0`, `2.1`) | :white_check_mark: |
+| Older stable `X.Y` releases | :x: |
+| Non-stable `X.Y.Z` (e.g. `1.0.1`) | :x: |
+| Pre-releases / non-stable tags | :x: |
+
+We recommend always upgrading to the latest stable `X.Y` version from npm. When a vulnerability is fixed, the fix is typically released as a new stable `X.Y` version.
 
 ## Reporting a Vulnerability
 
