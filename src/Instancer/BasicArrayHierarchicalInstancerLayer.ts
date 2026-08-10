@@ -197,7 +197,9 @@ export class BasicArrayHierarchicalInstancerLayer<
 
     public removeLOD(levelIndex: number, destroyObject: boolean = true) {
         const removed = this._removeLevel(this.LODs, levelIndex, destroyObject);
-        this.updateInstanceBoundingBox();
+        if (this.LODs.length > 0) {
+            this.updateInstanceBoundingBox();
+        }
         return removed;
     }
 
