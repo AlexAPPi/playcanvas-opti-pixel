@@ -288,6 +288,7 @@ export class BasicHierarchicalInstancer implements IInstancer {
             const material = mesh.material;
             if (material instanceof pc.StandardMaterial) {
                 this._patchMaterial(material);
+                this._patchMeshInstanceParameters(mesh);
                 mesh.material = material;
             }
         }
@@ -395,6 +396,9 @@ export class BasicHierarchicalInstancer implements IInstancer {
             .set("instancerUserDeclarationPS", originalLitUserDeclarationPS)
             .set("instancerUserMainStartPS", originalLitUserStartMainPS)
         ;
+    }
+
+    protected _patchMeshInstanceParameters(mesh: pc.MeshInstance) {
     }
 
     protected _patchMaterial(material: pc.StandardMaterial, shaderChunkMapScope?: IInstancerShaderChunkMapScope, updateMaterial: boolean = true) {

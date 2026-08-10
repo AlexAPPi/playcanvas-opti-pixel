@@ -271,6 +271,10 @@ export class BasicArrayHierarchicalInstancerLayer<
         return removedObj;
     }
 
+    protected _patchMeshInstanceParameters(mesh: pc.MeshInstance) {
+        mesh.setParameter("uInstancerInstanceLayer", this._layer);
+    }
+
     protected _patchMeshInstancesMaterials(meshInstanceList: pc.MeshInstance[]) {
         const numMeshes = meshInstanceList.length;
         for (let i = 0; i < numMeshes; i++) {
@@ -278,6 +282,7 @@ export class BasicArrayHierarchicalInstancerLayer<
             const material = mesh.material;
             if (material instanceof pc.StandardMaterial) {
                 this._patchMaterial(material);
+                this._patchMeshInstanceParameters(mesh);
                 mesh.material = material;
             }
         }
