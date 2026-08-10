@@ -108,6 +108,7 @@ export class LODRender implements ILODRender {
 
     public resize(newCapacity: number) {
         this.list.resize(newCapacity);
+        this.patchMeshes();
     }
 
     public start() {
