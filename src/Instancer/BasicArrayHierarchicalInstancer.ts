@@ -137,6 +137,25 @@ export class BasicArrayHierarchicalInstancer<
         this.colorsTextureArray?.update();
     }
 
+    /**
+     * Release layers, LOD GPU resources and data textures.
+     * The instance must not be used after this call.
+     */
+    public destroy(): void {
+
+        const list = this._layerList;
+        while (list.length > 0) {
+            list.pop()?._destroy();
+        }
+        this._layers = 0;
+
+        this.matricesTextureArray?.destroy();
+        this.matricesTextureArray = null!;
+
+        this.colorsTextureArray?.destroy();
+        this.colorsTextureArray = null!;
+    }
+
     public resize(newCapacity: number) {
 
         if (this._capacity === newCapacity) {
