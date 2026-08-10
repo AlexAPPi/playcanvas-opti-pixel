@@ -43,7 +43,10 @@ export class InstancedList {
         this._data  = new Uint32Array(newCapacity);
 
         if (oldIndexes) {
-            this._data.set(oldIndexes, 0);
+            const safeCount = Math.min(oldIndexes.length, newCapacity);
+            for (let i = 0; i < safeCount; i++) {
+                this._data[i] = oldIndexes[i];
+            }
         }
     }
 
