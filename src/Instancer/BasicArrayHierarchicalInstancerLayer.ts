@@ -8,6 +8,26 @@ import { LODRender } from "./LODRender.js";
 import { ILODRender } from "./ILODRender.js";
 import { defaultShaderChunksMapScope, IInstancerShaderChunkMap, IInstancerShaderChunkMapScope } from "./InstancerShaderChunks.js";
 
+let _idCounter = 0;
+let _idPool: number[] = [];
+let _idMap: Map<number, BasicArrayHierarchicalInstancerLayer<any>> = new Map();
+
+function registrationInstancerLayer(instancerLayer: BasicArrayHierarchicalInstancerLayer<any>): number {
+    const id = _idPool.length > 0 ? _idPool.pop()! : _idCounter++;
+    _idMap.set(id, instancerLayer);
+    return id;
+}
+
+function unregistrationInstancerLayer(id: number): void {
+    if (_idMap.delete(id)) {
+        _idPool.push(id);
+    }
+}
+
+export function getInstancerLayerById(id: number): BasicArrayHierarchicalInstancerLayer<any> | undefined {
+    return _idMap.get(id);
+}
+
 /**
  * Per-layer view of {@link BasicArrayHierarchicalInstancer}: own LODs, sorter,
  * material/opacity flags; shares capacity and texture arrays with the host.
@@ -18,8 +38,19 @@ export class BasicArrayHierarchicalInstancerLayer<
     THost extends BasicArrayHierarchicalInstancer<any> = BasicArrayHierarchicalInstancer<any>
 > {
 
+    /**
+     * Gets the instancer layer with the given id.
+     * @param id - The id of the instancer.
+     * @returns The instancer with the given id.
+     */
+    public static getInstancerLayerById(id: number): BasicArrayHierarchicalInstancerLayer<any> | undefined {
+        return getInstancerLayerById(id);
+    }
+
     /** @internal */ _sortObjects = false;
     /** @internal */ _useOpacity = false;
+
+    private _id: number;
 
     protected _needUpdateMaterials: boolean = true;
     protected _time: number = 0;
@@ -53,6 +84,11 @@ export class BasicArrayHierarchicalInstancerLayer<
      */
     public colorsTexture: ColorDataTextureLayerProxy = null!;
 
+    /**
+     * Unique id for the instancer.
+     */
+    public get id(): number { return this._id; }
+
     public get layer(): number { return this._layer; }
 
     public get host(): THost { return this._host; }
@@ -61,8 +97,8 @@ export class BasicArrayHierarchicalInstancerLayer<
 
     public get capacity(): number { return this._host.capacity; }
 
-    /** @internal — constructed by {@link BasicArrayHierarchicalInstancer} only. */
     public constructor(host: THost, layer: number) {
+        this._id = registrationInstancerLayer(this);
         this._host = host;
         this._layer = layer;
         this.matricesTexture = host.matricesTextureArray.getLayer(layer);
@@ -273,6 +309,7 @@ export class BasicArrayHierarchicalInstancerLayer<
 
     protected _patchMeshInstanceParameters(mesh: pc.MeshInstance) {
         mesh.setParameter("uInstancerInstanceLayer", this._layer);
+        mesh.setParameter("vInstancerLayerPickId", this.id);
     }
 
     protected _patchMeshInstancesMaterials(meshInstanceList: pc.MeshInstance[]) {
@@ -316,10 +353,15 @@ export class BasicArrayHierarchicalInstancerLayer<
         material.setParameter("uInstancerMatricesTexture", host.matricesTextureArray.texture);
         material.setParameter("uInstancerLocalInstanceMatrix", pc.Mat4.IDENTITY.data);
         material.setParameter("uInstancerInstanceLayer", this._layer);
+        material.setParameter("vInstancerLayerPickId", this.id);
 
         material.setDefine("INSTANCER_USE_LAYERS", true);
         material.setDefine("INSTANCER_USE_CROSSFADE", true);
         material.setDefine("INSTANCER_USE_EXTRAPAD", true);
+
+        // Default dont use custom pick id
+        material.setDefine("CUSTOM_PICK_ID", false);
+        material.setDefine("INSTANCER_USE_PICK_ID", false);
 
         if (host.colorsTextureArray) {
             material.setDefine("INSTANCER_USE_CUSTOM_COLOR", true);
@@ -385,6 +427,10 @@ export class BasicArrayHierarchicalInstancerLayer<
             .set("instancerInstanceCrossFadeVS", chunks.instancerInstaceCrossFadeVS)
             .set("instancerInstanceMatrixVS", chunks.instancerInstanceMatrixVS)
             .set("instancerInstanceColorVS", chunks.instancerInstanceColorVS)
+            .set("instancerInstancePickIdVS", chunks.instancerInstancePickIdVS)
+
+            // Instancer PS
+            .set("instancerInstancePickIdPS", chunks.instancerInstancePickIdPS)
 
             // Instancer user VS
             .set("instancerUserDeclarationVS", originalLitUserDeclarationVS)
@@ -532,6 +578,7 @@ export class BasicArrayHierarchicalInstancerLayer<
 
     /** @internal — host lifecycle. */
     public _destroy(): void {
+        unregistrationInstancerLayer(this.id);
         const lods = this.LODs;
         for (let i = 0; i < lods.length; i++) {
             lods[i].render?.destroy();

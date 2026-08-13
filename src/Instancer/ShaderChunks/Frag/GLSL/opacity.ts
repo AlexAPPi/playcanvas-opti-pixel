@@ -7,12 +7,12 @@ export default `
         dAlpha = material_opacity;
 
         #ifdef INSTANCER_USE_CROSSFADE
-        dAlpha *= vInstancerCrossFade;
+        dAlpha *= vInstancerInstanceCrossFade;
         #endif
 
         #ifdef INSTANCER_USE_CUSTOM_COLOR
             #ifdef INSTANCER_USE_CUSTOM_OPACITY
-            dAlpha *= vInstancerCutomColor.a;
+            dAlpha *= vInstancerInstanceCutomColor.a;
             #endif
         #endif
 

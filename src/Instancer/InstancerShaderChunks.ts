@@ -6,6 +6,7 @@ import GLSLInstancerInstanceLayerVS from "./ShaderChunks/Vert/GLSL/instanceLayer
 import GLSLInstancerInstaceCrossFadeVS from "./ShaderChunks/Vert/GLSL/instanceCrossFade.js";
 import GLSLInstancerInstanceMatrixVS from "./ShaderChunks/Vert/GLSL/instanceMatrix.js";
 import GLSLInstancerInstanceColorVS from "./ShaderChunks/Vert/GLSL/instanceColor.js";
+import GLSLInstancerInstancePickIdVS from "./ShaderChunks/Vert/GLSL/instancePickId.js";
 import GLSLTransformInstancingVS from "./ShaderChunks/Vert/GLSL/transformInstancing.js";
 import GLSLInstancerDeclarationVS from "./ShaderChunks/Vert/GLSL/instancerDeclaration.js";
 import GLSLInstancerMainEndVS from "./ShaderChunks/Vert/GLSL/instancerMainEnd.js";
@@ -18,17 +19,20 @@ import WGSLInstancerInstanceLayerVS from "./ShaderChunks/Vert/WGSL/instanceLayer
 import WGSLInstancerInstaceCrossFadeVS from "./ShaderChunks/Vert/WGSL/instanceCrossFade.js";
 import WGSLInstancerInstanceMatrixVS from "./ShaderChunks/Vert/WGSL/instanceMatrix.js";
 import WGSLInstancerInstanceColorVS from "./ShaderChunks/Vert/WGSL/instanceColor.js";
+import WGSLInstancerInstancePickIdVS from "./ShaderChunks/Vert/WGSL/instancePickId.js";
 import WGSLTransformInstancingVS from "./ShaderChunks/Vert/WGSL/transformInstancing.js";
 import WGSLInstancerDeclarationVS from "./ShaderChunks/Vert/WGSL/instancerDeclaration.js";
 import WGSLInstancerMainEndVS from "./ShaderChunks/Vert/WGSL/instancerMainEnd.js";
 
 // GLSL PS
+import GLSLInstancerInstancePickIdPS from "./ShaderChunks/Frag/GLSL/instancePickId.js";
 import GLSLInstancerDeclarationPS from "./ShaderChunks/Frag/GLSL/instancerDeclaration.js";
 import GLSLInstancerMainStartPS from "./ShaderChunks/Frag/GLSL/instancerMainStart.js";
 import GLSLInstancerDiffusePS from "./ShaderChunks/Frag/GLSL/diffuse.js";
 import GLSLInstancerOpacityPS from "./ShaderChunks/Frag/GLSL/opacity.js";
 
 // WGSL PS
+import WGSLInstancerInstancePickIdPS from "./ShaderChunks/Frag/WGSL/instancePickId.js";
 import WGSLInstancerDeclarationPS from "./ShaderChunks/Frag/WGSL/instancerDeclaration.js";
 import WGSLInstancerMainStartPS from "./ShaderChunks/Frag/WGSL/instancerMainStart.js";
 import WGSLInstancerDiffusePS from "./ShaderChunks/Frag/WGSL/diffuse.js";
@@ -42,9 +46,11 @@ export interface IInstancerShaderChunkMap {
     instancerInstaceCrossFadeVS: string;
     instancerInstanceMatrixVS: string;
     instancerInstanceColorVS: string;
+    instancerInstancePickIdVS: string;
     transformInstancingVS: string;
     instancerDeclarationVS: string;
     instancerMainEndVS: string;
+    instancerInstancePickIdPS: string;
     instancerDeclarationPS: string;
     instancerMainStartPS: string;
     instancerDiffusePS: string;
@@ -70,9 +76,11 @@ export const defaultShaderChunksMapScope: IInstancerShaderDefaultChunkMapScope =
         instancerInstaceCrossFadeVS: GLSLInstancerInstaceCrossFadeVS,
         instancerInstanceMatrixVS: GLSLInstancerInstanceMatrixVS,
         instancerInstanceColorVS: GLSLInstancerInstanceColorVS,
+        instancerInstancePickIdVS: GLSLInstancerInstancePickIdVS,
         transformInstancingVS: GLSLTransformInstancingVS,
         instancerDeclarationVS: GLSLInstancerDeclarationVS,
         instancerMainEndVS: GLSLInstancerMainEndVS,
+        instancerInstancePickIdPS: GLSLInstancerInstancePickIdPS,
         instancerDeclarationPS: GLSLInstancerDeclarationPS,
         instancerMainStartPS: GLSLInstancerMainStartPS,
         instancerDiffusePS: GLSLInstancerDiffusePS,
@@ -86,9 +94,11 @@ export const defaultShaderChunksMapScope: IInstancerShaderDefaultChunkMapScope =
         instancerInstaceCrossFadeVS: WGSLInstancerInstaceCrossFadeVS,
         instancerInstanceMatrixVS: WGSLInstancerInstanceMatrixVS,
         instancerInstanceColorVS: WGSLInstancerInstanceColorVS,
+        instancerInstancePickIdVS: WGSLInstancerInstancePickIdVS,
         transformInstancingVS: WGSLTransformInstancingVS,
         instancerDeclarationVS: WGSLInstancerDeclarationVS,
         instancerMainEndVS: WGSLInstancerMainEndVS,
+        instancerInstancePickIdPS: WGSLInstancerInstancePickIdPS,
         instancerDeclarationPS: WGSLInstancerDeclarationPS,
         instancerMainStartPS: WGSLInstancerMainStartPS,
         instancerDiffusePS: WGSLInstancerDiffusePS,

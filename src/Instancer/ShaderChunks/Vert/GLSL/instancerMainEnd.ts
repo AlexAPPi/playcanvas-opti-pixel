@@ -2,32 +2,40 @@ export default `
 
     #ifdef INSTANCING
 
+        #if defined(PICK_PASS) && defined(PICK_CUSTOM_ID) && defined(INSTANCER_USE_PICK_ID)
+        vInstancerInstancePickId = getInstancePickId();
+        #endif
+
         #ifdef INSTANCER_USE_LAYERS
-        vInstancerLayer = getInstanceLayer();
+        vInstancerInstanceLayer = getInstanceLayer();
         #endif
 
         #ifdef INSTANCER_USE_CROSSFADE
-        vInstancerCrossFade = getInstanceCrossFade();
+        vInstancerInstanceCrossFade = getInstanceCrossFade();
         #endif
 
         #ifdef INSTANCER_USE_CUSTOM_COLOR
-        vInstancerCutomColor = getInstanceColor();
+        vInstancerInstanceCutomColor = getInstanceColor();
         #endif
 
         #include "instancerUserMainEndVS"
 
     #else
 
+        #if defined(PICK_PASS) && defined(PICK_CUSTOM_ID) && defined(INSTANCER_USE_PICK_ID)
+        vInstancerInstancePickId = 0u;
+        #endif
+
         #ifdef INSTANCER_USE_LAYERS
-        vInstancerLayer = 0u;
+        vInstancerInstanceLayer = 0u;
         #endif
 
         #ifdef INSTANCER_USE_CROSSFADE
-        vInstancerCrossFade = 1.0;
+        vInstancerInstanceCrossFade = 1.0;
         #endif
 
         #ifdef INSTANCER_USE_CUSTOM_COLOR
-        vInstancerCutomColor = vec4(1.0);
+        vInstancerInstanceCutomColor = vec4(1.0);
         #endif
 
     #endif

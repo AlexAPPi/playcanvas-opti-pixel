@@ -1,16 +1,17 @@
 export default `
 
     #include "instancerUserDeclarationPS"
+    #include "instancerInstancePickIdPS"
 
     #ifdef INSTANCER_USE_LAYERS
-    flat varying uint vInstancerLayer;
+    flat varying uint vInstancerInstanceLayer;
     #endif
 
     #ifdef INSTANCER_USE_CROSSFADE
-    varying float vInstancerCrossFade;
+    varying float vInstancerInstanceCrossFade;
     #endif
 
     #ifdef INSTANCER_USE_CUSTOM_COLOR
-    varying vec4 vInstancerCutomColor;
+    varying vec4 vInstancerInstanceCutomColor;
     #endif
 `;

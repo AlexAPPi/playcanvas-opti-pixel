@@ -1,15 +1,19 @@
 export default `
 
+    #if defined(PICK_PASS) && defined(PICK_CUSTOM_ID) && defined(INSTANCER_USE_PICK_ID)
+    flat varying uint vInstancerInstancePickId;
+    #endif
+
     #ifdef INSTANCER_USE_LAYERS
-    flat varying uint vInstancerLayer;
+    flat varying uint vInstancerInstanceLayer;
     #endif
 
     #ifdef INSTANCER_USE_CROSSFADE
-    varying float vInstancerCrossFade;
+    varying float vInstancerInstanceCrossFade;
     #endif
 
     #ifdef INSTANCER_USE_CUSTOM_COLOR
-    varying vec4 vInstancerCutomColor;
+    varying vec4 vInstancerInstanceCutomColor;
     #endif
 
     #ifdef INSTANCING
@@ -30,6 +34,7 @@ export default `
         #endif
 
         #include "instancerInstanceMatrixVS"
+        #include "instancerInstancePickIdVS"
 
     #endif
 `;

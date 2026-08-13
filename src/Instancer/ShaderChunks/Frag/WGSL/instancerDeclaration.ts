@@ -1,9 +1,10 @@
 export default `
 
     #include "instancerUserDeclarationPS"
+    #include "instancerInstancePickIdPS"
 
     #ifdef INSTANCER_USE_LAYERS
-    varying @interpolate(flat) vInstancerLayer: u32;
+    varying @interpolate(flat) vInstancerInstanceLayer: u32;
     #endif
 
     #ifdef INSTANCER_USE_CROSSFADE

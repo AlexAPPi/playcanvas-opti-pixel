@@ -10,7 +10,7 @@ export default `
         dAlbedo = material_diffuse.rgb;
 
         #ifdef INSTANCER_USE_CUSTOM_COLOR
-        dAlbedo *= vInstancerCutomColor.rgb;
+        dAlbedo *= vInstancerInstanceCutomColor.rgb;
         #endif
 
         #ifdef STD_DIFFUSE_TEXTURE

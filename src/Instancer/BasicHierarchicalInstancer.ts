@@ -8,6 +8,26 @@ import { LODRender } from "./LODRender.js";
 import { ILODRender } from "./ILODRender.js";
 import { defaultShaderChunksMapScope, IInstancerShaderChunkMap, IInstancerShaderChunkMapScope } from "./InstancerShaderChunks.js";
 
+let _idCounter = 0;
+let _idPool: number[] = [];
+let _idMap: Map<number, BasicHierarchicalInstancer> = new Map();
+
+function registrationInstancerId(instancer: BasicHierarchicalInstancer): number {
+    const id = _idPool.length > 0 ? _idPool.pop()! : _idCounter++;
+    _idMap.set(id, instancer);
+    return id;
+}
+
+function unregistrationInstancer(id: number): void {
+    if (_idMap.delete(id)) {
+        _idPool.push(id);
+    }
+}
+
+export function getInstancerById(id: number): BasicHierarchicalInstancer | undefined {
+    return _idMap.get(id);
+}
+
 /**
  * Parameters for configuring an `BasicHierarchicalInstancer` instance.
  */
@@ -23,8 +43,19 @@ export interface IBasicHierarchicalInstancerParams {
 
 export class BasicHierarchicalInstancer implements IInstancer {
 
+    /**
+     * Gets the instancer with the given id.
+     * @param id - The id of the instancer.
+     * @returns The instancer with the given id.
+     */
+    public static getInstancerById(id: number): BasicHierarchicalInstancer | undefined {
+        return getInstancerById(id);
+    }
+
     /** @internal */ _sortObjects = false;
     /** @internal */ _useOpacity = false;
+
+    private _id: number;
 
     protected _time: number = 0;
 
@@ -45,6 +76,11 @@ export class BasicHierarchicalInstancer implements IInstancer {
      * Instanced mesh graphics device
      */
     public readonly device: pc.GraphicsDevice;
+
+    /**
+     * Unique id for the instancer.
+     */
+    public get id(): number { return this._id; }
 
     /**
      * LODs
@@ -72,6 +108,7 @@ export class BasicHierarchicalInstancer implements IInstancer {
 
         this.device = device;
 
+        this._id = registrationInstancerId(this);
         this._capacity = capacity;
         this._initMatricesTexture();
     }
@@ -320,11 +357,17 @@ export class BasicHierarchicalInstancer implements IInstancer {
         material.setParameter("uInstancerMatricesTexture", this.matricesTexture.texture);
         material.setParameter("uInstancerLocalInstanceMatrix", pc.Mat4.IDENTITY.data);
         material.setParameter("uInstancerInstanceLayer", 0);
+        material.setParameter("uInstancerPickId", this.id);
 
         material.setDefine("INSTANCER_USE_LAYERS", false);
         material.setDefine("INSTANCER_USE_CROSSFADE", true);
         material.setDefine("INSTANCER_USE_EXTRAPAD", true);
 
+        // Default dont use custom pick id
+        material.setDefine("CUSTOM_PICK_ID", false);
+        material.setDefine("INSTANCER_USE_PICK_ID", false);
+
+        // Custom color and opacity
         if (this.colorsTexture) {
             material.setDefine("INSTANCER_USE_CUSTOM_COLOR", true);
             material.setDefine("INSTANCER_USE_CUSTOM_OPACITY", this._useOpacity);
@@ -379,7 +422,7 @@ export class BasicHierarchicalInstancer implements IInstancer {
             .set("diffusePS", chunks.instancerDiffusePS)
             .set("opacityPS", chunks.instancerOpacityPS)
 
-            // Instancer
+            // Instancer VS
             .set("instancerInstanceVS", chunks.instancerInstanceVS)
             .set("instancerInstanceAttrVS", chunks.instancerInstanceAttrVS)
             .set("instancerInstanceIdVS", chunks.instancerInstanceIdVS)
@@ -387,6 +430,10 @@ export class BasicHierarchicalInstancer implements IInstancer {
             .set("instancerInstanceCrossFadeVS", chunks.instancerInstaceCrossFadeVS)
             .set("instancerInstanceMatrixVS", chunks.instancerInstanceMatrixVS)
             .set("instancerInstanceColorVS", chunks.instancerInstanceColorVS)
+            .set("instancerInstancePickIdVS", chunks.instancerInstancePickIdVS)
+
+            // Instancer PS
+            .set("instancerInstancePickIdPS", chunks.instancerInstancePickIdPS)
 
             // Instancer user VS
             .set("instancerUserDeclarationVS", originalLitUserDeclarationVS)
@@ -399,6 +446,8 @@ export class BasicHierarchicalInstancer implements IInstancer {
     }
 
     protected _patchMeshInstanceParameters(mesh: pc.MeshInstance) {
+        mesh.setParameter("uInstancerInstanceLayer", 0);
+        mesh.setParameter("uInstancerPickId", this.id);
     }
 
     protected _patchMaterial(material: pc.StandardMaterial, shaderChunkMapScope?: IInstancerShaderChunkMapScope, updateMaterial: boolean = true) {
@@ -584,6 +633,28 @@ export class BasicHierarchicalInstancer implements IInstancer {
             if (distance >= levelDistance) return i;
         }
         return 0;
+    }
+
+    /**
+     * Destroys the instancer and all its resources.
+     */
+    public destroy(): void {
+        const lods = this.LODs;
+        for (let i = 0; i < lods.length; i++) {
+            lods[i].render?.destroy();
+        }
+        lods.length = 0;
+
+        this.matricesTexture?.destroy();
+        this.matricesTexture = null!;
+        this.colorsTexture?.destroy();
+        this.colorsTexture = null!;
+
+        unregistrationInstancer(this.id);
+        this._disposeSorter();
+        this._needUpdateMaterials = false;
+        this._sortObjectsInStep = false;
+        this._capacity = 0;
     }
 }
 
