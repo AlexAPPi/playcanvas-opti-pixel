@@ -8,10 +8,10 @@ export default `
     #endif
 
     #ifdef INSTANCER_USE_CROSSFADE
-    varying vInstancerCrossFade: f32;
+    varying vInstancerInstanceCrossFade: f32;
     #endif
 
     #ifdef INSTANCER_USE_CUSTOM_COLOR
-    varying vInstancerCutomColor: vec4f;
+    varying vInstancerInstanceCustomColor: vec4f;
     #endif
 `;
