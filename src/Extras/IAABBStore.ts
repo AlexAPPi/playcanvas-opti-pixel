@@ -89,4 +89,9 @@ export interface IAABBStore {
      * @param matrixData - Float32Array to store the matrix data
      */
     getMatrix(index: number, matrixData: Float32Array): void;
+
+    /**
+     * Releases GPU textures owned by the store.
+     */
+    destroy(): void;
 }
