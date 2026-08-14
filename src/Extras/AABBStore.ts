@@ -108,4 +108,9 @@ export class AABBStore implements IAABBStore {
         this._centersStore.update();
         this._halfExtentsStore.update();
     }
+
+    public destroy() {
+        this._centersStore.destroy();
+        this._halfExtentsStore.destroy();
+    }
 }
