@@ -8,7 +8,9 @@ import { LODRender } from "./LODRender.js";
 import { ILODRender } from "./ILODRender.js";
 import { defaultShaderChunksMapScope, IInstancerShaderChunkMap, IInstancerShaderChunkMapScope } from "./InstancerShaderChunks.js";
 
-let _idCounter = 0;
+// Start at 1 so packed pick ids always have bits 20..31 set. 0 collides with
+// PlayCanvas meshInstance.id (standard pick / click miss).
+let _idCounter = 1;
 let _idPool: number[] = [];
 let _idMap: Map<number, BasicArrayHierarchicalInstancerLayer<any>> = new Map();
 
