@@ -40,4 +40,6 @@ npm run docs:api
 
 Then open `docs/api/index.html`.
 
-On every push to `main`, GitHub Actions runs the same command and publishes to [GitHub Pages](https://alexappi.github.io/playcanvas-opti-pixel/). First time: **Settings → Pages → Source → GitHub Actions**.
+On every push to `main`, GitHub Actions publishes TypeDoc to [GitHub Pages](https://alexappi.github.io/playcanvas-opti-pixel/).
+
+The Actions token cannot create a Pages site. Enable it once in the GitHub UI: **Settings → Pages → Build and deployment → Source → GitHub Actions**. Then re-run **Deploy docs**.
