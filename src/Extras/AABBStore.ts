@@ -11,12 +11,25 @@ export class AABBStore implements IAABBStore {
     private _indexManager: IndexManager;
     private _centersStore: Vec4F32Texture;
     private _halfExtentsStore: Vec4F32Texture;
+    private _version = 0;
 
     public readonly device: pc.GraphicsDevice;
     public get capacity() { return this._indexManager.capacity; }
     public get indexManager() { return this._indexManager; }
-    public get centersTexture() { return this._centersStore.texture; }
-    public get halfExtentsTexture() { return this._halfExtentsStore.texture; }
+    public get version() { return this._version; }
+    public get centersTexture() {
+        this._ensureGpuTextures();
+        return this._centersStore.texture;
+    }
+    public get halfExtentsTexture() {
+        this._ensureGpuTextures();
+        return this._halfExtentsStore.texture;
+    }
+    public get hasTextures() {
+        return this._centersStore.hasTexture && this._halfExtentsStore.hasTexture;
+    }
+    public get centersData() { return this._centersStore.data; }
+    public get halfExtentsData() { return this._halfExtentsStore.data; }
 
     public constructor(device: pc.GraphicsDevice, capacity: number) {
         this.device = device;
@@ -29,6 +42,7 @@ export class AABBStore implements IAABBStore {
         this._indexManager.resize(newCapacity);
         this._centersStore.resize(newCapacity);
         this._halfExtentsStore.resize(newCapacity);
+        this._version++;
     }
 
     public lock(boundingBox: pc.BoundingBox, matrix?: pc.Mat4, extra1: number = 0, extra2: number = 0): number {
@@ -73,6 +87,10 @@ export class AABBStore implements IAABBStore {
         const r1 = this._centersStore.tryEnqueueUpdateVec3(index, resultBoundingBox.center, extra1);
         const r2 = this._halfExtentsStore.tryEnqueueUpdateVec3(index, resultBoundingBox.halfExtents, extra2);
 
+        if (r1 || r2) {
+            this._version++;
+        }
+
         return r1 || r2;
     }
 
@@ -112,5 +130,10 @@ export class AABBStore implements IAABBStore {
     public destroy() {
         this._centersStore.destroy();
         this._halfExtentsStore.destroy();
+    }
+
+    private _ensureGpuTextures() {
+        this._centersStore.texture;
+        this._halfExtentsStore.texture;
     }
 }

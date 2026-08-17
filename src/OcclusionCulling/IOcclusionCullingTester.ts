@@ -1,4 +1,5 @@
 import pc from "../engine.js";
+import type { OccluderStore } from "./Software/OccluderStore.js";
 
 export type TUnicalId = number;
 export type TUnicalQueueIndex = number;
@@ -30,6 +31,10 @@ export function isGPU2CPUReadbackOcclusionCullingTester(x: unknown): x is IGPU2C
 
 export function isGPUIndirectDrawOcclusionCullingTester(x: unknown): x is IGPUIndirectDrawOcclusionCullingTester {
     return (x as any)?._ocTesterType === "gpu_indirect_draw_oct";
+}
+
+export function isCPUSoftwareOcclusionCullingTester(x: unknown): x is ICPUSoftwareOcclusionCullingTester {
+    return (x as any)?._ocTesterType === "cpu_software_oct";
 }
 
 /**
@@ -109,13 +114,9 @@ export interface IGPUIndirectDrawOcclusionCullingTester extends IOcclusionCullin
 }
 
 /**
- * Interface for working with an occlusion culling testing system.
- * Allows registering BoundingBox objects, enqueueing them for testing,
- * and checking if the object is occluded by other scene geometry.
+ * Interface for working with an occlusion culling testing system that uses readback.
  */
-export interface IGPU2CPUReadbackOcclusionCullingTester extends IOcclusionCullingTester {
-
-    readonly _ocTesterType: "gpu2cpu_readback_oct";
+export interface IReadbackOcclusionCullingTester extends IOcclusionCullingTester {
 
     /**
      * Return the result of the last occlusion test for the specified object.
@@ -137,4 +138,33 @@ export interface IGPU2CPUReadbackOcclusionCullingTester extends IOcclusionCullin
      * @param camera - The camera
      */
     execute(camera: pc.Camera): void;
+}
+
+/**
+ * Interface for working with an occlusion culling testing system.
+ * Allows registering BoundingBox objects, enqueueing them for testing,
+ * and checking if the object is occluded by other scene geometry.
+ */
+export interface IGPU2CPUReadbackOcclusionCullingTester extends IReadbackOcclusionCullingTester {
+    readonly _ocTesterType: "gpu2cpu_readback_oct";
+}
+
+/**
+ * CPU software occlusion tester. Rasterizes primitive and mesh occluders and tests AABBs
+ * on a worker thread. Hi-Z is built only inside the worker.
+ */
+export interface ICPUSoftwareOcclusionCullingTester extends IReadbackOcclusionCullingTester {
+
+    readonly _ocTesterType: "cpu_software_oct";
+
+    /**
+     * Occluder store.
+     */
+    readonly occluders: OccluderStore;
+
+    /**
+     * Updates the tester.
+     * @param dt - The delta time.
+     */
+    frameUpdate(dt?: number): void;
 }

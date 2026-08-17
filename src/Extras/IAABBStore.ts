@@ -17,14 +17,37 @@ export interface IAABBStore {
     readonly indexManager: IndexManager;
 
     /**
+     * True after both GPU textures were created by accessing
+     * {@link centersTexture} or {@link halfExtentsTexture}.
+     */
+    readonly hasTextures: boolean;
+
+    /**
      * Texture containing AABB centers.
+     * Created on first access; until then the store keeps CPU arrays only.
      */
     readonly centersTexture: pc.Texture;
 
     /**
      * Texture containing AABB half extents.
+     * Created on first access; until then the store keeps CPU arrays only.
      */
     readonly halfExtentsTexture: pc.Texture;
+
+    /**
+     * CPU packed centers (xyz + extra1 per index).
+     */
+    readonly centersData: Float32Array;
+
+    /**
+     * CPU packed half extents (xyz + extra2 per index).
+     */
+    readonly halfExtentsData: Float32Array;
+
+    /**
+     * Increments when AABB CPU data changes (lock, update, resize).
+     */
+    readonly version: number;
 
     /**
      * Updates the stored data and synchronizes it across all sources when needed,

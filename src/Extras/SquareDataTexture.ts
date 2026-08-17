@@ -111,6 +111,7 @@ export interface ISquareDataTextureWriter<TArray extends TypedArrayType> {
 export interface ISquareDataTexture<TArray extends TypedArrayType>
     extends ISquareDataTextureWriter<TArray> {
     readonly capacity: number;
+    readonly hasTexture: boolean;
     resize(count: number): void;
     destroy(): void;
 }
@@ -127,7 +128,10 @@ export interface ISquareDataTextureParams<TArray extends TypedArrayType> {
 
 /**
  * Square data texture Host (`sampler2D`).
- * Owns CPU buffer + GPU texture lifetime; writers use {@link ISquareDataTextureWriter}.
+ * Owns CPU buffer + optional GPU texture; writers use {@link ISquareDataTextureWriter}.
+ * CPU reads/writes (`data`, enqueue, resize) never create a GPU texture.
+ * Access {@link texture} or {@link upload} to create it. `device` may be null
+ * for CPU-only stores.
  */
 export class SquareDataTexture<TArray extends TypedArrayType> implements ISquareDataTexture<TArray> {
 
@@ -135,10 +139,12 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
     public maxUpdateCalls = Infinity;
 
     protected _arrayConstructor: TypedArrayConstructorType<TArray>;
-    protected _device: pc.GraphicsDevice;
+    protected _device: pc.GraphicsDevice | null;
     protected _capacity: number;
     protected _size: number;
-    protected _texture: pc.Texture;
+    protected _name: string;
+    protected _texture: pc.Texture | null;
+    protected _destroyed: boolean;
     protected _data: InstanceType<TypedArrayConstructorType<TArray>>;
     protected _stride: number;
     protected _channels: TChannelSize;
@@ -159,10 +165,14 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
     public get pixelsPerInstance() { return this._pixelsPerInstance; }
     public get channels() { return this._channels; }
     public get capacity() { return this._capacity; }
-    public get texture() { return this._texture; }
+    public get hasTexture() { return this._texture !== null; }
+    public get texture(): pc.Texture {
+        this._ensureGpuTexture();
+        return this._texture!;
+    }
     public get data() { return this._data; }
 
-    constructor(device: pc.GraphicsDevice, params: ISquareDataTextureParams<TArray>) {
+    constructor(device: pc.GraphicsDevice | null, params: ISquareDataTextureParams<TArray>) {
 
         const {
             arrayConstructor, channels, pixelsPerInstance,
@@ -179,6 +189,9 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
         this._stride = pixelsPerInstance * channels;
         this._size = 0;
         this._capacity = 0;
+        this._name = name;
+        this._texture = null;
+        this._destroyed = false;
         this._rowsUpdateCount = 0;
         this._fullUploadPending = false;
         this._rowsInfoCount = 0;
@@ -192,11 +205,19 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
         this._writeLayout = writeScratch.layout;
         this._writeSize = writeScratch.size;
 
-        this._createOrResizeTexture(capacity, name);
+        this._ensureCpuStorage(capacity);
     }
 
     public destroy(): void {
         this._texture?.destroy();
+        this._texture = null;
+        this._destroyed = true;
+    }
+
+    private _assertNotDestroyed(): void {
+        if (this._destroyed) {
+            throw new Error("SquareDataTexture is destroyed");
+        }
     }
 
     private _initScratchForSize(size: number): void {
@@ -224,73 +245,70 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
     }
 
     private _suppressEngineUpload(): void {
-        this._texture._needsUpload = false;
-        this._texture._needsMipmapsUpload = false;
+        if (this._texture) {
+            this._texture._needsUpload = false;
+            this._texture._needsMipmapsUpload = false;
+        }
     }
 
-    private _createOrResizeTexture(count: number, name?: string): void {
+    private _ensureCpuStorage(count: number): void {
 
         this._capacity = count;
 
+        const size = getSquareTextureSize(this._capacity, this._pixelsPerInstance);
+
+        if (this._data && size === this._size) {
+            return;
+        }
+
+        const newData = new this._arrayConstructor(size * size * this._channels);
+
+        if (this._defaultPixelValue !== undefined) {
+            newData.fill(this._defaultPixelValue);
+        }
+
+        if (this._data) {
+            const copyCount = Math.min(this._data.length, newData.length);
+            newData.set(this._data.subarray(0, copyCount));
+        }
+
+        this._data = newData;
+        this._initScratchForSize(size);
+    }
+
+    private _ensureGpuTexture(): void {
+
         if (this._texture) {
-
-            const size = getSquareTextureSize(this._capacity, this._pixelsPerInstance);
-
-            if (size === this._texture.width) {
-                return;
-            }
-
-            const oldData = this._data;
-            const newData = new this._arrayConstructor(size * size * this._channels);
-
-            if (this._defaultPixelValue !== undefined) {
-                newData.fill(this._defaultPixelValue);
-            }
-
-            const copyCount = Math.min(oldData.length, newData.length);
-            newData.set(oldData.subarray(0, copyCount));
-
-            this._data = newData;
-            this._initScratchForSize(size);
-
-            // Workaround for resize texture.
-            this._texture._levels[0] = newData;
-            this._texture.resize(size, size);
-            this._attachLevelsAndUpload();
+            return;
         }
-        else {
 
-            const { array, size, pixelFormat } = getSquareTextureInfo(
-                this._arrayConstructor,
-                this._channels,
-                this._pixelsPerInstance,
-                this._capacity
-            );
+        this._assertNotDestroyed();
 
-            const finalPixelFormat = this._pixelFormat ?? pixelFormat;
-
-            if (this._defaultPixelValue !== undefined) {
-                array.fill(this._defaultPixelValue);
-            }
-
-            this._data = array;
-            this._initScratchForSize(size);
-
-            this._texture = new pc.Texture(this._device, {
-                name: name,
-                width: size,
-                height: size,
-                format: finalPixelFormat,
-                mipmaps: false,
-                minFilter: pc.FILTER_NEAREST,
-                magFilter: pc.FILTER_NEAREST,
-                addressU: pc.ADDRESS_CLAMP_TO_EDGE,
-                addressV: pc.ADDRESS_CLAMP_TO_EDGE,
-                storage: true
-            });
-
-            this._attachLevelsAndUpload();
+        const device = this._device;
+        if (!device) {
+            throw new Error("SquareDataTexture: graphics device is required to create a GPU texture");
         }
+
+        const pixelFormat = this._pixelFormat ?? getPixelFormatByArrayType(
+            this._arrayConstructor,
+            this._channels
+        );
+
+        this._texture = new pc.Texture(device, {
+            name: this._name,
+            width: this._size,
+            height: this._size,
+            format: pixelFormat,
+            mipmaps: false,
+            minFilter: pc.FILTER_NEAREST,
+            magFilter: pc.FILTER_NEAREST,
+            addressU: pc.ADDRESS_CLAMP_TO_EDGE,
+            addressV: pc.ADDRESS_CLAMP_TO_EDGE,
+            storage: true
+        });
+
+        this._attachLevelsAndUpload();
+        this._clearDirty();
     }
 
     /**
@@ -299,21 +317,40 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
      */
     private _attachLevelsAndUpload(): void {
 
-        this._texture._levels[0] = this._data as any;
+        const device = this._device;
+        const texture = this._texture;
+        if (!device || !texture) {
+            return;
+        }
 
-        if (this._device.isWebGPU) {
+        texture._levels[0] = this._data as any;
+
+        if (device.isWebGPU) {
             this._suppressEngineUpload();
             this._uploadAll();
             this._suppressEngineUpload();
         }
         else {
-            this._texture.upload();
+            texture.upload();
             this._suppressEngineUpload();
         }
     }
 
     public resize(count: number): void {
-        this._createOrResizeTexture(count);
+
+        this._ensureCpuStorage(count);
+
+        if (!this._texture) {
+            return;
+        }
+
+        if (this._texture.width === this._size) {
+            return;
+        }
+
+        this._texture._levels[0] = this._data as any;
+        this._texture.resize(this._size, this._size);
+        this._attachLevelsAndUpload();
     }
 
     public enqueueUpdate(index: number): void {
@@ -398,22 +435,28 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
 
     protected _updateRows(info: IUpdateRowInfo[], count: number): void {
 
+        const texture = this._texture;
+        const device = this._device;
+        if (!texture || !device) {
+            return;
+        }
+
         const channels = this._channels;
 
-        if (this._device.isWebGL2) {
+        if (device.isWebGL2) {
 
-            const device = this._device as pc.WebglGraphicsDevice;
+            const glDevice = device as pc.WebglGraphicsDevice;
 
             this._suppressEngineUpload();
-            device.setTexture(this._texture, 0);
-            device.setUnpackFlipY(false);
-            device.setUnpackPremultiplyAlpha(this._texture.premultiplyAlpha);
-            device.setUnpackAlignment(1);
+            glDevice.setTexture(texture, 0);
+            glDevice.setUnpackFlipY(false);
+            glDevice.setUnpackPremultiplyAlpha(texture.premultiplyAlpha);
+            glDevice.setUnpackAlignment(1);
 
-            const gl = device.gl;
+            const gl = glDevice.gl;
             const width = this._size;
-            const glFormat = this._texture.impl._glFormat;
-            const glPixelType = this._texture.impl._glPixelType;
+            const glFormat = texture.impl._glFormat;
+            const glPixelType = texture.impl._glPixelType;
             const data = this._data;
 
             for (let i = 0; i < count; i++) {
@@ -437,12 +480,12 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
 
             this._suppressEngineUpload();
         }
-        else if (this._device.isWebGPU) {
+        else if (device.isWebGPU) {
 
-            const wgpu = (this._device as any).wgpu as GPUDevice;
-            const wgpuTexture = this._texture.impl.gpuTexture as GPUTexture;
+            const wgpu = (device as any).wgpu as GPUDevice;
+            const wgpuTexture = texture.impl.gpuTexture as GPUTexture;
             const width = this._size;
-            const formatInfo = pc.pixelFormatInfo.get(this._texture.format);
+            const formatInfo = pc.pixelFormatInfo.get(texture.format);
             const bytesPerPixel = formatInfo!.size!;
             const bytesPerRowUnaligned = width * bytesPerPixel;
             const bytesPerRow = Math.ceil(bytesPerRowUnaligned / 256) * 256;
@@ -495,12 +538,17 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
     }
 
     public upload(): void {
+        this._ensureGpuTexture();
         this._uploadAll();
         this._suppressEngineUpload();
         this._clearDirty();
     }
 
     public update(): void {
+
+        if (!this._texture) {
+            return;
+        }
 
         if (this._fullUploadPending) {
             this._uploadAll();

@@ -33,10 +33,11 @@ import { HierarchicalZBufferDebugger } from "./OcclusionCulling/HZB/Hierarchical
 import { IHierarchicalZBufferTester } from "./OcclusionCulling/HZB/IHierarchicalZBufferTester.js";
 import { WebgpuHZBTester } from "./OcclusionCulling/HZB/Webgpu/WebgpuHZBTester.js";
 import { FRUSTUM_CONTAINED, FRUSTUM_INTERSECTS, FRUSTUM_OUTSIDE, FRUSTUM_UNKNOWN,
-    IGPU2CPUReadbackOcclusionCullingTester, IGPUIndirectDrawOcclusionCullingTester, IOcclusionCullingTester,
+    ICPUSoftwareOcclusionCullingTester, IGPU2CPUReadbackOcclusionCullingTester, IGPUIndirectDrawOcclusionCullingTester, IOcclusionCullingTester,
     IPrimitive,
-    isGPU2CPUReadbackOcclusionCullingTester, isGPUIndirectDrawOcclusionCullingTester, isGPUOcclusionCullingTester,
-    OCCLUSION_OCCLUDED, OCCLUSION_UNKNOWN, OCCLUSION_VISIBLE
+    isCPUSoftwareOcclusionCullingTester, isGPU2CPUReadbackOcclusionCullingTester, isGPUIndirectDrawOcclusionCullingTester, isGPUOcclusionCullingTester,
+    OCCLUSION_OCCLUDED, OCCLUSION_UNKNOWN, OCCLUSION_VISIBLE,
+    IReadbackOcclusionCullingTester
 } from "./OcclusionCulling/IOcclusionCullingTester.js";
 import { OcclusionCullingSystem } from "./OcclusionCulling/OcclusionCullingSystem.js";
 import { BoxMesh } from "./OcclusionCulling/Queries/BoxMesh.js";
@@ -51,6 +52,8 @@ import { WebgpuHierarchicalZBuffer } from "./OcclusionCulling/HZB/Webgpu/WebgpuH
 import { WebglHZBCPUFBTester } from "./OcclusionCulling/HZB/Webgl/WebglHZBCPUFBTester.js";
 import { AABBStore } from "./Extras/AABBStore.js";
 import { IAABBStore } from "./Extras/IAABBStore.js";
+import { SoftwareOcclusionTester, type ISoftwareOcclusionStats, type ISoftwareOcclusionTesterParams } from "./OcclusionCulling/Software/SoftwareOcclusionTester.js";
+import { OccluderStore } from "./OcclusionCulling/Software/OccluderStore.js";
 import { FadeTimeLODState } from "./Instancer/FadeTimeLODState.js";
 import { FadeDistanceLODState } from "./Instancer/FadeDistanceLODState.js";
 import { BasicHierarchicalInstancer, type IBasicHierarchicalInstancerParams } from "./Instancer/BasicHierarchicalInstancer.js";
@@ -61,7 +64,7 @@ import { InstancesFlags } from "./Instancer/InstancesFlags.js";
 import { radixSort } from "./Extras/RadixSort.js";
 import { ILODRender } from "./Instancer/ILODRender.js";
 import { ILODLevel } from "./Instancer/ILODLevel.js";
-import { IInstancerShaderChunkMap, IInstancerShaderChunkMapScope, IInstancerShaderDefaultChunkMapScope } from "./Instancer/InstancerShaderChunks.js";
+import { IInstancerShaderChunkMap, IInstancerShaderChunkMapScope } from "./Instancer/InstancerShaderChunks.js";
 
 export {
 
@@ -115,12 +118,16 @@ export {
     isGPUOcclusionCullingTester,
     isGPU2CPUReadbackOcclusionCullingTester,
     isGPUIndirectDrawOcclusionCullingTester,
+    isCPUSoftwareOcclusionCullingTester,
 
     WebglHierarchicalZBuffer,
     WebgpuHierarchicalZBuffer,
 
     WebglHZBCPUFBTester,
     WebgpuHZBTester,
+
+    OccluderStore,
+    SoftwareOcclusionTester,
 
     OcclusionCullingSystem,
     HierarchicalZBufferDebugger,
@@ -148,8 +155,12 @@ export type {
     IHierarchicalZBuffer,
     IOcclusionCullingTester,
     IHierarchicalZBufferTester,
+    IReadbackOcclusionCullingTester,
     IGPU2CPUReadbackOcclusionCullingTester,
     IGPUIndirectDrawOcclusionCullingTester,
+    ICPUSoftwareOcclusionCullingTester,
+    ISoftwareOcclusionStats,
+    ISoftwareOcclusionTesterParams,
     IBasicHierarchicalInstancerParams,
     IBasicArrayHierarchicalInstancerParams,
     IInstancerShaderChunkMap,

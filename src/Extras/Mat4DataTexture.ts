@@ -10,27 +10,23 @@ const _floatsPerInstance = _channels * _pixelsPerInstance;
 const _tempMat4 = new pc.Mat4();
 const _tempVec3 = new pc.Vec3();
 
-export function setMatrixAt(writer: ISquareDataTextureWriter<Float32Array>, id: number, matrix: pc.Mat4): void {
+export function setMatrixAt(data: Float32Array, id: number, matrix: pc.Mat4): void {
 
     const inData = matrix.data;
-    const outData = writer.data;
     const offset = id * _floatsPerInstance;
 
     for (let i = 0; i < _floatsPerInstance; i++) {
-        outData[offset + i] = inData[i];
+        data[offset + i] = inData[i];
     }
-
-    writer.enqueueUpdate(id);
 }
 
-export function getMatrixAt(writer: ISquareDataTextureWriter<Float32Array>, id: number, matrix = _tempMat4): pc.Mat4 {
+export function getMatrixAt(data: Float32Array, id: number, matrix = _tempMat4): pc.Mat4 {
 
     const outData = matrix.data;
-    const inData = writer.data;
     const offset = id * _floatsPerInstance;
 
     for (let i = 0; i < _floatsPerInstance; i++) {
-        outData[i] = inData[offset + i];
+        outData[i] = data[offset + i];
     }
 
     return matrix;
@@ -134,7 +130,7 @@ export interface IMat4DataTextureParams {
  */
 export class Mat4DataTexture extends SquareDataTexture<Float32Array> {
 
-    constructor(device: pc.GraphicsDevice, params: IMat4DataTextureParams = {}) {
+    constructor(device: pc.GraphicsDevice | null, params: IMat4DataTextureParams = {}) {
         super(device, {
             arrayConstructor: Float32Array,
             channels: _channels,
@@ -145,11 +141,12 @@ export class Mat4DataTexture extends SquareDataTexture<Float32Array> {
     }
 
     public setMatrixAt(id: number, matrix: pc.Mat4): void {
-        setMatrixAt(this, id, matrix);
+        setMatrixAt(this.data, id, matrix);
+        this.enqueueUpdate(id);
     }
 
     public getMatrixAt(id: number, matrix?: pc.Mat4): pc.Mat4 {
-        return getMatrixAt(this, id, matrix);
+        return getMatrixAt(this.data, id, matrix);
     }
 
     public getPositionAt(index: number, target?: pc.Vec3): pc.Vec3 {
@@ -171,11 +168,12 @@ export class Mat4DataTexture extends SquareDataTexture<Float32Array> {
 export class Mat4DataTextureLayerProxy extends SquareDataTextureLayerProxy<Float32Array> {
 
     public setMatrixAt(id: number, matrix: pc.Mat4): void {
-        setMatrixAt(this, id, matrix);
+        setMatrixAt(this.data, id, matrix);
+        this.enqueueUpdate(id);
     }
 
     public getMatrixAt(id: number, matrix?: pc.Mat4): pc.Mat4 {
-        return getMatrixAt(this, id, matrix);
+        return getMatrixAt(this.data, id, matrix);
     }
 
     public getPositionAt(index: number, target?: pc.Vec3): pc.Vec3 {
