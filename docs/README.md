@@ -32,10 +32,12 @@ Read these in order if you are new to the library. Skip to a choosing guide if y
 
 Guides here cover **when** and **in what order** to call things. Method signatures come from `src/index.ts`.
 
-Generate the TypeDoc site (written to `docs/api/`, gitignored):
+Generate the TypeDoc site locally (written to `docs/api/`, gitignored):
 
 ```bash
 npm run docs:api
 ```
 
 Then open `docs/api/index.html`.
+
+On every push to `main`, GitHub Actions runs the same command and publishes to [GitHub Pages](https://alexappi.github.io/playcanvas-opti-pixel/). First time: **Settings → Pages → Source → GitHub Actions**.

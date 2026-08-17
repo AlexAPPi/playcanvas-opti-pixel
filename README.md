@@ -83,7 +83,7 @@ Exports live in `src/index.ts`.
 
 Internal worker code, HZB shaders, and buffer layouts are not part of the public docs. See comments in `src/` if you are changing the implementation.
 
-API reference (TypeDoc): `npm run docs:api` → `docs/api/index.html`.
+API reference: [GitHub Pages](https://alexappi.github.io/playcanvas-opti-pixel/) (built on `main`). Locally: `npm run docs:api` → `docs/api/index.html`.
 
 ## License
 

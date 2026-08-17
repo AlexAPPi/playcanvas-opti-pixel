@@ -11,6 +11,7 @@
   "excludeInternal": true,
   "excludeExternals": true,
   "skipErrorChecking": true,
+  "hostedBaseUrl": "https://alexappi.github.io/playcanvas-opti-pixel/",
   "exclude": [
     "**/*.test.ts",
     "**/*.todo.ts"
