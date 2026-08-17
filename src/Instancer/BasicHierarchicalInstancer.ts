@@ -36,8 +36,8 @@ export function getInstancerById(id: number): BasicHierarchicalInstancer | undef
 export interface IBasicHierarchicalInstancerParams {
 
     /**
-     * Determines the maximum number of instances that buffers can hold.
-     * The buffers will be expanded automatically if necessary.
+     * Maximum number of instances the buffers can hold.
+     * Call {@link BasicHierarchicalInstancer.resize} to grow; `setMatrixAt` does not expand capacity.
      * @default 1000
      */
     capacity?: number;

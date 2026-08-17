@@ -9,8 +9,8 @@ import { BasicArrayHierarchicalInstancerLayer } from "./BasicArrayHierarchicalIn
 export interface IBasicArrayHierarchicalInstancerParams {
 
     /**
-     * Determines the maximum number of instances that buffers can hold.
-     * The buffers will be expanded automatically if necessary.
+     * Maximum number of instances the shared texture arrays can hold.
+     * Call {@link BasicArrayHierarchicalInstancer.resize} to grow; writing an instance does not expand capacity.
      * @default 1000
      */
     capacity?: number;

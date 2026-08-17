@@ -108,7 +108,7 @@ export interface IGPUIndirectDrawOcclusionCullingTester extends IOcclusionCullin
     /**
      * Runs an occlusion check for the specified camera.
      * @param camera - The camera
-     * @param provider - The some data provider
+     * @param updateParams - When true, refresh view-projection (and related) uniforms from the camera.
      */
     execute(camera: pc.Camera, updateParams?: boolean): void;
 }

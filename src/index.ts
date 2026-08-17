@@ -1,3 +1,10 @@
+/**
+ * GPU instancing, LOD, BVH frustum culling, and occlusion culling for PlayCanvas.
+ *
+ * Conceptual guides live in the repository `docs/` folder. This file is the public export surface.
+ *
+ * @packageDocumentation
+ */
 import { BVH } from "./BVH/BVH.js";
 import { HybridBuilder } from "./BVH/HybridBuilder.js";
 import { BitSet, IReadonlyBitSet } from "./Extras/BitSet.js";
@@ -34,6 +41,7 @@ import { IHierarchicalZBufferTester } from "./OcclusionCulling/HZB/IHierarchical
 import { WebgpuHZBTester } from "./OcclusionCulling/HZB/Webgpu/WebgpuHZBTester.js";
 import { FRUSTUM_CONTAINED, FRUSTUM_INTERSECTS, FRUSTUM_OUTSIDE, FRUSTUM_UNKNOWN,
     ICPUSoftwareOcclusionCullingTester, IGPU2CPUReadbackOcclusionCullingTester, IGPUIndirectDrawOcclusionCullingTester, IOcclusionCullingTester,
+    SOME_ENQUEUE_PROBLEM,
     IPrimitive,
     isCPUSoftwareOcclusionCullingTester, isGPU2CPUReadbackOcclusionCullingTester, isGPUIndirectDrawOcclusionCullingTester, isGPUOcclusionCullingTester,
     OCCLUSION_OCCLUDED, OCCLUSION_UNKNOWN, OCCLUSION_VISIBLE,
@@ -76,6 +84,7 @@ export {
     OCCLUSION_UNKNOWN,
     OCCLUSION_VISIBLE,
     OCCLUSION_OCCLUDED,
+    SOME_ENQUEUE_PROBLEM,
     OCCLUSION_ALGORITHM_TYPE_CONSERVATIVE,
     OCCLUSION_ALGORITHM_TYPE_ACCURATE,
 
