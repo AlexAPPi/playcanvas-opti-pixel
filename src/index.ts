@@ -60,7 +60,7 @@ import { WebgpuHierarchicalZBuffer } from "./OcclusionCulling/HZB/Webgpu/WebgpuH
 import { WebglHZBCPUFBTester } from "./OcclusionCulling/HZB/Webgl/WebglHZBCPUFBTester.js";
 import { AABBStore } from "./Extras/AABBStore.js";
 import { IAABBStore } from "./Extras/IAABBStore.js";
-import { SoftwareOcclusionTester, type ISoftwareOcclusionStats, type ISoftwareOcclusionTesterParams } from "./OcclusionCulling/Software/SoftwareOcclusionTester.js";
+import { SoftwareOcclusionTester, type ISoftwareOcclusionStats, type ISoftwareOcclusionTesterParams, type ISoftwareOcclusionPreallocate } from "./OcclusionCulling/Software/SoftwareOcclusionTester.js";
 import { OccluderStore } from "./OcclusionCulling/Software/OccluderStore.js";
 import { FadeTimeLODState } from "./Instancer/FadeTimeLODState.js";
 import { FadeDistanceLODState } from "./Instancer/FadeDistanceLODState.js";
@@ -170,6 +170,7 @@ export type {
     ICPUSoftwareOcclusionCullingTester,
     ISoftwareOcclusionStats,
     ISoftwareOcclusionTesterParams,
+    ISoftwareOcclusionPreallocate,
     IBasicHierarchicalInstancerParams,
     IBasicArrayHierarchicalInstancerParams,
     IInstancerShaderChunkMap,

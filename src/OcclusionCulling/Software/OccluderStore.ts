@@ -2,9 +2,7 @@ import pc from "../../engine.js";
 import { IndexManager } from "../../Extras/IndexManager.js";
 import { setMatrixAt } from "../../Extras/Mat4DataTexture.js";
 import {
-    SO_DEFAULT_MESH_INDEX_CAPACITY,
-    SO_DEFAULT_MESH_VERTEX_CAPACITY,
-    SO_MESH_RANGE_STRIDE,
+    SO_MATRIX_STRIDE,
     SO_OCCLUDER_BOX,
     SO_OCCLUDER_CONE,
     SO_OCCLUDER_CYLINDER,
@@ -13,6 +11,11 @@ import {
     SO_OCCLUDER_SPHERE,
     SO_OCCLUDER_STRIDE
 } from "./SoftwareOcclusionConstants.js";
+import type {
+    ISoftwareOcclusionMeshUpsert,
+    ISoftwareOcclusionOccluderUpserts,
+    ISoftwareOcclusionResize
+} from "./SoftwareOcclusionMessages.js";
 
 const _identity = new pc.Mat4();
 const _noMesh = -1;
@@ -22,67 +25,133 @@ interface IOccluderMesh {
     indices: Uint32Array;
 }
 
+export interface IOccluderPendingBatch {
+    resize: Pick<ISoftwareOcclusionResize, "occluderCapacity" | "meshSlots"> | null;
+    meshUpserts: ISoftwareOcclusionMeshUpsert[];
+    meshRemoves: number[];
+    occluderUpserts: ISoftwareOcclusionOccluderUpserts | null;
+    occluderRemoves: number[];
+}
+
+/**
+ * Unique-mesh registry plus per-occluder type/matrix/meshId.
+ * Geometry for the same `pc.Mesh` is stored once; instances only keep a mesh id.
+ * Dirty ops are drained by {@link SoftwareOcclusionTester} for worker sync.
+ */
 export class OccluderStore {
 
     private _indexManager: IndexManager;
     private _types: Uint32Array;
     private _matrices: Float32Array;
     private _occluderMeshId: Int32Array;
-    private _meshRanges: Uint32Array;
-    private _packedVertices: Float32Array;
-    private _packedIndices: Uint32Array;
-    private _packedVertUsed = 0;
-    private _packedIndexUsed = 0;
-    private _packedDirty = false;
     private _meshes: (IOccluderMesh | null)[] = [];
     private _meshRefCount: number[] = [];
     private _meshSources: (pc.Mesh | null)[] = [];
+    private _usageVerts = 0;
+    private _usageIdx = 0;
     private _meshKey = new WeakMap<pc.Mesh, number>();
     private _version = 0;
     private _meshVersion = 0;
+    private _pendingOccluderOps = new Map<number, "upsert" | "remove">();
+    private _pendingMeshOps = new Map<number, "upsert" | "remove">();
+    private _capacityDirty = false;
 
     public get capacity() { return this._indexManager.capacity; }
     public get count() { return this._indexManager.reservedCount; }
     public get indexManager() { return this._indexManager; }
     public get types() { return this._types; }
     public get matrices() { return this._matrices; }
-    public get meshRanges() {
-        this._ensurePacked();
-        return this._meshRanges;
-    }
-    public get meshVertices() {
-        this._ensurePacked();
-        return this._packedVertices;
-    }
-    public get meshIndices() {
-        this._ensurePacked();
-        return this._packedIndices;
-    }
-    public get meshVertexCount() {
-        this._ensurePacked();
-        return this._packedVertUsed;
-    }
-    public get meshIndexCount() {
-        this._ensurePacked();
-        return this._packedIndexUsed;
-    }
-    public get meshVertexCapacity() { return this._packedVertices.length; }
-    public get meshIndexCapacity() { return this._packedIndices.length; }
+    public get meshIds() { return this._occluderMeshId; }
+    public get meshSlotCount() { return this._meshes.length; }
     public get version() { return this._version; }
     public get meshVersion() { return this._meshVersion; }
 
-    constructor(
-        capacity: number = 256,
-        meshVertexCapacity: number = SO_DEFAULT_MESH_VERTEX_CAPACITY,
-        meshIndexCapacity: number = SO_DEFAULT_MESH_INDEX_CAPACITY
-    ) {
+    constructor(capacity: number = 256) {
         this._indexManager = new IndexManager(capacity, true);
         this._types = new Uint32Array(capacity);
         this._matrices = new Float32Array(capacity * SO_OCCLUDER_STRIDE);
         this._occluderMeshId = new Int32Array(capacity).fill(_noMesh);
-        this._meshRanges = new Uint32Array(capacity * SO_MESH_RANGE_STRIDE);
-        this._packedVertices = new Float32Array(Math.max(0, meshVertexCapacity));
-        this._packedIndices = new Uint32Array(Math.max(0, meshIndexCapacity));
+        this._capacityDirty = true;
+    }
+
+    public get uniqueVertexFloats() { return this._usageVerts; }
+    public get uniqueIndexCount() { return this._usageIdx; }
+
+    public uniqueMeshUsage(): { vertices: number; indices: number } {
+        return { vertices: this._usageVerts, indices: this._usageIdx };
+    }
+
+    public hasPending(): boolean {
+        return this._capacityDirty
+            || this._pendingOccluderOps.size > 0
+            || this._pendingMeshOps.size > 0;
+    }
+
+    /**
+     * Coalesces and clears pending worker sync ops. Mesh geometry is copied
+     * so the returned buffers can be transferred without detaching store data.
+     */
+    public drainPending(): IOccluderPendingBatch {
+        const resize = this._capacityDirty
+            ? { occluderCapacity: this.capacity, meshSlots: Math.max(this._meshes.length, 1) }
+            : null;
+        this._capacityDirty = false;
+
+        const meshUpserts: ISoftwareOcclusionMeshUpsert[] = [];
+        const meshRemoves: number[] = [];
+        for (const [meshId, op] of this._pendingMeshOps) {
+            if (op === "remove") {
+                meshRemoves.push(meshId);
+                continue;
+            }
+            const mesh = this._meshes[meshId];
+            if (mesh) {
+                meshUpserts.push({
+                    id: meshId,
+                    vertices: mesh.vertices.slice(),
+                    indices: mesh.indices.slice()
+                });
+            }
+        }
+        this._pendingMeshOps.clear();
+
+        const upsertIds: number[] = [];
+        const occluderRemoves: number[] = [];
+        for (const [id, op] of this._pendingOccluderOps) {
+            if (op === "remove") {
+                occluderRemoves.push(id);
+            }
+            else {
+                upsertIds.push(id);
+            }
+        }
+        this._pendingOccluderOps.clear();
+
+        let occluderUpserts: ISoftwareOcclusionOccluderUpserts | null = null;
+        if (upsertIds.length > 0) {
+            const n = upsertIds.length;
+            const ids = new Uint32Array(n);
+            const types = new Uint32Array(n);
+            const matrices = new Float32Array(n * SO_OCCLUDER_STRIDE);
+            const meshIds = new Int32Array(n);
+            const srcTypes = this._types;
+            const srcMat = this._matrices;
+            const srcMesh = this._occluderMeshId;
+            for (let i = 0; i < n; i++) {
+                const id = upsertIds[i];
+                ids[i] = id;
+                types[i] = srcTypes[id];
+                meshIds[i] = srcMesh[id];
+                const s = id << 4;
+                const d = i << 4;
+                for (let j = 0; j < SO_MATRIX_STRIDE; j++) {
+                    matrices[d + j] = srcMat[s + j];
+                }
+            }
+            occluderUpserts = { ids, types, matrices, meshIds };
+        }
+
+        return { resize, meshUpserts, meshRemoves, occluderUpserts, occluderRemoves };
     }
 
     public resize(newCapacity: number) {
@@ -91,19 +160,16 @@ export class OccluderStore {
         const nextTypes = new Uint32Array(newCapacity);
         const nextMatrices = new Float32Array(newCapacity * SO_OCCLUDER_STRIDE);
         const nextMeshId = new Int32Array(newCapacity).fill(_noMesh);
-        const nextRanges = new Uint32Array(newCapacity * SO_MESH_RANGE_STRIDE);
         const copy = Math.min(this._types.length, newCapacity);
 
         nextTypes.set(this._types.subarray(0, copy));
         nextMatrices.set(this._matrices.subarray(0, copy * SO_OCCLUDER_STRIDE));
         nextMeshId.set(this._occluderMeshId.subarray(0, copy));
-        nextRanges.set(this._meshRanges.subarray(0, copy * SO_MESH_RANGE_STRIDE));
 
         this._types = nextTypes;
         this._matrices = nextMatrices;
         this._occluderMeshId = nextMeshId;
-        this._meshRanges = nextRanges;
-        this._packedDirty = true;
+        this._capacityDirty = true;
         this._version++;
     }
 
@@ -136,14 +202,22 @@ export class OccluderStore {
         const meshInstance = isMeshInstance(source);
         const mesh = meshInstance ? source.mesh : source;
         const transform = matrix ?? (meshInstance ? source.node.getWorldTransform() : undefined);
-        let meshId = this._meshKey.get(mesh);
-        if (meshId === undefined) {
-            meshId = this._allocMesh(extractIndexedMesh(mesh), mesh);
+        const id = this._indexManager.reserve();
+        try {
+            let meshId = this._meshKey.get(mesh);
+            if (meshId === undefined) {
+                meshId = this._allocMesh(extractMeshData(mesh), mesh);
+            }
+            else {
+                this._meshRefCount[meshId]++;
+            }
+            this._bindMesh(id, meshId, transform);
+            return id;
         }
-        else {
-            this._meshRefCount[meshId]++;
+        catch (error) {
+            this._indexManager.free(id);
+            throw error;
         }
-        return this._lockMesh(meshId, transform);
     }
 
     /**
@@ -151,19 +225,30 @@ export class OccluderStore {
      * `indices` are optional; without them `positions` is treated as a triangle soup.
      */
     public lockMeshData(positions: ArrayLike<number>, indices?: ArrayLike<number> | null, matrix?: pc.Mat4): number {
-        const meshId = this._allocMesh(extractIndexedData(positions, indices ?? null), null);
-        return this._lockMesh(meshId, matrix);
+        const id = this._indexManager.reserve();
+        try {
+            const mesh = extractVertData(positions, indices ?? null);
+            const meshId = this._allocMesh(mesh, null);
+            this._bindMesh(id, meshId, matrix);
+            return id;
+        }
+        catch (error) {
+            this._indexManager.free(id);
+            throw error;
+        }
     }
 
     public unlock(id: number): void {
         this._releaseMesh(id);
         this._types[id] = 0;
         this._indexManager.free(id);
+        this._pendingOccluderOps.set(id, "remove");
         this._version++;
     }
 
     public enqueueUpdate(id: number, matrix: pc.Mat4): void {
         setMatrixAt(this._matrices, id, matrix);
+        this._pendingOccluderOps.set(id, "upsert");
         this._version++;
     }
 
@@ -172,18 +257,17 @@ export class OccluderStore {
         this._types[id] = type;
         this._occluderMeshId[id] = _noMesh;
         setMatrixAt(this._matrices, id, matrix ?? _identity);
+        this._pendingOccluderOps.set(id, "upsert");
         this._version++;
         return id;
     }
 
-    private _lockMesh(meshId: number, matrix?: pc.Mat4): number {
-        const id = this._indexManager.reserve();
+    private _bindMesh(id: number, meshId: number, matrix?: pc.Mat4): void {
         this._types[id] = SO_OCCLUDER_MESH;
         this._occluderMeshId[id] = meshId;
         setMatrixAt(this._matrices, id, matrix ?? _identity);
-        this._packedDirty = true;
+        this._pendingOccluderOps.set(id, "upsert");
         this._version++;
-        return id;
     }
 
     private _allocMesh(mesh: IOccluderMesh, source: pc.Mesh | null): number {
@@ -193,6 +277,7 @@ export class OccluderStore {
             this._meshes.push(mesh);
             this._meshRefCount.push(1);
             this._meshSources.push(source);
+            this._capacityDirty = true;
         }
         else {
             this._meshes[meshId] = mesh;
@@ -202,7 +287,9 @@ export class OccluderStore {
         if (source) {
             this._meshKey.set(source, meshId);
         }
-        this._packedDirty = true;
+        this._usageVerts += mesh.vertices.length;
+        this._usageIdx += mesh.indices.length;
+        this._pendingMeshOps.set(meshId, "upsert");
         this._meshVersion++;
         return meshId;
     }
@@ -217,7 +304,6 @@ export class OccluderStore {
         const refCount = this._meshRefCount[meshId] - 1;
         this._meshRefCount[meshId] = refCount;
         if (refCount > 0) {
-            this._packedDirty = true;
             return;
         }
 
@@ -225,101 +311,36 @@ export class OccluderStore {
         if (source) {
             this._meshKey.delete(source);
         }
+        const dropped = this._meshes[meshId];
         this._meshes[meshId] = null;
         this._meshSources[meshId] = null;
-        this._packedDirty = true;
+        if (dropped) {
+            this._usageVerts -= dropped.vertices.length;
+            this._usageIdx -= dropped.indices.length;
+        }
+        this._pendingMeshOps.set(meshId, "remove");
         this._meshVersion++;
     }
-
-    private _ensurePacked(): void {
-        if (!this._packedDirty) {
-            return;
-        }
-        this._packedDirty = false;
-
-        let neededVerts = 0;
-        let neededIndices = 0;
-        for (let i = 0; i < this._meshes.length; i++) {
-            const mesh = this._meshes[i];
-            if (mesh) {
-                neededVerts += mesh.vertices.length;
-                neededIndices += mesh.indices.length;
-            }
-        }
-
-        if (neededVerts > this._packedVertices.length) {
-            this._packedVertices = new Float32Array(nextPow2(neededVerts));
-        }
-        if (neededIndices > this._packedIndices.length) {
-            this._packedIndices = new Uint32Array(nextPow2(neededIndices));
-        }
-
-        const vertOffset = new Uint32Array(this._meshes.length);
-        const indexOffset = new Uint32Array(this._meshes.length);
-        let v = 0;
-        let idx = 0;
-        for (let i = 0; i < this._meshes.length; i++) {
-            const mesh = this._meshes[i];
-            if (!mesh) {
-                continue;
-            }
-            vertOffset[i] = v / 3;
-            indexOffset[i] = idx;
-            this._packedVertices.set(mesh.vertices, v);
-            this._packedIndices.set(mesh.indices, idx);
-            v += mesh.vertices.length;
-            idx += mesh.indices.length;
-        }
-        this._packedVertUsed = v;
-        this._packedIndexUsed = idx;
-
-        this._meshRanges.fill(0);
-        for (let i = 0; i < this._occluderMeshId.length; i++) {
-            const meshId = this._occluderMeshId[i];
-            if (meshId < 0) {
-                continue;
-            }
-            const mesh = this._meshes[meshId];
-            if (!mesh) {
-                continue;
-            }
-            const range = i * SO_MESH_RANGE_STRIDE;
-            this._meshRanges[range] = vertOffset[meshId];
-            this._meshRanges[range + 1] = mesh.vertices.length / 3;
-            this._meshRanges[range + 2] = indexOffset[meshId];
-            this._meshRanges[range + 3] = mesh.indices.length;
-        }
-    }
-}
-
-function nextPow2(needed: number): number {
-    let cap = 1;
-    while (cap < needed) {
-        cap <<= 1;
-    }
-    return cap;
 }
 
 function isMeshInstance(value: pc.Mesh | pc.MeshInstance): value is pc.MeshInstance {
     return value instanceof pc.MeshInstance;
 }
 
-function extractIndexedMesh(mesh: pc.Mesh): IOccluderMesh {
+function extractMeshData(mesh: pc.Mesh): IOccluderMesh {
     const positions: number[] = [];
-    const positionCount = mesh.getPositions(positions);
+    mesh.getPositions(positions);
     const srcIndices: number[] = [];
     const indexCount = mesh.getIndices(srcIndices);
     const hasIndices = indexCount > 0;
     const primitives = mesh.primitive;
     const collected: number[] = [];
+    const trianglesPrim = primitives[pc.PRIMITIVE_TRIANGLES];
 
-    for (let i = 0; i < primitives.length; i++) {
-        const prim = primitives[i];
-        if (!prim || prim.type !== pc.PRIMITIVE_TRIANGLES || prim.count < 3) {
-            continue;
-        }
+    if (trianglesPrim && trianglesPrim.count >= 3) {
+        const prim = trianglesPrim;
         const count = (prim.count / 3) * 3;
-        if (prim.indexed !== false && hasIndices) {
+        if (prim.indexed && hasIndices) {
             const baseVertex = prim.baseVertex || 0;
             for (let k = 0; k < count; k++) {
                 collected.push(srcIndices[prim.base + k] + baseVertex);
@@ -336,7 +357,7 @@ function extractIndexedMesh(mesh: pc.Mesh): IOccluderMesh {
     return compactMesh(positions, collected);
 }
 
-function extractIndexedData(positions: ArrayLike<number>, indices: ArrayLike<number> | null): IOccluderMesh {
+function extractVertData(positions: ArrayLike<number>, indices: ArrayLike<number> | null): IOccluderMesh {
     const collected: number[] = [];
     if (indices && indices.length > 0) {
         const count = (indices.length / 3) * 3;

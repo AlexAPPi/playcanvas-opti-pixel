@@ -11,36 +11,20 @@ import {
     type TUnicalId,
     type TUnicalQueueIndex
 } from "../IOcclusionCullingTester.js";
-import { OccluderStore } from "./OccluderStore.js";
-import {
-    SO_FLAG_OCCLUDED,
-    SO_FLAG_VISIBLE,
-    SO_I32_QUEUE_COUNT,
-    SO_I32_STAT_AABB,
-    SO_I32_STAT_OCCLUDED,
-    SO_I32_STAT_OCCLUDERS,
-    SO_I32_STAT_VISIBLE,
-    SO_I32_STATUS,
-    SO_I32_TIME_AABB_US,
-    SO_I32_TIME_CLEAR_US,
-    SO_I32_TIME_HIZ_US,
-    SO_I32_TIME_RASTER_US,
-    SO_I32_TIME_TOTAL_US,
-    SO_I32_WRITE_SLOT,
-    SO_STATUS_DONE,
-    SO_STATUS_EXIT,
-    SO_STATUS_IDLE,
-    SO_STATUS_WORK,
-    SO_DEFAULT_MESH_VERTEX_CAPACITY,
-    SO_DEFAULT_MESH_INDEX_CAPACITY
-} from "./SoftwareOcclusionConstants.js";
-import {
-    canUseSharedArrayBuffer,
-    createSoftwareOcclusionShared,
-    type ISoftwareOcclusionShared,
-    type ISoftwareOcclusionSharedSizes
-} from "./SoftwareOcclusionLayout.js";
+import { DebugLineMesh } from "./DebugLineMesh.js";
+import { OccluderStore, type IOccluderPendingBatch } from "./OccluderStore.js";
+import { SO_FLAG_OCCLUDED, SO_FLAG_UNKNOWN } from "./SoftwareOcclusionConstants.js";
 import { spawnSoftwareOcclusionWorker } from "./SoftwareOcclusionWorker.js";
+import type {
+    ISoftwareOcclusionAabbSyncPatch,
+    ISoftwareOcclusionFrameMessage,
+    ISoftwareOcclusionResultMessage,
+    ISoftwareOcclusionResize,
+    TSoftwareOcclusionMessage
+} from "./SoftwareOcclusionMessages.js";
+
+const EMPTY_U32 = new Uint32Array(0);
+const nextPow2 = pc.math.nextPowerOfTwo;
 
 /**
  * CPU software occlusion timings and counts from the last completed worker job.
@@ -60,30 +44,26 @@ export interface ISoftwareOcclusionStats {
     visibleCount: number;
 }
 
+/**
+ * Capacity hints for the worker-side occluder store.
+ * `uniqueMeshes` / `vertexCount` / `indexCount` are retained for API
+ * compatibility; geometry is stored per-mesh in the worker and no longer
+ * packed into a shared scene buffer.
+ *
+ * `vertexCount` is the number of xyz vertices (not floats).
+ */
+export interface ISoftwareOcclusionPreallocate {
+    occluders?: number;
+    uniqueMeshes?: number;
+    vertexCount?: number;
+    indexCount?: number;
+}
+
 export interface ISoftwareOcclusionTesterParams {
     width?: number;
     height?: number;
-    occluderCapacity?: number;
-    meshVertexCapacity?: number;
-    meshIndexCapacity?: number;
-}
-
-interface ICopyRingSlot {
-    queueIds: Uint32Array;
-    flags: Uint32Array;
-    vp: Float32Array;
-}
-
-interface IWorkerJobStats {
-    clearUs: number;
-    rasterUs: number;
-    hizUs: number;
-    aabbUs: number;
-    totalUs: number;
-    occluders: number;
-    aabbs: number;
-    occluded: number;
-    visible: number;
+    reserved?: ISoftwareOcclusionPreallocate;
+    debugOccluders?: boolean;
 }
 
 export class SoftwareOcclusionTester implements ICPUSoftwareOcclusionCullingTester {
@@ -97,22 +77,33 @@ export class SoftwareOcclusionTester implements ICPUSoftwareOcclusionCullingTest
 
     private _width: number;
     private _height: number;
-    private _useShared: boolean;
+    private _reservedVertices = 0;
+    private _reservedIndices = 0;
+    private _reservedMeshSlots = 1;
     private _ready = false;
     private _pending = false;
-    private _readSlot = 0;
-    private _copySlots: ICopyRingSlot[] | null = null;
+    private _hostCapacity = 0;
 
     private _worker: Worker | null = null;
     private _workerUrl: string | null = null;
-    private _shared: ISoftwareOcclusionShared | null = null;
+    private _resultFlags: Uint32Array;
+    private _inflightQueueIds: Uint32Array | null = null;
+    private _inflightIdsScratch = new Uint32Array(0);
+    private _vpScratch = new Float32Array(16);
+    private _syncedAabbVersion = -1;
+    private _dirtyAabbIds = new Set<number>();
+    private _aabbCapacityDirty = true;
+    private _lastWrittenIds = new Uint32Array(0);
+    private _lastWrittenCount = 0;
+    private _debugOccluders = false;
+    private _debugDirty = false;
+    private _debugRebuildRequested = false;
+    private _debug = new DebugLineMesh();
 
     private _submitTime = 0;
     private _snapshotMs = 0;
-    private _syncedOccludersVersion = -1;
-    private _syncedMeshVersion = -1;
-    private _syncedAabbVersion = -1;
-    readonly stats: ISoftwareOcclusionStats = {
+
+    public readonly stats: ISoftwareOcclusionStats = {
         clearMs: 0,
         rasterMs: 0,
         hizBuildMs: 0,
@@ -130,307 +121,408 @@ export class SoftwareOcclusionTester implements ICPUSoftwareOcclusionCullingTest
     public get width() { return this._width; }
     public get height() { return this._height; }
     public get ready() { return this._ready; }
-    public get results() { return this._resultFlags(); }
+    public get results() { return this._resultFlags; }
+    public get debugLines() { return this._debug.lines; }
+    public get debugLineCount() { return this._debug.lineCount; }
+    public get debugMesh() { return this._debug.mesh; }
+    public get debugOccluders() { return this._debugOccluders; }
+    public set debugOccluders(value: boolean) {
+        const enabled = !!value;
+        if (this._debugOccluders !== enabled) {
+            this._debugOccluders = enabled;
+            this._debugDirty = enabled;
+            this._debugRebuildRequested = false;
+            if (!enabled) {
+                this._debug.destroy();
+            }
+        }
+    }
 
-    constructor(aabbStore: IAABBStore, params: ISoftwareOcclusionTesterParams = {}) {
+    public get reserved(): Required<ISoftwareOcclusionPreallocate> {
+        return {
+            occluders: this._occluders.capacity,
+            uniqueMeshes: this._reservedMeshSlots,
+            vertexCount: (this._reservedVertices / 3) | 0,
+            indexCount: this._reservedIndices
+        };
+    }
+
+    public constructor(aabbStore: IAABBStore, params: ISoftwareOcclusionTesterParams = {}) {
         this._aabbStore = aabbStore;
-        this._width = Math.max(1, params.width ?? 256);
-        this._height = Math.max(1, params.height ?? 128);
-        this._occluders = new OccluderStore(
-            params.occluderCapacity ?? 256,
-            params.meshVertexCapacity ?? SO_DEFAULT_MESH_VERTEX_CAPACITY,
-            params.meshIndexCapacity ?? SO_DEFAULT_MESH_INDEX_CAPACITY
-        );
+        this._width = nextPow2(Math.max(1, params.width ?? 256));
+        this._height = nextPow2(Math.max(1, params.height ?? 128));
+        this._occluders = new OccluderStore(params.reserved?.occluders ?? 256);
         this._queue = new IndexQueueEx(aabbStore.indexManager, 0);
-        this._useShared = canUseSharedArrayBuffer();
+        this._resultFlags = new Uint32Array(aabbStore.capacity);
+        this._hostCapacity = aabbStore.capacity;
+        this._debugOccluders = !!params.debugOccluders;
+        this._debugDirty = this._debugOccluders;
         this._startWorker();
+        if (params.reserved) {
+            this.preallocate(params.reserved);
+        }
     }
 
     public destroy() {
         this._stopWorker();
-        this._shared = null;
+        this._debug.destroy();
+        this._inflightQueueIds = null;
         this._ready = false;
     }
 
     public resize() {
-        this._queue.resizeIndexes();
-        this._stopWorker();
-        this._startWorker();
+        this._growHostIfNeeded(true);
+    }
+
+    /**
+     * Grows occluder capacity (and retained mesh/vertex hints). Does not shrink.
+     * Worker capacity is updated on the next idle `execute` via a resize patch.
+     */
+    public preallocate(sizes: ISoftwareOcclusionPreallocate) {
+        if (sizes.occluders != null && sizes.occluders > this._occluders.capacity) {
+            this._occluders.resize(sizes.occluders);
+        }
+        if (sizes.uniqueMeshes != null) {
+            this._reservedMeshSlots = Math.max(this._reservedMeshSlots, sizes.uniqueMeshes);
+        }
+        if (sizes.vertexCount != null) {
+            this._reservedVertices = Math.max(this._reservedVertices, sizes.vertexCount * 3);
+        }
+        if (sizes.indexCount != null) {
+            this._reservedIndices = Math.max(this._reservedIndices, sizes.indexCount);
+        }
     }
 
     public lock(boundingBox: pc.BoundingBox, matrix?: pc.Mat4, extra1: number = 0, extra2: number = 0): TUnicalId {
-        return this._aabbStore.lock(boundingBox, matrix, extra1, extra2);
+        const id = this._aabbStore.lock(boundingBox, matrix, extra1, extra2);
+        this._markAabbDirty(id);
+        return id;
     }
 
     public lockMinMaxScalars(data: ArrayLike<number>, offset: number, matrix?: pc.Mat4, extra1?: number, extra2?: number): TUnicalId {
-        return this._aabbStore.lockMinMaxScalars(data, offset, matrix, extra1, extra2);
+        const id = this._aabbStore.lockMinMaxScalars(data, offset, matrix, extra1, extra2);
+        this._markAabbDirty(id);
+        return id;
     }
 
     public unlock(id: TUnicalId): void {
         this._aabbStore.unlock(id);
+        this._dirtyAabbIds.delete(id);
+    }
+
+    /**
+     * Forwards AABB updates to the store and marks the id dirty for worker sync.
+     * Prefer this over calling {@link IAABBStore.enqueueUpdate} directly so the
+     * worker mirror stays incremental instead of a full resync.
+     */
+    public enqueueAabbUpdate(id: TUnicalId, boundingBox: pc.BoundingBox, matrix?: pc.Mat4, extra1: number = 0, extra2: number = 0) {
+        this._aabbStore.enqueueUpdate(id, boundingBox, matrix, extra1, extra2);
+        this._markAabbDirty(id);
     }
 
     public enqueue(id: TUnicalId, _extra?: number | number[]): TUnicalQueueIndex {
-        if (this._queue.count >= this._aabbStore.capacity) {
-            return SOME_ENQUEUE_PROBLEM;
+        if (this._queue.count < this._queue.capacity) {
+            return this._queue.enqueue(id);
         }
-        return this._queue.enqueue(id);
+        return SOME_ENQUEUE_PROBLEM;
     }
 
     public getOcclusionStatus(id: TUnicalId): TOcclusionResult {
-        const value = this.results[id];
-        if (value === SO_FLAG_OCCLUDED) {
-            return OCCLUSION_OCCLUDED;
-        }
-        if (value === 0) {
-            return OCCLUSION_UNKNOWN;
-        }
+        const value = this._resultFlags[id];
+        if (value === SO_FLAG_OCCLUDED) return OCCLUSION_OCCLUDED;
+        if (value === SO_FLAG_UNKNOWN) return OCCLUSION_UNKNOWN;
         return OCCLUSION_VISIBLE;
     }
 
     public frameUpdate(_dt?: number) {
-        this._consumeDone();
     }
 
     public execute(camera: pc.Camera) {
+
+        this._growHostIfNeeded(false);
+
+        if (!this._ready ||
+            this._pending) {
+            return;
+        }
+
+        const queueCount = this._queue.count;
         this._viewProjection.mul2(camera.projectionMatrix, camera.viewMatrix);
-        this._consumeDone();
-
-        if (this._needsLargerShared() && !this._isBusy()) {
-            this._stopWorker();
-            this._startWorker();
-        }
-
-        if (!this._ready || this._isBusy() || this._queue.count === 0) {
-            this._queue.clear();
-            return;
-        }
-
-        if (this._occluders.count === 0) {
-            this._markQueuedVisible();
-            this._queue.clear();
-            return;
-        }
-
-        this._submit();
+        this._submit(queueCount);
         this._queue.clear();
     }
 
-    private _resultFlags(): Uint32Array {
-        if (this._useShared && this._shared) {
-            return this._readSlot === 0 ? this._shared.flags0 : this._shared.flags1;
-        }
-        return this._copySlots![this._readSlot].flags;
+    private _markAabbDirty(id: number) {
+        this._dirtyAabbIds.add(id);
     }
 
-    private _needsLargerShared() {
-        if (!this._useShared || !this._shared) {
-            return false;
-        }
-        return this._occluders.types.length > this._shared.occluderTypes.length
-            || this._occluders.matrices.length > this._shared.occluderMatrices.length
-            || this._occluders.meshRanges.length > this._shared.occluderMeshRanges.length
-            || this._occluders.meshVertices.length > this._shared.meshVertices.length
-            || this._occluders.meshIndices.length > this._shared.meshIndices.length;
-    }
+    private _submit(queueCount: number) {
 
-    private _isBusy() {
-        if (!this._useShared || !this._shared) {
-            return this._pending;
-        }
-        return Atomics.load(this._shared.control, SO_I32_STATUS) === SO_STATUS_WORK;
-    }
-
-    private _consumeDone() {
-        if (this._useShared && this._shared) {
-            if (Atomics.load(this._shared.control, SO_I32_STATUS) === SO_STATUS_DONE) {
-                this._readSlot = Atomics.load(this._shared.control, SO_I32_WRITE_SLOT);
-                this._applySharedStats(this._shared.control);
-                Atomics.store(this._shared.control, SO_I32_STATUS, SO_STATUS_IDLE);
-            }
+        const worker = this._worker;
+        if (!worker) {
             return;
         }
-    }
 
-    private _markQueuedVisible() {
-        const flags = this._resultFlags();
-        flags.fill(0);
-        const ids = this._queue.indexes;
-        const count = this._queue.count;
-        for (let i = 0; i < count; i++) {
-            flags[ids[i]] = SO_FLAG_VISIBLE;
-        }
-    }
-
-    private _submit() {
-        const queueCount = this._queue.count;
         const snapshotStart = performance.now();
-
-        this._syncOccluders();
-        this._syncAabbs();
-
-        if (this._useShared && this._shared) {
-            this._submitShared(queueCount, snapshotStart);
-            return;
-        }
-
-        this._submitCopy(queueCount, snapshotStart);
-    }
-
-    private _syncOccluders() {
-        const version = this._occluders.version;
-        const meshVersion = this._occluders.meshVersion;
-        const occludersDirty = version !== this._syncedOccludersVersion;
-        const meshesDirty = meshVersion !== this._syncedMeshVersion;
-        if (!occludersDirty && !meshesDirty) {
-            return;
-        }
-
-        this._syncedOccludersVersion = version;
-        this._syncedMeshVersion = meshVersion;
-
-        if (this._useShared && this._shared) {
-            if (occludersDirty) {
-                this._shared.occluderTypes.set(this._occluders.types);
-                this._shared.occluderMatrices.set(this._occluders.matrices);
-                this._shared.occluderMeshRanges.set(this._occluders.meshRanges);
+        let inflightIds = EMPTY_U32;
+        if (queueCount > 0) {
+            if (this._inflightIdsScratch.length < queueCount) {
+                this._inflightIdsScratch = new Uint32Array(nextPow2(queueCount));
             }
-            if (meshesDirty) {
-                const usedVerts = this._occluders.meshVertexCount;
-                const usedIndices = this._occluders.meshIndexCount;
-                this._shared.meshVertices.set(this._occluders.meshVertices.subarray(0, usedVerts));
-                this._shared.meshIndices.set(this._occluders.meshIndices.subarray(0, usedIndices));
-            }
-            return;
+            inflightIds = this._inflightIdsScratch;
+            inflightIds.set(this._queue.indexes.subarray(0, queueCount));
+            inflightIds = inflightIds.subarray(0, queueCount);
         }
 
-        if (meshesDirty) {
-            const vertices = this._occluders.meshVertices.slice(0, this._occluders.meshVertexCount);
-            const indices = this._occluders.meshIndices.slice(0, this._occluders.meshIndexCount);
-            this._worker?.postMessage(
-                { t: "occluder-meshes", vertices, indices },
-                [vertices.buffer, indices.buffer]
-            );
+        this._vpScratch.set(this._viewProjection.data);
+
+        const pending = this._occluders.drainPending();
+        const geometryDirty = pending.meshUpserts.length > 0
+            || pending.meshRemoves.length > 0
+            || pending.occluderUpserts !== null
+            || pending.occluderRemoves.length > 0;
+
+        if (geometryDirty) {
+            this._debugDirty = true;
         }
 
-        if (occludersDirty) {
-            const types = this._occluders.types.slice();
-            const matrices = this._occluders.matrices.slice();
-            const meshRanges = this._occluders.meshRanges.slice();
-            this._worker?.postMessage(
-                { t: "occluders", types, matrices, meshRanges },
-                [types.buffer, matrices.buffer, meshRanges.buffer]
-            );
-        }
-    }
-
-    private _syncAabbs() {
-        const version = this._aabbStore.version;
-        if (version === this._syncedAabbVersion) {
-            return;
-        }
-
-        this._syncedAabbVersion = version;
-        const aabbFloats = this._aabbStore.capacity * 4;
-
-        if (this._useShared && this._shared) {
-            this._shared.aabbCenters.set(this._aabbStore.centersData.subarray(0, aabbFloats));
-            this._shared.aabbHalfExtents.set(this._aabbStore.halfExtentsData.subarray(0, aabbFloats));
-            return;
-        }
-
-        const centers = this._aabbStore.centersData.slice(0, aabbFloats);
-        const halfExtents = this._aabbStore.halfExtentsData.slice(0, aabbFloats);
-        this._worker?.postMessage(
-            { t: "aabbs", centers, halfExtents },
-            [centers.buffer, halfExtents.buffer]
-        );
-    }
-
-    private _applySharedStats(control: Int32Array) {
-        this._applyStats({
-            clearUs: Atomics.load(control, SO_I32_TIME_CLEAR_US),
-            rasterUs: Atomics.load(control, SO_I32_TIME_RASTER_US),
-            hizUs: Atomics.load(control, SO_I32_TIME_HIZ_US),
-            aabbUs: Atomics.load(control, SO_I32_TIME_AABB_US),
-            totalUs: Atomics.load(control, SO_I32_TIME_TOTAL_US),
-            occluders: Atomics.load(control, SO_I32_STAT_OCCLUDERS),
-            aabbs: Atomics.load(control, SO_I32_STAT_AABB),
-            occluded: Atomics.load(control, SO_I32_STAT_OCCLUDED),
-            visible: Atomics.load(control, SO_I32_STAT_VISIBLE)
-        });
-    }
-
-    private _applyStats(job: IWorkerJobStats) {
-        const dst = this.stats;
-        dst.clearMs = job.clearUs / 1000;
-        dst.rasterMs = job.rasterUs / 1000;
-        dst.hizBuildMs = job.hizUs / 1000;
-        dst.aabbTestMs = job.aabbUs / 1000;
-        dst.workerMs = job.totalUs / 1000;
-        dst.snapshotMs = this._snapshotMs;
-        dst.waitMs = this._submitTime ? performance.now() - this._submitTime : 0;
-        dst.occluderCount = job.occluders;
-        dst.aabbCount = job.aabbs;
-        dst.occludedCount = job.occluded;
-        dst.visibleCount = job.visible;
-    }
-
-    private _submitShared(queueCount: number, snapshotStart: number) {
-        const shared = this._shared!;
-        shared.vp.set(this._viewProjection.data);
-        copyIds(shared.queueIds, this._queue.indexes, queueCount);
-
-        this._snapshotMs = performance.now() - snapshotStart;
-        this._submitTime = performance.now();
-
-        const writeSlot = 1 - this._readSlot;
-        Atomics.store(shared.control, SO_I32_WRITE_SLOT, writeSlot);
-        Atomics.store(shared.control, SO_I32_QUEUE_COUNT, queueCount);
-        Atomics.store(shared.control, SO_I32_STATUS, SO_STATUS_WORK);
-        Atomics.notify(shared.control, SO_I32_STATUS);
-    }
-
-    private _submitCopy(queueCount: number, snapshotStart: number) {
-        const writeSlot = 1 - this._readSlot;
-        const slot = this._copySlots![writeSlot];
-        slot.vp.set(this._viewProjection.data);
-        copyIds(slot.queueIds, this._queue.indexes, queueCount);
-
-        this._snapshotMs = performance.now() - snapshotStart;
-        this._submitTime = performance.now();
-        this._pending = true;
-        this._worker?.postMessage(
-            {
-                t: "job",
-                slot: writeSlot,
-                vp: slot.vp,
-                queueIds: slot.queueIds,
-                flags: slot.flags,
-                queueCount
-            },
-            [slot.vp.buffer, slot.queueIds.buffer, slot.flags.buffer]
-        );
-    }
-
-    private _allocCopyRing() {
-        const capacity = this._aabbStore.capacity;
-        this._copySlots = [
-            { queueIds: new Uint32Array(capacity), flags: new Uint32Array(capacity), vp: new Float32Array(16) },
-            { queueIds: new Uint32Array(capacity), flags: new Uint32Array(capacity), vp: new Float32Array(16) }
-        ];
-        this._readSlot = 0;
-    }
-
-    private _sharedSizes(): ISoftwareOcclusionSharedSizes {
-        return {
-            aabbCapacity: this._aabbStore.capacity,
-            occluderTypesLength: this._occluders.types.length,
-            occluderMatricesLength: this._occluders.matrices.length,
-            occluderMeshRangesLength: this._occluders.meshRanges.length,
-            meshVerticesLength: this._occluders.meshVertices.length,
-            meshIndicesLength: this._occluders.meshIndices.length
+        const transfer: Transferable[] = [];
+        const requestDebug = this._debugOccluders && this._debugDirty;
+        this._debugRebuildRequested = requestDebug;
+        const msg: ISoftwareOcclusionFrameMessage = {
+            t: "frame",
+            vp: this._vpScratch,
+            queueIds: inflightIds,
+            queueCount,
+            debugOccluders: requestDebug || undefined
         };
+
+        this._applyPendingToMessage(msg, pending, transfer);
+        this._applyAabbSyncToMessage(msg, transfer);
+
+        const submitted = performance.now();
+        this._snapshotMs = submitted - snapshotStart;
+        this._submitTime = submitted;
+        this._inflightQueueIds = queueCount > 0 ? inflightIds : null;
+        this._pending = true;
+
+        if (transfer.length > 0) {
+            worker.postMessage(msg, transfer);
+        }
+        else {
+            worker.postMessage(msg);
+        }
+    }
+
+    private _applyAabbSyncToMessage(msg: ISoftwareOcclusionAabbSyncPatch, transfer: Transferable[]) {
+
+        const store = this._aabbStore;
+        const cap = store.capacity;
+        const version = store.version;
+
+        if (this._aabbCapacityDirty) {
+            const resize: ISoftwareOcclusionResize = msg.resize ?? {
+                occluderCapacity: this._occluders.capacity,
+                meshSlots: Math.max(this._occluders.meshSlotCount, 1)
+            };
+            resize.aabbCapacity = cap;
+            msg.resize = resize;
+            this._aabbCapacityDirty = false;
+        }
+
+        if (this._dirtyAabbIds.size === 0) {
+
+            // External store updates (no dirty ids): full mirror resync.
+            // Prefer tester.lock / enqueueAabbUpdate so sync stays incremental.
+            if (this._syncedAabbVersion !== version) {
+
+                const floats = cap << 2;
+                const centers = new Float32Array(floats);
+                const halfExtents = new Float32Array(floats);
+
+                centers.set(store.centersData.subarray(0, floats));
+                halfExtents.set(store.halfExtentsData.subarray(0, floats));
+
+                msg.aabbFull = {
+                    centers,
+                    halfExtents
+                };
+
+                transfer.push(centers.buffer);
+                transfer.push(halfExtents.buffer);
+
+                this._syncedAabbVersion = version;
+            }
+
+            return;
+        }
+
+        const n = this._dirtyAabbIds.size;
+        const ids = new Uint32Array(n);
+        const centers = new Float32Array(n << 2);
+        const halfExtents = new Float32Array(n << 2);
+
+        const srcC = store.centersData;
+        const srcH = store.halfExtentsData;
+
+        let i = 0;
+
+        for (const id of this._dirtyAabbIds) {
+
+            ids[i] = id;
+
+            const s = id << 2;
+            const d = i << 2;
+
+            for (let j = 0; j < 4; j++) {
+                centers[d + j] = srcC[s + j];
+                halfExtents[d + j] = srcH[s + j];
+            }
+
+            i++;
+        }
+
+        msg.aabbUpserts = { ids, centers, halfExtents };
+        transfer.push(ids.buffer);
+        transfer.push(centers.buffer);
+        transfer.push(halfExtents.buffer);
+
+        this._dirtyAabbIds.clear();
+        this._syncedAabbVersion = version;
+    }
+
+    private _clearLastWrittenFlags() {
+        const ids = this._lastWrittenIds;
+        const flags = this._resultFlags;
+        const n = this._lastWrittenCount;
+        for (let i = 0; i < n; i++) {
+            flags[ids[i]] = 0;
+        }
+    }
+
+    private _saveLastWritten(ids: ArrayLike<number>, count: number) {
+        if (this._lastWrittenIds.length < count) {
+            this._lastWrittenIds = new Uint32Array(nextPow2(count));
+        }
+        const dst = this._lastWrittenIds;
+        for (let i = 0; i < count; i++) {
+            dst[i] = ids[i];
+        }
+        this._lastWrittenCount = count;
+    }
+
+    private _applyPendingToMessage(
+        msg: ISoftwareOcclusionFrameMessage,
+        pending: IOccluderPendingBatch,
+        transfer: Transferable[]
+    ) {
+        if (pending.resize) {
+            msg.resize = {
+                ...pending.resize,
+                aabbCapacity: this._aabbStore.capacity
+            };
+            this._aabbCapacityDirty = false;
+        }
+        if (pending.meshUpserts.length > 0) {
+            msg.meshUpserts = pending.meshUpserts;
+            for (let i = 0; i < pending.meshUpserts.length; i++) {
+                const mesh = pending.meshUpserts[i];
+                transfer.push(mesh.vertices.buffer);
+                transfer.push(mesh.indices.buffer);
+            }
+        }
+        if (pending.meshRemoves.length > 0) {
+            msg.meshRemoves = pending.meshRemoves;
+        }
+        if (pending.occluderUpserts) {
+            const batch = pending.occluderUpserts;
+            msg.occluderUpserts = batch;
+            transfer.push(batch.ids.buffer);
+            transfer.push(batch.types.buffer);
+            transfer.push(batch.matrices.buffer);
+            transfer.push(batch.meshIds.buffer);
+        }
+        if (pending.occluderRemoves.length > 0) {
+            msg.occluderRemoves = pending.occluderRemoves;
+        }
+    }
+
+    private _growHostIfNeeded(force: boolean) {
+
+        const cap = this._aabbStore.capacity;
+
+        if (!force && cap === this._hostCapacity) {
+            return;
+        }
+
+        if (cap !== this._hostCapacity) {
+            this._aabbCapacityDirty = true;
+            this._syncedAabbVersion = -1;
+        }
+
+        this._hostCapacity = cap;
+
+        if (this._resultFlags.length !== cap) {
+            this._resultFlags = new Uint32Array(cap);
+        }
+
+        if (this._queue.capacity !== cap) {
+            this._queue.resizeIndexes();
+        }
+    }
+
+    private _attachResult(job: ISoftwareOcclusionResultMessage) {
+
+        this._growHostIfNeeded(false);
+
+        const ids = this._inflightQueueIds;
+        const flags = job.flags;
+        const dst = this._resultFlags;
+
+        if (ids && ids.length > 0 && flags) {
+            this._clearLastWrittenFlags();
+            const n = Math.min(ids.length, flags.length);
+            for (let i = 0; i < n; i++) {
+                dst[ids[i]] = flags[i];
+            }
+            this._saveLastWritten(ids, n);
+        }
+
+        this._inflightQueueIds = null;
+        this._pending = false;
+
+        if (this._debugRebuildRequested) {
+            this._debugDirty = false;
+            this._debugRebuildRequested = false;
+            if (this._debugOccluders) {
+                const lines = job.debugLines;
+                const count = job.debugLineCount ?? (lines ? (lines.length / 6) | 0 : 0);
+                this._debug.setLines(lines, count);
+            }
+        }
+
+        const stats = this.stats;
+        stats.clearMs = job.clearUs / 1000;
+        stats.rasterMs = job.rasterUs / 1000;
+        stats.hizBuildMs = job.hizUs / 1000;
+        stats.aabbTestMs = job.aabbUs / 1000;
+        stats.workerMs = job.totalUs / 1000;
+        stats.snapshotMs = this._snapshotMs;
+        stats.waitMs = this._submitTime ? performance.now() - this._submitTime : 0;
+        stats.occluderCount = job.occluders;
+        stats.aabbCount = job.aabbs;
+        stats.occludedCount = job.occluded;
+        stats.visibleCount = job.visible;
+    }
+
+    /**
+     * Draws the last worker debug wireframe via Immediate (`app.drawMesh`).
+     * The GPU mesh is rebuilt only when the worker sends new {@link debugLines}.
+     */
+    public debugDraw(app: pc.AppBase, color: pc.Color = pc.Color.YELLOW, depthTest: boolean = true) {
+        if (this._debugOccluders) {
+            this._debug.draw(app, color, depthTest);
+        }
     }
 
     private _startWorker() {
@@ -444,80 +536,45 @@ export class SoftwareOcclusionTester implements ICPUSoftwareOcclusionCullingTest
         this._workerUrl = spawned.url;
         this._ready = false;
         this._pending = false;
-        this._syncedOccludersVersion = -1;
-        this._syncedMeshVersion = -1;
-        this._syncedAabbVersion = -1;
 
-        this._worker.onmessage = (event: MessageEvent) => {
+        this._worker.onmessage = (event: MessageEvent<TSoftwareOcclusionMessage>) => {
             const msg = event.data;
-            if (!msg) {
-                return;
-            }
-            if (msg.t === "ready") {
-                this._ready = true;
-                return;
-            }
-            if (msg.t === "result" && msg.flags) {
-                const slot = this._copySlots![msg.slot];
-                slot.flags = msg.flags;
-                slot.queueIds = msg.queueIds;
-                slot.vp = msg.vp;
-                this._readSlot = msg.slot;
-                this._pending = false;
-                this._applyStats(msg);
+            if (msg && this._worker) {
+                if (msg.t === "result") {
+                    this._attachResult(msg);
+                }
+                else if (msg.t === "ready") {
+                    this._ready = true;
+                }
             }
         };
 
         this._worker.onerror = () => {
             this._ready = false;
             this._pending = false;
-            if (!this._useShared) {
-                this._allocCopyRing();
-            }
+            this._inflightQueueIds = null;
         };
 
-        if (this._useShared) {
-            const sizes = this._sharedSizes();
-            this._shared = createSoftwareOcclusionShared(sizes);
-            this._worker.postMessage({
-                t: "init-sab",
-                sab: this._shared.sab,
-                offsets: this._shared.offsets,
-                width: this._width,
-                height: this._height,
-                ...sizes
-            });
-            return;
-        }
-
-        this._shared = null;
-        this._allocCopyRing();
         this._worker.postMessage({
-            t: "init-copy",
+            t: "init",
             width: this._width,
-            height: this._height
+            height: this._height,
+            occluderCapacity: this._occluders.capacity,
+            meshSlots: Math.max(this._occluders.meshSlotCount, 1),
+            aabbCapacity: this._aabbStore.capacity
         });
     }
 
     private _stopWorker() {
 
-        if (this._shared) {
-            Atomics.store(this._shared.control, SO_I32_STATUS, SO_STATUS_EXIT);
-            Atomics.notify(this._shared.control, SO_I32_STATUS);
-        }
-
         this._worker?.terminate();
         this._worker = null;
+        this._pending = false;
+        this._inflightQueueIds = null;
 
         if (this._workerUrl) {
             URL.revokeObjectURL(this._workerUrl);
             this._workerUrl = null;
         }
-    }
-}
-
-function copyIds(dst: Uint32Array, src: ArrayLike<number>, count: number) {
-    for (let i = 0; i < count; i++) {
-        dst[i] = src[i];
     }
 }

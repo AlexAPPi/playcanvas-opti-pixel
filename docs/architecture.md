@@ -69,8 +69,7 @@ For **WebGPU HZB**, `execute` writes `instanceCount` into an indirect draw buffe
 
 These are implementation details, not a public API:
 
-- `SoftwareOcclusionWorker` (blob worker, Hi-Z only on the worker)
+- `SoftwareOcclusionWorker` (blob worker, Hi-Z only on the worker; owns occluder/mesh state)
 - HZB and query shaders
-- `SoftwareOcclusionLayout` / shared-buffer packing
 
 Change them in source; do not document them for application code.
