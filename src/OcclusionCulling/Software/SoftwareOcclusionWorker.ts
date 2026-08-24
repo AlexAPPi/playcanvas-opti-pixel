@@ -28,6 +28,7 @@ export function softwareOcclusionWorkerMain() {
     const FLAG_VISIBLE = 2;
     const OCCLUDER_STRIDE = 16;
     const NEAR_EPS = 1e-5;
+    const EDGE_BIAS = -1e-7;
     const MIN_RASTER_PIXELS = 4;
     const AABB_OUT = 0;
     const AABB_IN = 1;
@@ -52,8 +53,8 @@ export function softwareOcclusionWorkerMain() {
         indexCount: number;
     }
 
-    const primitiveMeshes = [
-        null as IPrimMesh | null,
+    const primitiveMeshes: (IPrimMesh | null)[] = [
+        null,
         buildBoxMesh(),
         buildPlaneMesh(),
         buildCylinderMesh(8),
@@ -61,6 +62,7 @@ export function softwareOcclusionWorkerMain() {
         buildIcosahedronMesh()
     ];
 
+    const lastVp = new Float32Array(16);
     const mvp = new Float32Array(16);
     const polyIn = new Float32Array(16);
     const polyOut = new Float32Array(20);
@@ -79,14 +81,10 @@ export function softwareOcclusionWorkerMain() {
     let hizValid = false;
     let hizHasDepth = false;
     let occludersDirty = true;
-    const lastVp = new Float32Array(16);
     let hizMax: Float32Array | null = null;
     let hizMipOff: Int32Array | null = null;
     let hizMipW: Int32Array | null = null;
     let hizMipH: Int32Array | null = null;
-    let hizSx: Float32Array | null = null;
-    let hizSy: Float32Array | null = null;
-    let queryMax = 0;
     let hizGlobalMin = 1;
     let hizGlobalMax = 1;
 
@@ -98,12 +96,10 @@ export function softwareOcclusionWorkerMain() {
         indexCount: number;
     }
 
-    const testAabbBox = primMesh([], []);
-
     let occluderTypes = new Uint32Array(0);
     let occluderMatrices = new Float32Array(0);
     let occluderMeshIds = new Int32Array(0);
-    const liveIds: number[] = [];
+
     let liveIndex = new Int32Array(0);
     let projMinX = 0;
     let projMinY = 0;
@@ -118,6 +114,8 @@ export function softwareOcclusionWorkerMain() {
     let resultFlags = new Uint32Array(0);
     let lastOccluderCount = 0;
 
+    const liveIds: number[] = [];
+    const testAabbBox = primMesh([], []);
     const defaultStats: ISoftwareOcclusionJobStats = {
         clearUs: 0,
         rasterUs: 0,
@@ -159,74 +157,71 @@ export function softwareOcclusionWorkerMain() {
         return next;
     }
 
-    function ensureOccluderCapacity(capacity: number) {
-        const required = capacity | 0;
-        if (required <= occluderTypes.length) {
-            return;
-        }
-        const nextCapacity = growCapacity(occluderTypes.length, required);
-        const nextTypes = new Uint32Array(nextCapacity);
-        const nextMatrices = new Float32Array(nextCapacity * OCCLUDER_STRIDE);
-        const nextMeshIds = new Int32Array(nextCapacity).fill(-1);
-        nextTypes.set(occluderTypes);
-        nextMatrices.set(occluderMatrices);
-        nextMeshIds.set(occluderMeshIds);
-        occluderTypes = nextTypes;
-        occluderMatrices = nextMatrices;
-        occluderMeshIds = nextMeshIds;
-        ensureLiveIndexCapacity(nextCapacity);
-    }
-
     function ensureLiveIndexCapacity(capacity: number) {
         const required = capacity | 0;
-        if (required <= liveIndex.length) {
-            return;
+        if (required > liveIndex.length) {
+            const nextCapacity = growCapacity(liveIndex.length, required);
+            const next = new Int32Array(nextCapacity);
+            next.fill(-1);
+            if (liveIndex.length > 0) {
+                next.set(liveIndex);
+            }
+            liveIndex = next;
         }
-        const nextCapacity = growCapacity(liveIndex.length, required);
-        const next = new Int32Array(nextCapacity);
-        next.fill(-1);
-        if (liveIndex.length > 0) {
-            next.set(liveIndex);
+    }
+
+    function ensureOccluderCapacity(capacity: number) {
+        const required = capacity | 0;
+        if (required > occluderTypes.length) {
+            const nextCapacity = growCapacity(occluderTypes.length, required);
+            const nextTypes = new Uint32Array(nextCapacity);
+            const nextMatrices = new Float32Array(nextCapacity * OCCLUDER_STRIDE);
+            const nextMeshIds = new Int32Array(nextCapacity).fill(-1);
+            nextTypes.set(occluderTypes);
+            nextMatrices.set(occluderMatrices);
+            nextMeshIds.set(occluderMeshIds);
+            occluderTypes = nextTypes;
+            occluderMatrices = nextMatrices;
+            occluderMeshIds = nextMeshIds;
+            ensureLiveIndexCapacity(nextCapacity);
         }
-        liveIndex = next;
     }
 
     function ensureMeshSlots(slotCount: number) {
         const required = Math.max(1, slotCount | 0);
-        if (required <= meshes.length) {
-            return;
-        }
-        const nextCapacity = growCapacity(meshes.length, required);
-        while (meshes.length < nextCapacity) {
-            meshes.push(null);
+        if (required > meshes.length) {
+            const nextCapacity = growCapacity(meshes.length, required);
+            while (meshes.length < nextCapacity) {
+                meshes.push(null);
+            }
         }
     }
 
     function ensureAabbCapacity(capacity: number) {
         const required = (capacity | 0) << 2;
-        if (required <= aabbCenters.length) {
-            return;
+        if (required > aabbCenters.length) {
+            const nextFloats = growCapacity(aabbCenters.length, required);
+            const nextCenters = new Float32Array(nextFloats);
+            const nextHalves = new Float32Array(nextFloats);
+            nextCenters.set(aabbCenters);
+            nextHalves.set(aabbHalfExtents);
+            aabbCenters = nextCenters;
+            aabbHalfExtents = nextHalves;
         }
-        const nextFloats = growCapacity(aabbCenters.length, required);
-        const nextCenters = new Float32Array(nextFloats);
-        const nextHalves = new Float32Array(nextFloats);
-        nextCenters.set(aabbCenters);
-        nextHalves.set(aabbHalfExtents);
-        aabbCenters = nextCenters;
-        aabbHalfExtents = nextHalves;
     }
 
     function ensureResultFlags(count: number): Uint32Array {
-        if (count <= 0) {
-            return EMPTY_U32;
+        if (count > 0) {
+            if (resultFlags.length < count) {
+                resultFlags = new Uint32Array(growCapacity(resultFlags.length, count));
+            }
+            return resultFlags.subarray(0, count);
         }
-        if (resultFlags.length < count) {
-            resultFlags = new Uint32Array(growCapacity(resultFlags.length, count));
-        }
-        return resultFlags.subarray(0, count);
+        return EMPTY_U32;
     }
 
     function setLive(id: number, live: boolean) {
+
         if (live) {
             if (liveIndex[id] >= 0) {
                 return;
@@ -235,21 +230,25 @@ export function softwareOcclusionWorkerMain() {
             liveIds.push(id);
             return;
         }
+
         const idx = liveIndex[id];
         if (idx < 0) {
             return;
         }
+
         const last = liveIds.length - 1;
         if (idx !== last) {
             const swapped = liveIds[last];
             liveIds[idx] = swapped;
             liveIndex[swapped] = idx;
         }
+
         liveIds.pop();
         liveIndex[id] = -1;
     }
 
     function applyPatches(msg: ISoftwareOcclusionFramePatches) {
+
         if (msg.resize) {
             ensureOccluderCapacity(msg.resize.occluderCapacity);
             ensureMeshSlots(msg.resize.meshSlots);
@@ -398,22 +397,21 @@ export function softwareOcclusionWorkerMain() {
         let debugLines: Float32Array | null = null;
 
         try {
-            if (msg.vp && msg.vp.length >= 16) {
-                applyPatches(msg);
-                // Patch-only / debug refresh: do not raster or test when nothing is queued.
-                if (queueCount > 0) {
-                    stats = runJob(msg.vp, queueIds, queueCount, flags);
-                }
-                if (msg.debugOccluders) {
-                    debugLines = buildOccluderDebugLines();
-                    if (debugLines.length === 0) {
-                        debugLines = null;
-                    }
-                }
+            applyPatches(msg);
+
+            // Patch-only / debug refresh: do not raster
+            // or test when nothing is queued.
+            if (queueCount > 0) {
+                stats = runJob(msg.vp, queueIds, queueCount, flags);
+            }
+
+            if (msg.debugOccluders) {
+                debugLines = buildOccluderDebugLines();
             }
         }
         catch {
             // Still return compact flags so the main thread can clear pending.
+            flags.fill(FLAG_VISIBLE, 0, queueCount);
         }
 
         const result: ISoftwareOcclusionResultMessage = {
@@ -515,64 +513,51 @@ export function softwareOcclusionWorkerMain() {
         return true;
     }
 
-    function rasterizeOccluders(vp: Float32Array) {
-
-        const types = occluderTypes;
-        const matrices = occluderMatrices;
-        const meshIds = occluderMeshIds;
-        const n = liveIds.length;
-
-        const persp = isPerspectiveMatrix(vp);
-        let occluders = 0;
-        let minZ = 1;
-        let maxZ = 0;
-
-        for (let li = 0; li < n; li++) {
-
-            const i = liveIds[li];
-            const type = types[i];
-
-            let mesh: IWorkerMesh | IPrimMesh | null = null;
-
-            if (type === OCCLUDER_MESH) {
-                const meshId = meshIds[i];
-                if (meshId < 0) continue;
-                mesh = meshes[meshId];
+    function resolveOccluderMesh(id: number): IWorkerMesh | IPrimMesh | null {
+        const type = occluderTypes[id];
+        if (type === OCCLUDER_MESH) {
+            const meshId = occluderMeshIds[id];
+            if (meshId < 0) {
+                return null;
             }
-            else {
-                mesh = primitiveMeshes[type];
-            }
+            return meshes[meshId];
+        }
+        return primitiveMeshes[type];
+    }
 
-            if (!mesh || mesh.vertexCount <= 0) {
-                continue;
-            }
+    function testAabb(m: Float32Array, mesh: IAabb, persp: boolean) {
 
-            mulMat4(mvp, vp, matrices, i << 4);
-            const status = persp ? classifyAabb(mvp, mesh) : classifyAabbOrtho(mvp, mesh);
-            if (status === AABB_OUT) {
-                continue;
-            }
-            if (status === AABB_NEAR) {
-                minZ = 0;
-                maxZ = 1;
-            }
-            else {
-                const pxW = (projMaxX - projMinX) * hizHW;
-                const pxH = (projMaxY - projMinY) * hizHH;
-                if (pxW * pxH < MIN_RASTER_PIXELS) {
-                    continue;
-                }
-                if (projMinZ < minZ) minZ = projMinZ;
-                if (projMaxZ > maxZ) maxZ = projMaxZ;
-            }
+        const status = persp
+            ? classifyAabb(m, mesh)
+            : classifyAabbOrtho(m, mesh);
 
-            occluders++;
-            rasterizeIndexed(mesh.vertices, mesh.indices, 0, mesh.vertexCount, 0, mesh.indexCount, mvp);
+        if (status !== AABB_IN) {
+            return FLAG_VISIBLE;
         }
 
-        hizGlobalMin = minZ;
-        hizGlobalMax = maxZ;
-        return occluders;
+        if (projMaxZ < hizGlobalMin) {
+            return FLAG_VISIBLE;
+        }
+
+        if (projMinZ > hizGlobalMax) {
+            return FLAG_OCCLUDED;
+        }
+
+        if (projMaxZ >= 1 ||
+            projMaxX < -1 || projMinX > 1 ||
+            projMaxY < -1 || projMinY > 1) {
+            return FLAG_VISIBLE;
+        }
+
+        const pxW = (projMaxX - projMinX) * hizHW;
+        const pxH = (projMaxY - projMinY) * hizHH;
+
+        if (pxW < 1 && pxH < 1) {
+            return FLAG_VISIBLE;
+        }
+
+        const rectMaxDepth = sampleRectMax(projMinX, projMinY, projMaxX, projMaxY);
+        return projMinZ > rectMaxDepth ? FLAG_OCCLUDED : FLAG_VISIBLE;
     }
 
     function testAabbs(
@@ -587,16 +572,20 @@ export function softwareOcclusionWorkerMain() {
         const persp = isPerspectiveMatrix(vp);
         const tests = queueCount;
         const aabbLimit = aabbCount;
+
         let occluded = 0;
         let visible = 0;
 
         for (let i = 0; i < tests; i++) {
+
             const id = queueIds[i];
+
             if (id >= aabbLimit) {
                 flags[i] = FLAG_VISIBLE;
                 visible++;
                 continue;
             }
+
             const base = id << 2;
             box.cx = centers[base];
             box.cy = centers[base + 1];
@@ -604,6 +593,7 @@ export function softwareOcclusionWorkerMain() {
             box.hx = halves[base];
             box.hy = halves[base + 1];
             box.hz = halves[base + 2];
+
             const flag = testAabb(vp, box, persp);
             flags[i] = flag;
             if (flag === FLAG_OCCLUDED) {
@@ -614,7 +604,11 @@ export function softwareOcclusionWorkerMain() {
             }
         }
 
-        return { tested: tests, occluded, visible };
+        return {
+            tested: tests,
+            occluded,
+            visible
+        };
     }
 
     function markVisible(queueCount: number, flags: Uint32Array) {
@@ -622,77 +616,54 @@ export function softwareOcclusionWorkerMain() {
         return { tested: queueCount, occluded: 0, visible: queueCount };
     }
 
+    // 250k edges * 6 floats per edge = 1.5M floats
     const DEBUG_LINE_FLOAT_CAP = 250000 * 6;
 
     /**
      * World-space line-list for a `PRIMITIVE_LINES` mesh: each unique
      * triangle edge is two xyz endpoints `[x0,y0,z0, x1,y1,z1, ...]`.
      */
-    function buildOccluderDebugLines(): Float32Array {
+    function buildOccluderDebugLines(): Float32Array | null {
+
         const n = liveIds.length;
         if (n === 0) {
-            return new Float32Array(0);
+            return null;
         }
+
         let floatCount = 0;
         for (let li = 0; li < n; li++) {
             const id = liveIds[li];
             const mesh = resolveOccluderMesh(id);
-            if (!mesh) {
-                continue;
-            }
-            floatCount += mesh.edgeIndices.length * 3;
-            if (floatCount > DEBUG_LINE_FLOAT_CAP) {
-                floatCount = DEBUG_LINE_FLOAT_CAP;
-                break;
+            if (mesh) {
+                floatCount += mesh.edgeIndices.length * 3;
+                if (floatCount > DEBUG_LINE_FLOAT_CAP) {
+                    floatCount = DEBUG_LINE_FLOAT_CAP;
+                    break;
+                }
             }
         }
 
-        const out = new Float32Array(floatCount);
         let w = 0;
+
+        const out = new Float32Array(floatCount);
         for (let li = 0; li < n && w < floatCount; li++) {
             const id = liveIds[li];
             const mesh = resolveOccluderMesh(id);
-            if (!mesh) {
-                continue;
-            }
-            const mOff = id << 4;
-            const verts = mesh.vertices;
-            const edges = mesh.edgeIndices;
-            const edgeCount = edges.length;
-            for (let e = 0; e + 1 < edgeCount && w + 6 <= floatCount; e += 2) {
-                w = writeWorldEdge(
-                    out, w, occluderMatrices, mOff, verts,
-                    edges[e] * 3, edges[e + 1] * 3
-                );
+            if (mesh) {
+                const mOff = id << 4;
+                const verts = mesh.vertices;
+                const edges = mesh.edgeIndices;
+                const edgeCount = edges.length;
+                for (let e = 0; e + 1 < edgeCount && w + 6 <= floatCount; e += 2) {
+                    w = writeWorldEdge(
+                        out, w, occluderMatrices, mOff, verts,
+                        edges[e] * 3, edges[e + 1] * 3
+                    );
+                }
             }
         }
-        return w === out.length ? out : out.slice(0, w);
-    }
 
-    function resolveOccluderMesh(id: number): IWorkerMesh | IPrimMesh | null {
-        const type = occluderTypes[id];
-        if (type === OCCLUDER_MESH) {
-            const meshId = occluderMeshIds[id];
-            if (meshId < 0) {
-                return null;
-            }
-            return meshes[meshId];
-        }
-        return primitiveMeshes[type];
-    }
-
-    function writeWorldEdge(
-        out: Float32Array,
-        w: number,
-        matrices: Float32Array,
-        mOff: number,
-        verts: Float32Array,
-        i0: number,
-        i1: number
-    ): number {
-        transformPoint(out, w, matrices, mOff, verts[i0], verts[i0 + 1], verts[i0 + 2]);
-        transformPoint(out, w + 3, matrices, mOff, verts[i1], verts[i1 + 1], verts[i1 + 2]);
-        return w + 6;
+        return out.slice(0, w);
     }
 
     function transformPoint(
@@ -707,6 +678,20 @@ export function softwareOcclusionWorkerMain() {
         out[oi] = m[o] * x + m[o + 4] * y + m[o + 8] * z + m[o + 12];
         out[oi + 1] = m[o + 1] * x + m[o + 5] * y + m[o + 9] * z + m[o + 13];
         out[oi + 2] = m[o + 2] * x + m[o + 6] * y + m[o + 10] * z + m[o + 14];
+    }
+
+    function writeWorldEdge(
+        out: Float32Array,
+        w: number,
+        matrices: Float32Array,
+        mOff: number,
+        verts: Float32Array,
+        i0: number,
+        i1: number
+    ): number {
+        transformPoint(out, w, matrices, mOff, verts[i0], verts[i0 + 1], verts[i0 + 2]);
+        transformPoint(out, w + 3, matrices, mOff, verts[i1], verts[i1 + 1], verts[i1 + 2]);
+        return w + 6;
     }
 
     function nextPow2(n: number) {
@@ -734,6 +719,7 @@ export function softwareOcclusionWorkerMain() {
             offsets.push(total);
             widths.push(w);
             heights.push(h);
+
             total += w * h;
 
             // Stop before a 1-wide/1-tall mip so every
@@ -759,18 +745,10 @@ export function softwareOcclusionWorkerMain() {
         hizMipH = new Int32Array(heights);
         hizLevels = widths.length;
         hizLast = widths.length - 1;
-        const sx = new Float32Array(hizLevels);
-        const sy = new Float32Array(hizLevels);
-        for (let i = 0; i < hizLevels; i++) {
-            sx[i] = widths[i] / width;
-            sy[i] = heights[i] / height;
-        }
-        hizSx = sx;
-        hizSy = sy;
+
         hizDirty = false;
         hizValid = false;
         hizHasDepth = false;
-        queryMax = 0;
         hizGlobalMin = 1;
         hizGlobalMax = 1;
     }
@@ -783,11 +761,15 @@ export function softwareOcclusionWorkerMain() {
     }
 
     function buildHiZ() {
+
         const mx = hizMax!;
         const offsets = hizMipOff!;
         const widths = hizMipW!;
         const heights = hizMipH!;
         const levels = hizLevels;
+
+        let min = 1;
+        let max = 0;
 
         for (let level = 1; level < levels; level++) {
 
@@ -798,25 +780,167 @@ export function softwareOcclusionWorkerMain() {
             const dstH = heights[level];
 
             for (let y = 0; y < dstH; y++) {
+
                 const y0 = y << 1;
                 const row0 = srcOff + y0 * srcW;
                 const row1 = row0 + srcW;
                 const dstRow = dstOff + y * dstW;
+
                 for (let x = 0; x < dstW; x++) {
+
                     const x0 = x << 1;
                     const rowC = row0 + x0;
                     const rowD = row1 + x0;
-                    let maxDepth = mx[rowC];
-                    const mx1 = mx[rowC + 1];
-                    const mx2 = mx[rowD];
-                    const mx3 = mx[rowD + 1];
-                    if (mx1 > maxDepth) maxDepth = mx1;
-                    if (mx2 > maxDepth) maxDepth = mx2;
-                    if (mx3 > maxDepth) maxDepth = mx3;
+                    const z0 = mx[rowC];
+                    const z1 = mx[rowC + 1];
+                    const z2 = mx[rowD];
+                    const z3 = mx[rowD + 1];
+
+                    let maxDepth = z0;
+
+                    if (z1 > maxDepth) maxDepth = z1;
+                    if (z2 > maxDepth) maxDepth = z2;
+                    if (z3 > maxDepth) maxDepth = z3;
+
+                    if (maxDepth > max) max = maxDepth;
+
+                    if (z0 < min) min = z0;
+                    if (z1 < min) min = z1;
+                    if (z2 < min) min = z2;
+                    if (z3 < min) min = z3;
+
                     mx[dstRow + x] = maxDepth;
                 }
             }
         }
+
+        if (levels === 1) {
+            const n = hizN0;
+            for (let i = 0; i < n; i++) {
+                const d = mx[i];
+                if (d < min) min = d;
+                if (d > max) max = d;
+            }
+        }
+
+        hizGlobalMin = min;
+        hizGlobalMax = max;
+    }
+
+    function ndcToUv(ndc: number) {
+        const n = ndc * 0.5 + 0.5;
+        return n < 0 ? 0 : n > 1 ? 1 : n;
+    }
+
+    function mipLevelForSize(size: number) {
+        if (size <= 1) {
+            return 0;
+        }
+        const i = size | 0;
+        const ceilSize = i === size ? i : i + 1;
+        return 32 - Math.clz32(ceilSize - 1);
+    }
+
+    function sampleRectMax(
+        ndcMinX: number,
+        ndcMinY: number,
+        ndcMaxX: number,
+        ndcMaxY: number
+    ) {
+        const ux0 = ndcToUv(ndcMinX);
+        const uy0 = ndcToUv(ndcMinY);
+        const ux1 = ndcToUv(ndcMaxX);
+        const uy1 = ndcToUv(ndcMaxY);
+
+        const dx = (ux1 - ux0) * hizW;
+        const dy = (uy1 - uy0) * hizH;
+        const halfSpan = (dx > dy ? dx : dy) * 0.5;
+
+        let level = mipLevelForSize(halfSpan);
+        if (level > hizLast) {
+            level = hizLast;
+        }
+
+        const mipW = hizMipW![level];
+        const mipH = hizMipH![level];
+        const lastX = mipW - 1;
+        const lastY = mipH - 1;
+        const base = hizMipOff![level];
+        const data = hizMax!;
+
+        let x0 = (ux0 * mipW) | 0;
+        let y0 = (uy0 * mipH) | 0;
+        const rx1 = ux1 * mipW;
+        const ry1 = uy1 * mipH;
+        const ix1 = rx1 | 0;
+        const iy1 = ry1 | 0;
+        let x1 = (ix1 === rx1 ? ix1 : ix1 + 1) - 1;
+        let y1 = (iy1 === ry1 ? iy1 : iy1 + 1) - 1;
+
+        if (x0 > lastX) x0 = lastX;
+        if (y0 > lastY) y0 = lastY;
+        if (x1 > lastX) x1 = lastX;
+        if (y1 > lastY) y1 = lastY;
+        if (x1 < x0) x1 = x0;
+        if (y1 < y0) y1 = y0;
+
+        let maxDepth = 0;
+        for (let y = y0; y <= y1; y++) {
+            let index = base + y * mipW + x0;
+            const end = index + (x1 - x0);
+            for (; index <= end; index++) {
+                const d = data[index];
+                if (d > maxDepth) {
+                    maxDepth = d;
+                }
+            }
+        }
+        return maxDepth;
+    }
+
+    function rasterizeOccluders(vp: Float32Array) {
+
+        const matrices = occluderMatrices;
+        const n = liveIds.length;
+        const persp = isPerspectiveMatrix(vp);
+
+        let occluders = 0;
+
+        for (let li = 0; li < n; li++) {
+
+            const id = liveIds[li];
+            const mesh = resolveOccluderMesh(id);
+            if (mesh && mesh.vertexCount > 0) {
+
+                mulMat4(mvp, vp, matrices, id << 4);
+
+                const status = persp
+                    ? classifyAabb(mvp, mesh)
+                    : classifyAabbOrtho(mvp, mesh);
+
+                if (status === AABB_OUT) {
+                    continue;
+                }
+
+                if (status !== AABB_NEAR) {
+                    const pxW = (projMaxX - projMinX) * hizHW;
+                    const pxH = (projMaxY - projMinY) * hizHH;
+                    if (pxW * pxH < MIN_RASTER_PIXELS) {
+                        continue;
+                    }
+                }
+
+                occluders++;
+                rasterizeIndexed(
+                    mesh.vertices, mesh.indices,
+                    0, mesh.vertexCount,
+                    0, mesh.indexCount,
+                    mvp
+                );
+            }
+        }
+
+        return occluders;
     }
 
     function rasterizeIndexed(
@@ -826,7 +950,7 @@ export function softwareOcclusionWorkerMain() {
         vertCount: number,
         indexOffset: number,
         indexCount: number,
-        m: Float32Array
+        mvp: Float32Array
     ) {
         if (vertCount === 0 ||
             indexCount < 3) {
@@ -839,15 +963,18 @@ export function softwareOcclusionWorkerMain() {
         }
 
         const cache = clipCache;
-        const m0 = m[0], m1 = m[1], m2 = m[2], m3 = m[3];
-        const m4 = m[4], m5 = m[5], m6 = m[6], m7 = m[7];
-        const m8 = m[8], m9 = m[9], m10 = m[10], m11 = m[11];
-        const m12 = m[12], m13 = m[13], m14 = m[14], m15 = m[15];
+        const m0 = mvp[0], m1 = mvp[1], m2 = mvp[2], m3 = mvp[3];
+        const m4 = mvp[4], m5 = mvp[5], m6 = mvp[6], m7 = mvp[7];
+        const m8 = mvp[8], m9 = mvp[9], m10 = mvp[10], m11 = mvp[11];
+        const m12 = mvp[12], m13 = mvp[13], m14 = mvp[14], m15 = mvp[15];
         const hw = hizHW;
         const hh = hizHH;
+
         let src = vertOffset * 3;
         let dst = 0;
+
         for (let i = 0; i < vertCount; i++) {
+
             const x = vertices[src];
             const y = vertices[src + 1];
             const z = vertices[src + 2];
@@ -856,45 +983,56 @@ export function softwareOcclusionWorkerMain() {
             const cy = m1 * x + m5 * y + m9 * z + m13;
             const cz = m2 * x + m6 * y + m10 * z + m14;
             const near = cz + cw;
+
             cache[dst] = cx;
             cache[dst + 1] = cy;
             cache[dst + 2] = cz;
             cache[dst + 3] = cw;
             cache[dst + 7] = near;
+
             if (cw > NEAR_EPS && near >= NEAR_EPS) {
                 const invW = 1 / cw;
                 cache[dst + 4] = cx * invW * hw + hw;
                 cache[dst + 5] = cy * invW * hh + hh;
                 cache[dst + 6] = cz * invW * 0.5 + 0.5;
             }
+
             src += 3;
             dst += 8;
         }
 
-        for (let t = 0; t < indexCount; t += 3) {
+        for (let t = 0; t + 2 < indexCount; t += 3) {
+
             const oa = indices[indexOffset + t] << 3;
             const ob = indices[indexOffset + t + 1] << 3;
             const oc = indices[indexOffset + t + 2] << 3;
             const da = cache[oa + 7];
             const db = cache[ob + 7];
             const dc = cache[oc + 7];
-            if (da >= NEAR_EPS && db >= NEAR_EPS && dc >= NEAR_EPS
-                && cache[oa + 3] > NEAR_EPS && cache[ob + 3] > NEAR_EPS && cache[oc + 3] > NEAR_EPS) {
+
+            if (da >= NEAR_EPS &&
+                db >= NEAR_EPS &&
+                dc >= NEAR_EPS &&
+                cache[oa + 3] > NEAR_EPS &&
+                cache[ob + 3] > NEAR_EPS &&
+                cache[oc + 3] > NEAR_EPS) {
                 const ax = cache[oa + 4], ay = cache[oa + 5];
                 const bx = cache[ob + 4], by = cache[ob + 5];
                 const cx = cache[oc + 4], cy = cache[oc + 5];
-                if (!skipRasterTriangle(ax, ay, bx, by, cx, cy)) {
-                    rasterizeP(
-                        ax, ay, cache[oa + 6],
-                        bx, by, cache[ob + 6],
-                        cx, cy, cache[oc + 6]
-                    );
-                }
+                rasterizePixels(
+                    ax, ay, cache[oa + 6],
+                    bx, by, cache[ob + 6],
+                    cx, cy, cache[oc + 6]
+                );
                 continue;
             }
-            if (da < NEAR_EPS && db < NEAR_EPS && dc < NEAR_EPS) {
+
+            if (da < NEAR_EPS &&
+                db < NEAR_EPS &&
+                dc < NEAR_EPS) {
                 continue;
             }
+
             rasterizeClipped(cache, oa, ob, oc);
         }
     }
@@ -914,7 +1052,11 @@ export function softwareOcclusionWorkerMain() {
             return;
         }
 
-        const ox = polyOut[0], oy = polyOut[1], oz = polyOut[2], ow = polyOut[3];
+        const ox = polyOut[0],
+            oy = polyOut[1],
+            oz = polyOut[2],
+            ow = polyOut[3];
+
         if (ow <= NEAR_EPS) {
             return;
         }
@@ -939,7 +1081,7 @@ export function softwareOcclusionWorkerMain() {
             const invBw = 1 / bw;
             const invCw = 1 / cw;
 
-            rasterizeP(
+            rasterizePixels(
                 px0, py0, pz0,
                 polyOut[b4] * invBw * hizHW + hizHW,
                 polyOut[b4 + 1] * invBw * hizHH + hizHH,
@@ -989,293 +1131,156 @@ export function softwareOcclusionWorkerMain() {
         return dstCount;
     }
 
-    function skipRasterTriangle(
-        x0: number, y0: number,
-        x1: number, y1: number,
-        x2: number, y2: number
-    ) {
-        const area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
-        if (area <= 0) {
-            return true;
-        }
-
-        const width = hizW;
-        const height = hizH;
-
-        let minX = x0;
-        let maxX = x0;
-        let minY = y0;
-        let maxY = y0;
-
-        if (x1 < minX) minX = x1;
-        if (x2 < minX) minX = x2;
-        if (x1 > maxX) maxX = x1;
-        if (x2 > maxX) maxX = x2;
-        if (y1 < minY) minY = y1;
-        if (y2 < minY) minY = y2;
-        if (y1 > maxY) maxY = y1;
-        if (y2 > maxY) maxY = y2;
-
-        if (maxX < 0 || maxY < 0 ||
-            minX >= width || minY >= height) {
-            return true;
-        }
-
-        minX = minX < 0 ? 0 : minX | 0;
-        minY = minY < 0 ? 0 : minY | 0;
-        const ix = maxX | 0;
-        const iy = maxY | 0;
-        maxX = ix === maxX ? ix - 1 : ix;
-        maxY = iy === maxY ? iy - 1 : iy;
-        if (maxX >= width) maxX = width - 1;
-        if (maxY >= height) maxY = height - 1;
-        return minX > maxX || minY > maxY;
-    }
-
-    function rasterizeP(
+    function rasterizePixels(
         x0: number, y0: number, z0: number,
         x1: number, y1: number, z1: number,
         x2: number, y2: number, z2: number
     ) {
+        const e1dx = y2 - y0;
+        const e2dy = x1 - x0;
+
+        const area = e2dy * e1dx - (x2 - x0) * (y1 - y0);
+        if (!(area > 0)) {
+            return;
+        }
+
+        let minXF = x0;
+        let maxXF = x0;
+        let minYF = y0;
+        let maxYF = y0;
+
+        if (x1 < minXF) minXF = x1;
+        if (x2 < minXF) minXF = x2;
+        if (x1 > maxXF) maxXF = x1;
+        if (x2 > maxXF) maxXF = x2;
+
+        if (y1 < minYF) minYF = y1;
+        if (y2 < minYF) minYF = y2;
+        if (y1 > maxYF) maxYF = y1;
+        if (y2 > maxYF) maxYF = y2;
+
         const width = hizW;
         const height = hizH;
-        const area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0);
-        if (area <= 0) {
+
+        if (
+            maxXF <= 0 ||
+            maxYF <= 0 ||
+            minXF >= width ||
+            minYF >= height
+        ) {
             return;
         }
 
-        let minX = x0;
-        if (x1 < minX) minX = x1;
-        if (x2 < minX) minX = x2;
-        let maxX = x0;
-        if (x1 > maxX) maxX = x1;
-        if (x2 > maxX) maxX = x2;
-        let minY = y0;
-        if (y1 < minY) minY = y1;
-        if (y2 < minY) minY = y2;
-        let maxY = y0;
-        if (y1 > maxY) maxY = y1;
-        if (y2 > maxY) maxY = y2;
-        if (maxX < 0 || maxY < 0 || minX >= width || minY >= height) {
-            return;
-        }
+        let minX = minXF | 0;
+        let minY = minYF | 0;
+        let maxX = maxXF | 0;
+        let maxY = maxYF | 0;
 
-        minX = minX < 0 ? 0 : minX | 0;
-        minY = minY < 0 ? 0 : minY | 0;
-        const ix = maxX | 0;
-        const iy = maxY | 0;
-        maxX = ix === maxX ? ix - 1 : ix;
-        maxY = iy === maxY ? iy - 1 : iy;
+        if (minX < 0) minX = 0;
+        if (minY < 0) minY = 0;
         if (maxX >= width) maxX = width - 1;
         if (maxY >= height) maxY = height - 1;
+
         if (minX > maxX || minY > maxY) {
             return;
         }
 
-        const invArea = 1 / area;
-        const dw0dx = (y1 - y2) * invArea;
-        const dw1dx = (y2 - y0) * invArea;
-        const dw2dx = -dw0dx - dw1dx;
-        const dw0dy = (x2 - x1) * invArea;
-        const dw1dy = (x0 - x2) * invArea;
+        const e0dx = y1 - y2;
+        const e0dy = x2 - x1;
+        const e1dy = x0 - x2;
+        const e2dx = y0 - y1;
+
         const px = minX + 0.5;
         const py = minY + 0.5;
-        let w0row = ((x1 - px) * (y2 - py) - (x2 - px) * (y1 - py)) * invArea;
-        let w1row = ((x2 - px) * (y0 - py) - (x0 - px) * (y2 - py)) * invArea;
-        let w2row = 1 - w0row - w1row;
+
+        let e0row = (px - x1) * e0dx + (py - y1) * e0dy;
+        let e1row = (px - x2) * e1dx + (py - y2) * e1dy;
+        let e2row = (px - x0) * e2dx + (py - y0) * e2dy;
+
+        const bias0 = e0dx < 0 || (e0dx === 0 && e0dy < 0) ? 0 : EDGE_BIAS;
+        const bias1 = e1dx < 0 || (e1dx === 0 && e1dy < 0) ? 0 : EDGE_BIAS;
+        const bias2 = e2dx < 0 || (e2dx === 0 && e2dy < 0) ? 0 : EDGE_BIAS;
+
+        const invArea = 1 / area;
         const zA = z0 - z2;
         const zB = z1 - z2;
-        let zRow = w0row * zA + w1row * zB + z2;
-        const dzdx = dw0dx * zA + dw1dx * zB;
-        const dzdy = dw0dy * zA + dw1dy * zB;
+
+        const dzdx = (e0dx * zA + e1dx * zB) * invArea;
+        const dzdy = (e0dy * zA + e1dy * zB) * invArea;
+
+        let zRow = (e0row * zA + e1row * zB + area * z2) * invArea;
+
         const data = hizMax!;
         const stride = hizStride0;
+
+        const zSafe =
+            z0 >= 0 && z0 <= 1 &&
+            z1 >= 0 && z1 <= 1 &&
+            z2 >= 0 && z2 <= 1;
+
         let wrote = hizDirty;
-        const zSafe = z0 >= 0 && z0 <= 1 && z1 >= 0 && z1 <= 1 && z2 >= 0 && z2 <= 1;
-        const span = maxX - minX;
 
         for (let y = minY; y <= maxY; y++) {
-            let tLo = 0;
-            let tHi = span;
-            if (dw0dx > 0) {
-                const t = -w0row / dw0dx;
-                if (t > tLo) tLo = t;
-            }
-            else if (dw0dx < 0) {
-                const t = -w0row / dw0dx;
-                if (t < tHi) tHi = t;
-            }
-            else if (w0row < 0) {
-                tLo = 1;
-                tHi = 0;
-            }
-            if (dw1dx > 0) {
-                const t = -w1row / dw1dx;
-                if (t > tLo) tLo = t;
-            }
-            else if (dw1dx < 0) {
-                const t = -w1row / dw1dx;
-                if (t < tHi) tHi = t;
-            }
-            else if (w1row < 0) {
-                tLo = 1;
-                tHi = 0;
-            }
-            if (dw2dx > 0) {
-                const t = -w2row / dw2dx;
-                if (t > tLo) tLo = t;
-            }
-            else if (dw2dx < 0) {
-                const t = -w2row / dw2dx;
-                if (t < tHi) tHi = t;
-            }
-            else if (w2row < 0) {
-                tLo = 1;
-                tHi = 0;
-            }
 
-            let tStart = tLo | 0;
-            if (tStart < tLo) tStart++;
-            if (tStart < 0) tStart = 0;
-            let tEnd = tHi < 0 ? -1 : tHi | 0;
-            if (tEnd > span) tEnd = span;
+            let e0 = e0row;
+            let e1 = e1row;
+            let e2 = e2row;
 
-            if (tStart <= tEnd) {
-                let z = zRow + tStart * dzdx;
-                let index = y * stride + minX + tStart;
-                const end = index + (tEnd - tStart);
-                if (zSafe) {
-                    for (; index <= end; index++) {
+            let index = y * stride + minX;
+            let z = zRow;
+
+            if (zSafe) {
+
+                for (let x = minX; x <= maxX; x++, index++) {
+
+                    if (
+                        e0 + bias0 >= 0 &&
+                        e1 + bias1 >= 0 &&
+                        e2 + bias2 >= 0
+                    ) {
                         if (z < data[index]) {
                             data[index] = z;
                             wrote = true;
                         }
-                        z += dzdx;
                     }
+
+                    e0 += e0dx;
+                    e1 += e1dx;
+                    e2 += e2dx;
+                    z += dzdx;
                 }
-                else {
-                    for (; index <= end; index++) {
-                        if (z >= 0 && z <= 1 && z < data[index]) {
+            }
+            else {
+
+                for (let x = minX; x <= maxX; x++, index++) {
+
+                    if (
+                        e0 + bias0 >= 0 &&
+                        e1 + bias1 >= 0 &&
+                        e2 + bias2 >= 0 &&
+                        z >= 0 &&
+                        z <= 1
+                    ) {
+                        if (z < data[index]) {
                             data[index] = z;
                             wrote = true;
                         }
-                        z += dzdx;
                     }
+
+                    e0 += e0dx;
+                    e1 += e1dx;
+                    e2 += e2dx;
+                    z += dzdx;
                 }
             }
 
-            w0row += dw0dy;
-            w1row += dw1dy;
-            w2row += -dw0dy - dw1dy;
+            e0row += e0dy;
+            e1row += e1dy;
+            e2row += e2dy;
             zRow += dzdy;
         }
+
         hizDirty = wrote;
-    }
-
-    function testAabb(m: Float32Array, mesh: IAabb, persp: boolean) {
-
-        const status = persp ? classifyAabb(m, mesh) : classifyAabbOrtho(m, mesh);
-
-        if (status !== AABB_IN) {
-            return FLAG_VISIBLE;
-        }
-
-        if (projMaxZ >= 1 ||
-            projMaxX < -1 || projMinX > 1 ||
-            projMaxY < -1 || projMinY > 1) {
-            return FLAG_VISIBLE;
-        }
-
-        const pxW = (projMaxX - projMinX) * hizHW;
-        const pxH = (projMaxY - projMinY) * hizHH;
-
-        if (pxW < 1 && pxH < 1) {
-            return FLAG_VISIBLE;
-        }
-
-        if (projMaxZ < hizGlobalMin) {
-            return FLAG_VISIBLE;
-        }
-
-        if (projMinZ > hizGlobalMax) {
-            return FLAG_OCCLUDED;
-        }
-
-        sampleRectMax(projMinX, projMinY, projMaxX, projMaxY);
-        return projMinZ > queryMax ? FLAG_OCCLUDED : FLAG_VISIBLE;
-    }
-
-    function sampleRectMax(ndcMinX: number, ndcMinY: number, ndcMaxX: number, ndcMaxY: number) {
-        const width = hizW;
-        const height = hizH;
-        const nx0 = ndcMinX * 0.5 + 0.5;
-        const ny0 = ndcMinY * 0.5 + 0.5;
-        const nx1 = ndcMaxX * 0.5 + 0.5;
-        const ny1 = ndcMaxY * 0.5 + 0.5;
-        const px0 = (nx0 < 0 ? 0 : nx0 > 1 ? 1 : nx0) * width;
-        const py0 = (ny0 < 0 ? 0 : ny0 > 1 ? 1 : ny0) * height;
-        const px1 = (nx1 < 0 ? 0 : nx1 > 1 ? 1 : nx1) * width;
-        const py1 = (ny1 < 0 ? 0 : ny1 > 1 ? 1 : ny1) * height;
-
-        const dx = px1 - px0;
-        const dy = py1 - py0;
-        const span = dx > dy ? dx : dy;
-        const spanInt = span < 1 ? 1 : span | 0;
-        let level = 31 - Math.clz32(spanInt);
-        const last = hizLast;
-        if (level < 0) level = 0;
-        if (level > last) level = last;
-
-        const widths = hizMipW!;
-        const heights = hizMipH!;
-        const offsets = hizMipOff!;
-        const scaleX = hizSx!;
-        const scaleY = hizSy!;
-        const mx = hizMax!;
-
-        let x0 = 0;
-        let x1 = 0;
-        let y0 = 0;
-        let y1 = 0;
-        let mipW = 1;
-        let mipH = 1;
-
-        for (;;) {
-            const sx = scaleX[level];
-            const sy = scaleY[level];
-            mipW = widths[level];
-            mipH = heights[level];
-            x0 = (px0 * sx) | 0;
-            y0 = (py0 * sy) | 0;
-            const cx1 = px1 * sx;
-            const cy1 = py1 * sy;
-            const ix = cx1 | 0;
-            const iy = cy1 | 0;
-            x1 = (ix === cx1 ? ix : ix + 1) - 1;
-            y1 = (iy === cy1 ? iy : iy + 1) - 1;
-            if (x1 < x0) x1 = x0;
-            if (y1 < y0) y1 = y0;
-            if (x0 < 0) x0 = 0;
-            if (y0 < 0) y0 = 0;
-            if (x1 >= mipW) x1 = mipW - 1;
-            if (y1 >= mipH) y1 = mipH - 1;
-
-            if ((x1 - x0 + 1) * (y1 - y0 + 1) <= 8 || level >= last) {
-                break;
-            }
-            level++;
-        }
-
-        const base = offsets[level];
-        let maxDepth = 0;
-        for (let y = y0; y <= y1; y++) {
-            const row = base + y * mipW;
-            for (let x = x0; x <= x1; x++) {
-                const dMax = mx[row + x];
-                if (dMax > maxDepth) maxDepth = dMax;
-            }
-        }
-        queryMax = maxDepth;
     }
 
     function classifyAabb(m: Float32Array, mesh: IAabb) {
@@ -1389,16 +1394,19 @@ export function softwareOcclusionWorkerMain() {
         if (ccw <= NEAR_EPS) {
             return AABB_NEAR;
         }
+
         const invW = 1 / ccw;
         const ex = absf(m0) * hx + absf(m4) * hy + absf(m8) * hz;
         const ey = absf(m1) * hx + absf(m5) * hy + absf(m9) * hz;
         const ez = absf(m2) * hx + absf(m6) * hy + absf(m10) * hz;
+
         projMinX = (ccx - ex) * invW;
         projMaxX = (ccx + ex) * invW;
         projMinY = (ccy - ey) * invW;
         projMaxY = (ccy + ey) * invW;
         projMinZ = (ccz - ez) * invW * 0.5 + 0.5;
         projMaxZ = (ccz + ez) * invW * 0.5 + 0.5;
+
         return AABB_IN;
     }
 
@@ -1411,14 +1419,17 @@ export function softwareOcclusionWorkerMain() {
     }
 
     function mulMat4(out: Float32Array, a: Float32Array, b: Float32Array, bOff: number) {
+
         const a0 = a[0], a1 = a[1], a2 = a[2], a3 = a[3];
         const a4 = a[4], a5 = a[5], a6 = a[6], a7 = a[7];
         const a8 = a[8], a9 = a[9], a10 = a[10], a11 = a[11];
         const a12 = a[12], a13 = a[13], a14 = a[14], a15 = a[15];
+
         const b0 = b[bOff], b1 = b[bOff + 1], b2 = b[bOff + 2], b3 = b[bOff + 3];
         const b4 = b[bOff + 4], b5 = b[bOff + 5], b6 = b[bOff + 6], b7 = b[bOff + 7];
         const b8 = b[bOff + 8], b9 = b[bOff + 9], b10 = b[bOff + 10], b11 = b[bOff + 11];
         const b12 = b[bOff + 12], b13 = b[bOff + 13], b14 = b[bOff + 14], b15 = b[bOff + 15];
+
         out[0] = a0 * b0 + a4 * b1 + a8 * b2 + a12 * b3;
         out[1] = a1 * b0 + a5 * b1 + a9 * b2 + a13 * b3;
         out[2] = a2 * b0 + a6 * b1 + a10 * b2 + a14 * b3;
