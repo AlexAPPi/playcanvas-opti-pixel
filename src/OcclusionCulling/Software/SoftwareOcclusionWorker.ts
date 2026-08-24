@@ -895,6 +895,7 @@ export function softwareOcclusionWorkerMain() {
                 }
             }
         }
+
         return maxDepth;
     }
 
