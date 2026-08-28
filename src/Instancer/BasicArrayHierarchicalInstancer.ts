@@ -73,7 +73,7 @@ export class BasicArrayHierarchicalInstancer<
         this._layerList = [];
 
         this._initMatricesTexture();
-        this._syncLayers(layers);
+        this._createLayers(layers);
     }
 
     public getLayer(layer: number): TLayer {
@@ -83,6 +83,10 @@ export class BasicArrayHierarchicalInstancer<
         }
 
         return this._layerList[layer];
+    }
+
+    protected _createLayers(layers: number): void {
+        this._syncLayers(layers);
     }
 
     /**
