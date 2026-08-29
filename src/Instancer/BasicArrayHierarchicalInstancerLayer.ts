@@ -201,11 +201,21 @@ export class BasicArrayHierarchicalInstancerLayer<
             throw new Error("Lods empty");
         }
 
+        let empty = true;
+
         for (let levelIdx = 0; levelIdx < levels.length; levelIdx++) {
             const aabb = levels[levelIdx].render?.computeMaxMeshBoundingBox();
             if (aabb) {
+
                 src ??= aabb;
-                src.add(aabb);
+
+                if (empty) {
+                    empty = false;
+                    src.copy(aabb);
+                }
+                else {
+                    src.add(aabb);
+                }
             }
         }
 
