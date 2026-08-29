@@ -87,9 +87,12 @@ export class SoftwareOcclusionTester implements ICPUSoftwareOcclusionCullingTest
     private _worker: Worker | null = null;
     private _workerUrl: string | null = null;
     private _resultFlags: Uint32Array;
+    private _flagsPing: Uint32Array | null = null;
     private _inflightQueueIds: Uint32Array | null = null;
     private _inflightIdsScratch = new Uint32Array(0);
+    private _inflightIdsView: Uint32Array<ArrayBufferLike> = EMPTY_U32;
     private _vpScratch = new Float32Array(16);
+    private _transfer: Transferable[] = [];
     private _syncedAabbVersion = -1;
     private _dirtyAabbIds = new Set<number>();
     private _aabbCapacityDirty = true;
@@ -167,6 +170,7 @@ export class SoftwareOcclusionTester implements ICPUSoftwareOcclusionCullingTest
         this._stopWorker();
         this._debug.destroy();
         this._inflightQueueIds = null;
+        this._flagsPing = null;
         this._ready = false;
     }
 
@@ -264,14 +268,20 @@ export class SoftwareOcclusionTester implements ICPUSoftwareOcclusionCullingTest
         }
 
         const snapshotStart = performance.now();
-        let inflightIds = EMPTY_U32;
+        let inflightIds: Uint32Array<ArrayBufferLike> = EMPTY_U32;
         if (queueCount > 0) {
             if (this._inflightIdsScratch.length < queueCount) {
                 this._inflightIdsScratch = new Uint32Array(nextPow2(queueCount));
             }
-            inflightIds = this._inflightIdsScratch;
-            inflightIds.set(this._queue.indexes.subarray(0, queueCount));
-            inflightIds = inflightIds.subarray(0, queueCount);
+            const dst = this._inflightIdsScratch;
+            const src = this._queue.indexes;
+            for (let i = 0; i < queueCount; i++) {
+                dst[i] = src[i];
+            }
+            if (this._inflightIdsView.buffer !== dst.buffer || this._inflightIdsView.length !== queueCount) {
+                this._inflightIdsView = dst.subarray(0, queueCount);
+            }
+            inflightIds = this._inflightIdsView;
         }
 
         this._vpScratch.set(this._viewProjection.data);
@@ -286,7 +296,8 @@ export class SoftwareOcclusionTester implements ICPUSoftwareOcclusionCullingTest
             this._debugDirty = true;
         }
 
-        const transfer: Transferable[] = [];
+        const transfer = this._transfer;
+        transfer.length = 0;
         const requestDebug = this._debugOccluders && this._debugDirty;
         this._debugRebuildRequested = requestDebug;
         const msg: ISoftwareOcclusionFrameMessage = {
@@ -297,6 +308,12 @@ export class SoftwareOcclusionTester implements ICPUSoftwareOcclusionCullingTest
             debugOccluders: requestDebug || undefined
         };
 
+        if (queueCount > 0) {
+            const ping = this._ensureFlagsPing(queueCount);
+            msg.flags = ping;
+            transfer.push(ping.buffer);
+        }
+
         this._applyPendingToMessage(msg, pending, transfer);
         this._applyAabbSyncToMessage(msg, transfer);
 
@@ -306,12 +323,33 @@ export class SoftwareOcclusionTester implements ICPUSoftwareOcclusionCullingTest
         this._inflightQueueIds = queueCount > 0 ? inflightIds : null;
         this._pending = true;
 
-        if (transfer.length > 0) {
+        try {
             worker.postMessage(msg, transfer);
         }
-        else {
-            worker.postMessage(msg);
+        catch {
+            this._pending = false;
+            this._inflightQueueIds = null;
+            if (this._flagsPing && this._flagsPing.byteLength === 0) {
+                this._flagsPing = null;
+            }
+            transfer.length = 0;
+            return;
         }
+
+        transfer.length = 0;
+        if (queueCount > 0) {
+            this._flagsPing = null;
+        }
+    }
+
+    private _ensureFlagsPing(count: number): Uint32Array {
+        const needBytes = count << 2;
+        let ping = this._flagsPing;
+        if (!ping || ping.byteLength < needBytes) {
+            ping = new Uint32Array(nextPow2(count));
+            this._flagsPing = ping;
+        }
+        return ping;
     }
 
     private _applyAabbSyncToMessage(msg: ISoftwareOcclusionAabbSyncPatch, transfer: Transferable[]) {
@@ -488,6 +526,12 @@ export class SoftwareOcclusionTester implements ICPUSoftwareOcclusionCullingTest
             this._saveLastWritten(ids, n);
         }
 
+        if (flags && flags.byteLength > 0) {
+            this._flagsPing = flags.byteOffset === 0 && flags.byteLength === flags.buffer.byteLength
+                ? flags
+                : new Uint32Array(flags.buffer);
+        }
+
         this._inflightQueueIds = null;
         this._pending = false;
 
@@ -553,6 +597,7 @@ export class SoftwareOcclusionTester implements ICPUSoftwareOcclusionCullingTest
             this._ready = false;
             this._pending = false;
             this._inflightQueueIds = null;
+            this._flagsPing = null;
         };
 
         this._worker.postMessage({
@@ -571,6 +616,7 @@ export class SoftwareOcclusionTester implements ICPUSoftwareOcclusionCullingTest
         this._worker = null;
         this._pending = false;
         this._inflightQueueIds = null;
+        this._flagsPing = null;
 
         if (this._workerUrl) {
             URL.revokeObjectURL(this._workerUrl);

@@ -11,7 +11,6 @@
 import type {
     ISoftwareOcclusionFrameMessage,
     ISoftwareOcclusionFramePatches,
-    ISoftwareOcclusionJobStats,
     ISoftwareOcclusionResultMessage,
     TSoftwareOcclusionWorkerInboundMessage
 } from "./SoftwareOcclusionMessages.js";
@@ -44,6 +43,15 @@ export function softwareOcclusionWorkerMain() {
         hy: number;
         hz: number;
     }
+
+    const boundsScratch: IAabb = {
+        cx: 0,
+        cy: 0,
+        cz: 0,
+        hx: 0,
+        hy: 0,
+        hz: 0
+    };
 
     interface IPrimMesh extends IAabb {
         vertices: Float32Array;
@@ -111,12 +119,16 @@ export function softwareOcclusionWorkerMain() {
     let aabbCenters = new Float32Array(0);
     let aabbHalfExtents = new Float32Array(0);
     let aabbCount = 0;
-    let resultFlags = new Uint32Array(0);
+    let resultFlags: Uint32Array<ArrayBufferLike> = EMPTY_U32;
     let lastOccluderCount = 0;
+    let debugLineScratch = new Float32Array(0);
+    const resultTransfer: Transferable[] = [];
 
     const liveIds: number[] = [];
     const testAabbBox = primMesh([], []);
-    const defaultStats: ISoftwareOcclusionJobStats = {
+    const resultMessage: ISoftwareOcclusionResultMessage = {
+        t: "result",
+        flags: EMPTY_U32,
         clearUs: 0,
         rasterUs: 0,
         hizUs: 0,
@@ -125,7 +137,7 @@ export function softwareOcclusionWorkerMain() {
         occluders: 0,
         aabbs: 0,
         occluded: 0,
-        visible: 0,
+        visible: 0
     };
 
     ctx.onmessage = function (event: MessageEvent<TSoftwareOcclusionWorkerInboundMessage>) {
@@ -210,14 +222,33 @@ export function softwareOcclusionWorkerMain() {
         }
     }
 
-    function ensureResultFlags(count: number): Uint32Array {
-        if (count > 0) {
-            if (resultFlags.length < count) {
-                resultFlags = new Uint32Array(growCapacity(resultFlags.length, count));
-            }
-            return resultFlags.subarray(0, count);
+    function asFullU32(src: Uint32Array<ArrayBufferLike>): Uint32Array<ArrayBufferLike> {
+        if (src.byteOffset === 0 && src.byteLength === src.buffer.byteLength) {
+            return src;
         }
-        return EMPTY_U32;
+        return new Uint32Array(src.buffer);
+    }
+
+    function ensureResultFlags(incoming: Uint32Array<ArrayBufferLike> | undefined, count: number): Uint32Array<ArrayBufferLike> {
+        const needBytes = count > 0 ? count << 2 : 0;
+        if (incoming && incoming.buffer.byteLength > 0) {
+            const adopted = asFullU32(incoming);
+            if (adopted.byteLength >= needBytes) {
+                resultFlags = adopted;
+                return adopted;
+            }
+            resultFlags = new Uint32Array(growCapacity(adopted.length, count));
+            return resultFlags;
+        }
+        if (count <= 0) {
+            resultFlags = EMPTY_U32;
+            return EMPTY_U32;
+        }
+        if (resultFlags.byteLength < needBytes) {
+            const prevLen = resultFlags.byteLength > 0 ? resultFlags.length : 0;
+            resultFlags = new Uint32Array(growCapacity(prevLen, count));
+        }
+        return resultFlags;
     }
 
     function setLive(id: number, live: boolean) {
@@ -312,20 +343,27 @@ export function softwareOcclusionWorkerMain() {
             for (let i = 0; i < meshUpserts.length; i++) {
                 const u = meshUpserts[i];
                 const id = u.id | 0;
-                const aabb = boundsFromVertices(u.vertices);
-                meshes[id] = {
-                    vertices: u.vertices,
-                    indices: u.indices,
-                    edgeIndices: buildUniqueEdges(u.indices),
-                    vertexCount: (u.vertices.length / 3) | 0,
-                    indexCount: u.indices.length,
-                    cx: aabb.cx,
-                    cy: aabb.cy,
-                    cz: aabb.cz,
-                    hx: aabb.hx,
-                    hy: aabb.hy,
-                    hz: aabb.hz
-                };
+                const existing = meshes[id];
+                if (existing) {
+                    writeMesh(existing, u.vertices, u.indices);
+                }
+                else {
+                    const mesh: IWorkerMesh = {
+                        vertices: u.vertices,
+                        indices: u.indices,
+                        edgeIndices: EMPTY_U32,
+                        vertexCount: 0,
+                        indexCount: 0,
+                        cx: 0,
+                        cy: 0,
+                        cz: 0,
+                        hx: 0,
+                        hy: 0,
+                        hz: 0
+                    };
+                    writeMesh(mesh, u.vertices, u.indices);
+                    meshes[id] = mesh;
+                }
             }
         }
 
@@ -384,25 +422,42 @@ export function softwareOcclusionWorkerMain() {
         }
     }
 
+    function resetResultMessage() {
+        resultMessage.flags = EMPTY_U32;
+        resultMessage.clearUs = 0;
+        resultMessage.rasterUs = 0;
+        resultMessage.hizUs = 0;
+        resultMessage.aabbUs = 0;
+        resultMessage.totalUs = 0;
+        resultMessage.occluders = 0;
+        resultMessage.aabbs = 0;
+        resultMessage.occluded = 0;
+        resultMessage.visible = 0;
+        resultMessage.debugLines = undefined;
+        resultMessage.debugLineCount = 0;
+    }
+
     function runFrame(msg: ISoftwareOcclusionFrameMessage) {
 
-        let stats = defaultStats;
+        resetResultMessage();
 
         const queueIds = msg.queueIds;
         const rawCount = msg.queueCount | 0;
         const idCap = queueIds && queueIds.length ? queueIds.length : 0;
         const queueCount = rawCount < 0 ? 0 : rawCount > idCap ? idCap : rawCount;
-        const flags = ensureResultFlags(queueCount);
 
         let debugLines: Float32Array | null = null;
 
         try {
+            const flags = ensureResultFlags(msg.flags, queueCount);
+            resultMessage.flags = flags;
+
             applyPatches(msg);
 
             // Patch-only / debug refresh: do not raster
             // or test when nothing is queued.
             if (queueCount > 0) {
-                stats = runJob(msg.vp, queueIds, queueCount, flags);
+                runJob(msg.vp, queueIds, queueCount, flags);
             }
 
             if (msg.debugOccluders) {
@@ -410,24 +465,40 @@ export function softwareOcclusionWorkerMain() {
             }
         }
         catch {
-            // Still return compact flags so the main thread can clear pending.
+            let flags = resultMessage.flags;
+            if (flags.byteLength === 0 && msg.flags && msg.flags.buffer.byteLength > 0) {
+                flags = asFullU32(msg.flags);
+                resultMessage.flags = flags;
+            }
             flags.fill(FLAG_VISIBLE, 0, queueCount);
         }
 
-        const result: ISoftwareOcclusionResultMessage = {
-            t: "result",
-            flags,
-            ...stats
-        };
+        postResult(debugLines);
+    }
 
-        if (debugLines) {
-            result.debugLines = debugLines;
-            result.debugLineCount = (debugLines.length / 6) | 0;
-            ctx.postMessage(result, [debugLines.buffer]);
-            return;
+    function postResult(debugLines: Float32Array | null) {
+        const transfer = resultTransfer;
+        transfer.length = 0;
+        const flags = resultMessage.flags;
+        if (flags.byteLength > 0) {
+            transfer.push(flags.buffer);
         }
-
-        ctx.postMessage(result);
+        if (debugLines) {
+            resultMessage.debugLines = debugLines;
+            resultMessage.debugLineCount = (debugLines.length / 6) | 0;
+            transfer.push(debugLines.buffer);
+        }
+        if (transfer.length > 0) {
+            ctx.postMessage(resultMessage, transfer);
+        }
+        else {
+            ctx.postMessage(resultMessage);
+        }
+        transfer.length = 0;
+        resultMessage.flags = EMPTY_U32;
+        resultMessage.debugLines = undefined;
+        resultMessage.debugLineCount = 0;
+        resultFlags = EMPTY_U32;
     }
 
     function runJob(
@@ -435,26 +506,22 @@ export function softwareOcclusionWorkerMain() {
         queueIds: Uint32Array,
         queueCount: number,
         flags: Uint32Array
-    ): ISoftwareOcclusionJobStats {
+    ) {
         const t0 = performance.now();
         const reuseHiz = hizValid && !occludersDirty && vpEquals(vp);
 
         if (reuseHiz) {
-            const counts = hizHasDepth
-                ? testAabbs(vp, queueIds, queueCount, flags)
-                : markVisible(queueCount, flags);
-            const tDone = performance.now();
-            return {
-                clearUs: 0,
-                rasterUs: 0,
-                hizUs: 0,
-                aabbUs: toUs(tDone - t0),
-                totalUs: toUs(tDone - t0),
-                occluders: lastOccluderCount,
-                aabbs: counts.tested,
-                occluded: counts.occluded,
-                visible: counts.visible
-            };
+            if (hizHasDepth) {
+                testAabbs(vp, queueIds, queueCount, flags);
+            }
+            else {
+                markVisible(queueCount, flags);
+            }
+            const us = toUs(performance.now() - t0);
+            resultMessage.aabbUs = us;
+            resultMessage.totalUs = us;
+            resultMessage.occluders = lastOccluderCount;
+            return;
         }
 
         clearDepth();
@@ -463,45 +530,38 @@ export function softwareOcclusionWorkerMain() {
         const occluders = rasterizeOccluders(vp);
         const tRaster = performance.now();
 
-        lastVp.set(vp.subarray(0, 16));
+        copyMat4(lastVp, vp);
         occludersDirty = false;
         hizValid = true;
         hizHasDepth = occluders > 0 && hizDirty;
         lastOccluderCount = occluders;
+        resultMessage.clearUs = toUs(tClear - t0);
+        resultMessage.rasterUs = toUs(tRaster - tClear);
+        resultMessage.occluders = occluders;
 
         if (!hizHasDepth) {
-            const counts = markVisible(queueCount, flags);
+            markVisible(queueCount, flags);
             const tDone = performance.now();
-            return {
-                clearUs: toUs(tClear - t0),
-                rasterUs: toUs(tRaster - tClear),
-                hizUs: 0,
-                aabbUs: toUs(tDone - tRaster),
-                totalUs: toUs(tDone - t0),
-                occluders,
-                aabbs: counts.tested,
-                occluded: 0,
-                visible: counts.visible
-            };
+            resultMessage.aabbUs = toUs(tDone - tRaster);
+            resultMessage.totalUs = toUs(tDone - t0);
+            return;
         }
 
         buildHiZ();
         const tHiz = performance.now();
 
-        const counts = testAabbs(vp, queueIds, queueCount, flags);
+        testAabbs(vp, queueIds, queueCount, flags);
         const tAabb = performance.now();
 
-        return {
-            clearUs: toUs(tClear - t0),
-            rasterUs: toUs(tRaster - tClear),
-            hizUs: toUs(tHiz - tRaster),
-            aabbUs: toUs(tAabb - tHiz),
-            totalUs: toUs(tAabb - t0),
-            occluders,
-            aabbs: counts.tested,
-            occluded: counts.occluded,
-            visible: counts.visible
-        };
+        resultMessage.hizUs = toUs(tHiz - tRaster);
+        resultMessage.aabbUs = toUs(tAabb - tHiz);
+        resultMessage.totalUs = toUs(tAabb - t0);
+    }
+
+    function copyMat4(dst: Float32Array, src: Float32Array) {
+        for (let i = 0; i < 16; i++) {
+            dst[i] = src[i];
+        }
     }
 
     function vpEquals(vp: Float32Array) {
@@ -604,16 +664,16 @@ export function softwareOcclusionWorkerMain() {
             }
         }
 
-        return {
-            tested: tests,
-            occluded,
-            visible
-        };
+        resultMessage.aabbs = tests;
+        resultMessage.occluded = occluded;
+        resultMessage.visible = visible;
     }
 
     function markVisible(queueCount: number, flags: Uint32Array) {
         flags.fill(FLAG_VISIBLE, 0, queueCount);
-        return { tested: queueCount, occluded: 0, visible: queueCount };
+        resultMessage.aabbs = queueCount;
+        resultMessage.occluded = 0;
+        resultMessage.visible = queueCount;
     }
 
     // 250k edges * 6 floats per edge = 1.5M floats
@@ -643,9 +703,17 @@ export function softwareOcclusionWorkerMain() {
             }
         }
 
+        if (floatCount <= 0) {
+            return null;
+        }
+
+        if (debugLineScratch.length < floatCount) {
+            debugLineScratch = new Float32Array(growCapacity(debugLineScratch.length, floatCount));
+        }
+
+        const scratch = debugLineScratch;
         let w = 0;
 
-        const out = new Float32Array(floatCount);
         for (let li = 0; li < n && w < floatCount; li++) {
             const id = liveIds[li];
             const mesh = resolveOccluderMesh(id);
@@ -656,14 +724,20 @@ export function softwareOcclusionWorkerMain() {
                 const edgeCount = edges.length;
                 for (let e = 0; e + 1 < edgeCount && w + 6 <= floatCount; e += 2) {
                     w = writeWorldEdge(
-                        out, w, occluderMatrices, mOff, verts,
+                        scratch, w, occluderMatrices, mOff, verts,
                         edges[e] * 3, edges[e + 1] * 3
                     );
                 }
             }
         }
 
-        return out.slice(0, w);
+        if (w <= 0) {
+            return null;
+        }
+
+        const packed = new Float32Array(w);
+        packed.set(scratch.subarray(0, w));
+        return packed;
     }
 
     function transformPoint(
@@ -1555,7 +1629,7 @@ export function softwareOcclusionWorkerMain() {
         ]);
     }
 
-    function boundsFromVertices(vertices: ArrayLike<number>) {
+    function boundsFromVertices(vertices: ArrayLike<number>, out: IAabb) {
         let minX = 0, minY = 0, minZ = 0, maxX = 0, maxY = 0, maxZ = 0;
         if (vertices.length >= 3) {
             minX = maxX = vertices[0];
@@ -1573,19 +1647,26 @@ export function softwareOcclusionWorkerMain() {
                 if (z > maxZ) maxZ = z;
             }
         }
-        return {
-            cx: (minX + maxX) * 0.5,
-            cy: (minY + maxY) * 0.5,
-            cz: (minZ + maxZ) * 0.5,
-            hx: (maxX - minX) * 0.5,
-            hy: (maxY - minY) * 0.5,
-            hz: (maxZ - minZ) * 0.5
-        };
+        out.cx = (minX + maxX) * 0.5;
+        out.cy = (minY + maxY) * 0.5;
+        out.cz = (minZ + maxZ) * 0.5;
+        out.hx = (maxX - minX) * 0.5;
+        out.hy = (maxY - minY) * 0.5;
+        out.hz = (maxZ - minZ) * 0.5;
+    }
+
+    function writeMesh(dst: IWorkerMesh, vertices: Float32Array, indices: Uint32Array) {
+        boundsFromVertices(vertices, dst);
+        dst.vertices = vertices;
+        dst.indices = indices;
+        dst.edgeIndices = buildUniqueEdges(indices);
+        dst.vertexCount = (vertices.length / 3) | 0;
+        dst.indexCount = indices.length;
     }
 
     function primMesh(verts: number[], indices: number[]): IPrimMesh {
         const vertices = new Float32Array(verts);
-        const aabb = boundsFromVertices(vertices);
+        boundsFromVertices(vertices, boundsScratch);
         const indexArray = new Uint32Array(indices);
         return {
             vertices,
@@ -1593,12 +1674,12 @@ export function softwareOcclusionWorkerMain() {
             edgeIndices: buildUniqueEdges(indexArray),
             vertexCount: (verts.length / 3) | 0,
             indexCount: indices.length,
-            cx: aabb.cx,
-            cy: aabb.cy,
-            cz: aabb.cz,
-            hx: aabb.hx,
-            hy: aabb.hy,
-            hz: aabb.hz
+            cx: boundsScratch.cx,
+            cy: boundsScratch.cy,
+            cz: boundsScratch.cz,
+            hx: boundsScratch.hx,
+            hy: boundsScratch.hy,
+            hz: boundsScratch.hz
         };
     }
 

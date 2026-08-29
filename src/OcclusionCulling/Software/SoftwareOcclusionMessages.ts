@@ -23,7 +23,7 @@ export interface ISoftwareOcclusionReadyMessage {
 
 export interface ISoftwareOcclusionResultMessage extends ISoftwareOcclusionJobStats {
     t: "result";
-    flags: Uint32Array;
+    flags: Uint32Array<ArrayBufferLike>;
     debugLines?: Float32Array;
     debugLineCount?: number;
 }
@@ -89,6 +89,7 @@ export interface ISoftwareOcclusionFrameMessage extends ISoftwareOcclusionFrameP
     vp: Float32Array;
     queueIds: Uint32Array;
     queueCount: number;
+    flags?: Uint32Array<ArrayBufferLike>;
     debugOccluders?: boolean;
 }
 
