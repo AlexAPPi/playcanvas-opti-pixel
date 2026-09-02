@@ -86,17 +86,14 @@ export class DebugLineMesh {
 
     public draw(app: pc.AppBase, color: pc.Color, depthTest: boolean) {
         this._device = app.graphicsDevice;
-        if (this._lineCount <= 0) {
-            return;
+        if (this._lineCount > 0) {
+            if (!this._mesh) {
+                this._upload();
+                return;
+            }
+            this._ensureMaterial(color, depthTest);
+            app.drawMesh(this._mesh, this._material!, _identity);
         }
-        if (!this._mesh) {
-            this._upload();
-        }
-        if (!this._mesh) {
-            return;
-        }
-        this._ensureMaterial(color, depthTest);
-        app.drawMesh(this._mesh, this._material!, _identity);
     }
 
     public destroy() {
@@ -110,21 +107,24 @@ export class DebugLineMesh {
     }
 
     private _upload() {
+
         if (!this._device) {
             return;
         }
+
         const vertexCount = this._lineCount * 2;
         if (vertexCount <= 0) {
             this._destroyGpuMesh();
             return;
         }
-        if (!this._mesh) {
-            this._mesh = new pc.Mesh(this._device);
-        }
+
+        this._mesh ??= new pc.Mesh(this._device);
+
         if (vertexCount > this._maxVerts) {
             this._maxVerts = nextPow2(vertexCount);
             this._mesh.clear(true, false, this._maxVerts);
         }
+
         const floats = vertexCount * 3;
         const positions = this._lines.length === floats
             ? this._lines
