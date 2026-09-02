@@ -116,7 +116,6 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         this._resizePending = true;
         this._resizeTimeout = setTimeout(() => {
             this.resize();
-            this._resizePending = false;
         }, delay);
     }
 
@@ -124,6 +123,7 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
 
         this._dispose();
 
+        this._resizePending = false;
         this._maxSize = maxSize;
         this._screenWidth = width | 0;
         this._screenHeight = height | 0;
@@ -346,6 +346,7 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
             this._resizeTimeout = null;
         }
 
+        this._resizePending = false;
         this._quadRenderPasses?.forEach(x => x?.destroy());
         this._renderTargets?.forEach(x => x?.destroy());
         this._buffers?.forEach(x => x?.destroy());
