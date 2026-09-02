@@ -52,6 +52,11 @@ export default `
             rectMax = max(rectMax, pointScreen);
         }
 
+        // Crosses near plane
+        if (rectMax.z >= 1.0) {
+            return 0;
+        }
+
         float rectZ = rectMin.z;
         float deviceZ = getRectDepth(rectMin, rectMax);
 
