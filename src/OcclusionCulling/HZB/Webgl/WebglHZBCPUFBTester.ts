@@ -14,17 +14,6 @@ import type { IGPU2CPUReadbackOcclusionCullingTester, TOcclusionResult, TUnicalI
 import { executeTransformFeedbackShader } from "../../../Extras/TransformFeedbackHelpers.js";
 import { IAABBStore } from "../../../Extras/IAABBStore.js";
 
-export function estimateReadbackDelayMs(
-    avgFrameTimeMs: number,
-    gpuLatencyFrames: number = 1.2,
-    safetyMarginMs: number = 1.0,
-    minDelayMs: number = 0,
-    maxDelayMs: number = 50
-) {
-    const estimated = avgFrameTimeMs * gpuLatencyFrames + safetyMarginMs;
-    return Math.max(minDelayMs, Math.min(maxDelayMs, estimated));
-}
-
 export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPUReadbackOcclusionCullingTester {
 
     readonly _ocTesterType = "gpu2cpu_readback_oct";
@@ -179,7 +168,7 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
 
         if (state && state.count > 0) {
 
-            const count = state.count;
+            const count = Math.min(state.count, state.outputBuffer.numVertices);
             const uvFactor = this.hzb.uvFactor;
 
             _screenSizeArr[0] = this.hzb.screenWidth;

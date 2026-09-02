@@ -111,6 +111,14 @@ export class HZBTStateQueue {
 
     public resize() {
         this._ensureAtlas();
+
+        const used = this._usedReaders;
+        for (let i = 0; i < used.length; i++) {
+            used[i].abortRead();
+            this._freeReaders.push(used[i]);
+        }
+        used.length = 0;
+
         for (let i = 0; i < this._readers.length; i++) {
             this._readers[i]?.resize();
         }

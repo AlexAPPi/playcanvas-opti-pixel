@@ -76,6 +76,7 @@ export class HZBTFState {
         if (this._unread) {
             this._deletePbo();
         }
+        this._copyCount = 0;
     }
 
     public beginRead(): void {
@@ -109,6 +110,11 @@ export class HZBTFState {
         gl.bindBuffer(gl.COPY_WRITE_BUFFER, null);
 
         this._sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+        if (!this._sync) {
+            this._deletePbo();
+            return;
+        }
+
         this._unread = true;
         gl.flush();
     }
