@@ -17,7 +17,7 @@ export class HZBTStateQueue {
 
     private _freeToUsedRatio = 2;
     private _historyLength = 60 * 3;
-    private _maxInFlight = 4;
+    private _maxInFlight = 6;
     private _minLatencyFrames = 2;
     private _freeShrinkHysteresis = 2;
 
