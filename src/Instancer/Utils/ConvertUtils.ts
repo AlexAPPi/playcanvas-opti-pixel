@@ -8,6 +8,11 @@ export function vec3ToArr(vec: pc.Vec3, out: FloatArray, offset: number = 0) {
     return out;
 }
 
+/**
+ * Inverts the world transformation matrix to get the translation and rotation components.
+ * @param world World transformation matrix.
+ * @param out Output matrix (translation and rotation components).
+ */
 export function invertWorldTranslationRotation(world: pc.Mat4, out: pc.Mat4): void {
 
     const m = world.data;
