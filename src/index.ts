@@ -73,6 +73,7 @@ import { radixSort } from "./Extras/RadixSort.js";
 import { ILODRender } from "./Instancer/ILODRender.js";
 import { ILODLevel } from "./Instancer/ILODLevel.js";
 import { IInstancerShaderChunkMap, IInstancerShaderChunkMapScope } from "./Instancer/InstancerShaderChunks.js";
+import { invertWorldTranslationRotation } from "./Instancer/Utils/ConvertUtils.js";
 
 export {
 
@@ -89,6 +90,7 @@ export {
     OCCLUSION_ALGORITHM_TYPE_ACCURATE,
 
     radixSort,
+    invertWorldTranslationRotation,
 
     AABBStore,
 

@@ -4,7 +4,7 @@ import { BoxType, BVHNode, TypedArrayConstructor } from "../BVH/BVHNode.js";
 import { HybridBuilder } from "../BVH/HybridBuilder.js";
 import { isIntersectedMargin } from "../BVH/Utils/FrustumUtils.js";
 import { convertBoxToArray } from "../BVH/Utils/ConvertBoxUtils.js";
-import { vec3ToArr } from "./Utils/ConvertVecUtils.js";
+import { vec3ToArr } from "./Utils/ConvertUtils.js";
 import { HierarchicalInstancer } from "./HierarchicalInstancer.js";
 
 // TODO getBoxFromSphere updated if change geometry (and create accessor)
