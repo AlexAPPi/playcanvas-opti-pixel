@@ -206,24 +206,26 @@ export class BasicArrayHierarchicalInstancerLayer<
         for (let levelIdx = 0; levelIdx < levels.length; levelIdx++) {
             const aabb = levels[levelIdx].render?.computeMaxMeshBoundingBox();
             if (aabb) {
-
-                src ??= aabb;
-
                 if (empty) {
                     empty = false;
-                    src.copy(aabb);
+                    _tempBoundingBox.copy(aabb);
                 }
                 else {
-                    src.add(aabb);
+                    _tempBoundingBox.add(aabb);
                 }
             }
         }
 
-        if (!src) {
+        if (empty) {
             throw new Error("Failed to compute the bounding box for the mesh.");
         }
 
-        return src;
+        if (src) {
+            src.copy(_tempBoundingBox);
+            return src;
+        }
+
+        return _tempBoundingBox.clone();
     }
 
     public addLOD(meshInstanceList: pc.MeshInstance[] | null, root: pc.Entity | null, distance: number = 0, hysteresis: number = 0): number {
@@ -599,3 +601,5 @@ export class BasicArrayHierarchicalInstancerLayer<
         this._disposeSorter();
     }
 }
+
+const _tempBoundingBox = new pc.BoundingBox();

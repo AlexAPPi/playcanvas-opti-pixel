@@ -212,19 +212,31 @@ export class BasicHierarchicalInstancer implements IInstancer {
             throw new Error("Lods empty");
         }
 
+        let empty = true;
         for (let levelIdx = 0; levelIdx < levels.length; levelIdx++) {
             const aabb = levels[levelIdx].render?.computeMaxMeshBoundingBox();
             if (aabb) {
-                src ??= aabb;
-                src.add(aabb);
+
+                if (empty) {
+                    empty = false;
+                    _tempBoundingBox.copy(aabb);
+                }
+                else {
+                    _tempBoundingBox.add(aabb);
+                }
             }
         }
 
-        if (!src) {
+        if (empty) {
             throw new Error("Failed to compute the bounding box for the mesh.");
         }
 
-        return src;
+        if (src) {
+            src.copy(_tempBoundingBox);
+            return src;
+        }
+
+        return _tempBoundingBox.clone();
     }
 
     public addLOD(meshInstanceList: pc.MeshInstance[] | null, root: pc.Entity | null, distance: number = 0, hysteresis: number = 0): number {
@@ -663,3 +675,4 @@ export class BasicHierarchicalInstancer implements IInstancer {
 export default BasicHierarchicalInstancer;
 
 const _defaultCapacity = 1000;
+const _tempBoundingBox = new pc.BoundingBox();
