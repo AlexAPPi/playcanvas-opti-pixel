@@ -24,7 +24,8 @@ export interface ILODRender {
      * Computes the combined bounding box for all meshes.
      *
      * If root is defined, the bounding box is converted to the root local space
-     * so it can be used for frustum culling without updating matrices on the CPU.
+     * (root scale kept, translation and rotation stripped) so it can be used
+     * for frustum culling without updating matrices on the CPU.
      *
      * @returns The bounding box for all meshes, or null if there are no meshes.
      */
@@ -62,8 +63,8 @@ export interface ILODRender {
     /**
      * Finalizes the frame and applies the collected data to the meshes.
      *
-     * Updates instancing counts and, when needed, local matrices
-     * relative to the root entity.
+     * Updates instancing counts and, when needed, local matrices relative to
+     * the root entity, keeping the root scale.
      */
     end(): void;
 
