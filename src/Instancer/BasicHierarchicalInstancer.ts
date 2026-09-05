@@ -228,7 +228,7 @@ export class BasicHierarchicalInstancer implements IInstancer {
         }
 
         if (empty) {
-            throw new Error("Failed to compute the bounding box for the mesh.");
+            _tempBoundingBox.setMinMax(pc.Vec3.ZERO, pc.Vec3.ZERO);
         }
 
         if (src) {
