@@ -2,7 +2,7 @@ import debugShaderGLSL from "../HZB/HierarchicalZBufferDebugger.glsl.js";
 import debugShaderWGSL from "../HZB/HierarchicalZBufferDebugger.wgsl.js";
 import pc from "../../engine.js";
 import { GPUBufferTool } from "../../Extras/GPUBufferTool.js";
-import { isGPU2CPUReadbackOcclusionCullingTester, OCCLUSION_OCCLUDED, OCCLUSION_UNKNOWN } from "../IOcclusionCullingTester.js";
+import { OCCLUSION_OCCLUDED } from "../IOcclusionCullingTester.js";
 import { CoverageCpuBuffer } from "./CoverageCpuBuffer.js";
 import { WebglCoverageBuffer } from "./Webgl/WebglCoverageBuffer.js";
 import { WebglCoverageBufferTester } from "./Webgl/WebglCoverageBufferTester.js";
@@ -19,7 +19,6 @@ export class CoverageBufferDebugger {
 
     private _app: pc.AppBase;
     private _tester: WebglCoverageBufferTester | undefined;
-    private _coverage: WebglCoverageBuffer | undefined;
     private _debugAABBTexture: pc.Texture;
     private _debugTextureShaderDesc: any;
     private _frameMaterials: pc.ShaderMaterial[] = [];
@@ -29,18 +28,12 @@ export class CoverageBufferDebugger {
     private _reprojectBits = new Uint32Array(1);
     private _reprojectFloat = new Float32Array(this._reprojectBits.buffer);
 
-    public get coverage() {
-        return (this._tester?.coverage ?? this._coverage)!;
-    }
-
-    public set coverageOrTester(v: WebglCoverageBuffer | WebglCoverageBufferTester) {
-        const fromBuffer = v instanceof WebglCoverageBuffer;
-        this._coverage = fromBuffer ? v : undefined;
-        this._tester = fromBuffer ? undefined : v;
+    public set tester(v: WebglCoverageBufferTester) {
+        this._tester = v;
         this._initDeps();
     }
 
-    constructor(app: pc.AppBase, coverageOrTester: WebglCoverageBuffer | WebglCoverageBufferTester) {
+    public constructor(app: pc.AppBase, tester: WebglCoverageBufferTester) {
         this._app = app;
         this._debugAABBTexture = new pc.Texture(this._app.graphicsDevice, {
             width: 1,
@@ -55,7 +48,7 @@ export class CoverageBufferDebugger {
             levels: [new Uint8Array([255, 255, 0, 255])]
         });
         this._onFrameEnd = app.on("frameend", this._recycleMaterials, this);
-        this.coverageOrTester = coverageOrTester;
+        this.tester = tester;
     }
 
     public destroy() {
@@ -71,7 +64,7 @@ export class CoverageBufferDebugger {
 
     private _initDeps() {
 
-        const coverage = this.coverage;
+        const coverage = this._tester?.coverage;
         if (!coverage) {
             return;
         }
@@ -103,7 +96,7 @@ export class CoverageBufferDebugger {
      */
     public debug(adaptive: boolean = true, count: number = 0, maxElementHeight: number = 0.25, spacing: number = 0.02, x: number = 0.75, w: number = 0.25) {
 
-        const coverage = this.coverage;
+        const coverage = this._tester?.coverage;
         if (!coverage) {
             return;
         }
@@ -146,7 +139,7 @@ export class CoverageBufferDebugger {
      */
     public debugBuffer(i: number, x: number, y: number, width: number, height: number, adaptive: boolean = false) {
 
-        const coverage = this.coverage;
+        const coverage = this._tester?.coverage;
         const buffers = coverage?.buffers;
         if (!coverage || !buffers || buffers.length === 0) {
             return;
@@ -166,7 +159,7 @@ export class CoverageBufferDebugger {
      */
     public debugPacked(x: number = 0, y: number = 0, width: number = 2, height: number = 2) {
 
-        const buffer = this.coverage?.cpuTexture;
+        const buffer = this._tester?.coverage?.cpuTexture;
         if (!this._isTextureDrawable(buffer)) {
             return;
         }
@@ -209,12 +202,7 @@ export class CoverageBufferDebugger {
         const info = this._tester.getDebugInfo(index);
         const rectangle = info.rectangleScreen;
         const boundingBox = info.boundingBox;
-
-        let occlusionStatus = OCCLUSION_UNKNOWN;
-
-        if (isGPU2CPUReadbackOcclusionCullingTester(this._tester)) {
-            occlusionStatus = this._tester.getOcclusionStatus(index);
-        }
+        const occlusionStatus = this._tester.getOcclusionStatus(index);
 
         if (reprojected) {
             this.debugReprojected(0, 0, 2, 2);
