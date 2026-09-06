@@ -225,7 +225,7 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
 
     public getDebugInfo(index: number) {
         this._aabbStore.get(index, _boundingBox);
-        return getDebugInfo(this, this._modelViewProjection, _boundingBox);
+        return getDebugInfo(this.hzb, this._modelViewProjection, _boundingBox);
     }
 }
 

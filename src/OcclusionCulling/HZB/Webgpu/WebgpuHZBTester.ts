@@ -174,7 +174,7 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
 
     public getDebugInfo(index: number) {
         this._aabbStore.get(index, _boundingBox);
-        return getDebugInfo(this, this._modelViewProjection, _boundingBox);
+        return getDebugInfo(this.hzb, this._modelViewProjection, _boundingBox);
     }
 
     public enqueue(id: TUnicalId, slot: number, primitive: IPrimitive, instanceCount: number, firstInstance: number = 0, extra?: number[]): TUnicalQueueIndex {

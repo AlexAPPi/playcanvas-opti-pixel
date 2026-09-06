@@ -58,6 +58,9 @@ import { IHierarchicalZBuffer } from "./OcclusionCulling/HZB/IHierarchicalZBuffe
 import { WebglHierarchicalZBuffer } from "./OcclusionCulling/HZB/Webgl/WebglHierarchicalZBuffer.js";
 import { WebgpuHierarchicalZBuffer } from "./OcclusionCulling/HZB/Webgpu/WebgpuHierarchicalZBuffer.js";
 import { WebglHZBCPUFBTester } from "./OcclusionCulling/HZB/Webgl/WebglHZBCPUFBTester.js";
+import { CoverageBufferDebugger } from "./OcclusionCulling/CoverageBuffer/CoverageBufferDebugger.js";
+import { WebglCoverageBuffer } from "./OcclusionCulling/CoverageBuffer/Webgl/WebglCoverageBuffer.js";
+import { WebglCoverageBufferTester } from "./OcclusionCulling/CoverageBuffer/Webgl/WebglCoverageBufferTester.js";
 import { AABBStore } from "./Extras/AABBStore.js";
 import { IAABBStore } from "./Extras/IAABBStore.js";
 import { SoftwareOcclusionTester, type ISoftwareOcclusionStats, type ISoftwareOcclusionTesterParams, type ISoftwareOcclusionPreallocate } from "./OcclusionCulling/Software/SoftwareOcclusionTester.js";
@@ -139,6 +142,10 @@ export {
 
     OccluderStore,
     SoftwareOcclusionTester,
+
+    WebglCoverageBuffer,
+    WebglCoverageBufferTester,
+    CoverageBufferDebugger,
 
     OcclusionCullingSystem,
     HierarchicalZBufferDebugger,

@@ -1,6 +1,6 @@
 import pc from "../../engine.js";
-import { IDebugInfo } from "./IHierarchicalZBufferTester.js";
-import { IHierarchicalZBufferTester } from "./IHierarchicalZBufferTester.js";
+import type { IHierarchicalZBuffer } from "./IHierarchicalZBuffer.js";
+import type { IDebugInfo } from "./IHierarchicalZBufferTester.js";
 
 const _hzbSize = new pc.Vec2();
 const _rectMin = new pc.Vec3();
@@ -42,7 +42,7 @@ export function floor2(vec1: pc.Vec2) {
 }
 
 export function getDebugInfo(
-    tester: IHierarchicalZBufferTester,
+    hzb: IHierarchicalZBuffer,
     matrix: pc.Mat4,
     box: pc.BoundingBox
 ): IDebugInfo {
@@ -86,8 +86,8 @@ export function getDebugInfo(
     _rectMax2.y = pc.math.clamp(_rectMax2.y, 0.0, 1.0);
 
     const hzbSize = _hzbSize.set(
-        tester.hzb.width,
-        tester.hzb.height
+        hzb.width,
+        hzb.height
     );
 
     const rectPixelsMin = _rectMin2.clone().mul(hzbSize);
