@@ -10,10 +10,12 @@ All testers share `IOcclusionCullingTester`:
 Readback testers (`IReadbackOcclusionCullingTester`) add:
 
 - `enqueue(id)` — include in this frame’s batch
-- `execute(camera)` — submit the batch
+- `execute(camera)` — submit / test the batch
 - `getOcclusionStatus(id)` → `OCCLUSION_UNKNOWN | VISIBLE | OCCLUDED`
 
-CPU software also has `frameUpdate` and `occluders: OccluderStore`.
+CPU software also has `occluders: OccluderStore`. It has **no** `frameUpdate` (jobs complete on the worker callback). Coverage polls inside `execute`. WebGL HZB and queries need `frameUpdate` (or `OcclusionCullingSystem` on `frameupdate`).
+
+The [coverage buffer](coverage.md) tester adds `updateHZB(camera)` after opaque depth. That call builds the packed downsample; `execute` only polls, reprojects, and tests.
 
 WebGPU HZB implements `IGPUIndirectDrawOcclusionCullingTester`: `enqueue` takes an indirect draw slot and primitive; the GPU writes the draw args. There is no CPU visibility bit.
 
@@ -25,7 +27,7 @@ WebGPU HZB implements `IGPUIndirectDrawOcclusionCullingTester`: `enqueue` takes 
 | `OCCLUSION_OCCLUDED` | `0` | Hidden — safe to skip the draw |
 | `OCCLUSION_VISIBLE` | `1` | Not occluded |
 
-`enqueue` returns `-1` (`SOME_ENQUEUE_PROBLEM`) when that tester cannot accept the item. Meaning depends on the backend (full AABB queue, `freeze` on queries, no HZB write slot yet). Keep showing last known visibility.
+`enqueue` returns `-1` (`SOME_ENQUEUE_PROBLEM`) when that tester cannot accept the item. Meaning depends on the backend (full AABB queue on software/coverage, `freeze` on queries, no HZB write slot yet). Keep showing last known visibility.
 
 ## Shared store
 
@@ -48,8 +50,8 @@ Helper that, given `app` + `AABBStore`:
 - Creates `WebglOcclusionQueriesTester` on WebGL2 only
 - Optionally auto-updates HZB on `frameend` and queries on a named layer (`autoUpdate`, `camera`, `queriesLayerName`)
 
-Software occlusion is **not** created by this system. Instantiate `SoftwareOcclusionTester` yourself.
+Software occlusion and the [coverage buffer](coverage.md) are **not** created by this system. Instantiate `SoftwareOcclusionTester` or `WebglCoverageBuffer` + `WebglCoverageBufferTester` yourself.
 
-Debuggers: `system.drawHZB` uses `HierarchicalZBufferDebugger`. Query AABBs: `system.queriesDebugger?.debugItem(id)` (`QueriesDebugger` is not exported from the package).
+Debuggers: `system.drawHZB` uses `HierarchicalZBufferDebugger`. Query AABBs: `system.queriesDebugger?.debugItem(id)` (`QueriesDebugger` is not exported from the package). Coverage: construct `CoverageBufferDebugger` yourself (package export; bind the tester so `debug()` includes the reprojected CPU buffer). See [coverage buffer](coverage.md#debug-overlay).
 
 Pick a backend in [Choosing a backend](choosing-backend.md).

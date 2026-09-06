@@ -7,7 +7,7 @@ The library is built around a few independent systems that share the same ID and
 | System | Start here |
 | --- | --- |
 | Hierarchical GPU instancing + LOD | [Choosing an instancer](docs/instancing/choosing-instancer.md) |
-| Occlusion culling (HZB, queries, CPU software) | [Choosing an occlusion backend](docs/occlusion/choosing-backend.md) |
+| Occlusion culling (HZB, coverage, queries, CPU software) | [Choosing an occlusion backend](docs/occlusion/choosing-backend.md) |
 | Bounding volume hierarchy | [BVH](docs/bvh.md) |
 | Shared stores, queues, data textures | [Extras](docs/extras.md) |
 
@@ -19,7 +19,7 @@ Full table of contents: [docs/README.md](docs/README.md).
 npm install playcanvas-opti-pixel playcanvas
 ```
 
-Peer: **PlayCanvas 2.x** (developed against `playcanvas@^2.19`). WebGL2 and WebGPU are both supported; not every occlusion backend is available on both.
+Requires **PlayCanvas 2.x** (developed against `playcanvas@^2.19`). WebGL2 and WebGPU are both supported; not every occlusion backend is available on both.
 
 ```ts
 import {
@@ -41,6 +41,7 @@ instancer.addLOD(lod1MeshInstances, rootEntity, 40);
 
 for (let i = 0; i < count; i++) {
     instancer.setMatrixAt(i, matrices[i]);
+    instancer.setActiveAndVisibilityAt(i, true);
 }
 
 instancer.computeBVH();
@@ -59,10 +60,9 @@ const tester = new SoftwareOcclusionTester(aabbs, { width: 256, height: 128 });
 const occludeeId = tester.lock(worldAabb);
 tester.occluders.lockBox(occluderWorldMatrix);
 
-app.on("update", (dt) => {
+app.on("update", () => {
     tester.enqueue(occludeeId);
     tester.execute(camera.camera);
-    tester.frameUpdate(dt);
 
     if (tester.getOcclusionStatus(occludeeId) !== OCCLUSION_OCCLUDED) {
         // draw — treat OCCLUSION_UNKNOWN as visible
@@ -77,11 +77,11 @@ app.on("update", (dt) => {
 Exports live in `src/index.ts`.
 
 - **Instancer** — `BasicHierarchicalInstancer`, `SimpleHierarchicalInstancer`, `HierarchicalInstancer`, `BasicArrayHierarchicalInstancer`, LOD fade helpers
-- **Occlusion** — `OcclusionCullingSystem`, HZB (WebGL / WebGPU), occlusion queries (WebGL), `SoftwareOcclusionTester` + `OccluderStore`
+- **Occlusion** — `OcclusionCullingSystem`, HZB (WebGL / WebGPU), coverage buffer (WebGL), occlusion queries (WebGL), `SoftwareOcclusionTester` + `OccluderStore`
 - **BVH** — `BVH`, `HybridBuilder`
 - **Extras** — `AABBStore`, square / mat4 / color data textures, index and GPU queues
 
-Internal worker code, HZB shaders, and buffer layouts are not part of the public docs. See comments in `src/` if you are changing the implementation.
+Internal worker code, HZB / coverage shaders, and buffer layouts are not part of the public docs. See comments in `src/` if you are changing the implementation.
 
 API reference: [GitHub Pages](https://alexappi.github.io/playcanvas-opti-pixel/) (built on `main`). Locally: `npm run docs:api` → `docs/api/index.html`.
 

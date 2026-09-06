@@ -46,7 +46,8 @@ instancer.addLOD(lowDetailMeshes, rootEntity, 50);
 
 for (let i = 0; i < count; i++) {
     instancer.setMatrixAt(i, worldMatrix);
-    instancer.setVisibilityAt(i, true);
+    // slots start inactive and invisible
+    instancer.setActiveAndVisibilityAt(i, true);
 }
 
 // After matrices are filled
@@ -58,6 +59,8 @@ app.on("update", (dt) => {
 ```
 
 `addLOD` patches the mesh materials with instancing shader chunks. Keep those `MeshInstance` objects in the scene graph as you would for a normal render; the instancer drives per-instance transforms.
+
+Slots start with **Active** and **Visible** both false. `computeBVH()` only inserts Active instances; `SimpleHierarchicalInstancer.update` (and `HierarchicalInstancer` without a BVH) requires both flags. Hide later with `setVisibilityAt(id, false)`.
 
 If you do not need BVH, use `SimpleHierarchicalInstancer` instead. See [Choosing an instancer](instancing/choosing-instancer.md).
 
@@ -83,10 +86,9 @@ const id = tester.lock(entity.render.meshInstances[0].aabb);
 // Large occluders: boxes, spheres, or snapped meshes
 tester.occluders.lockBox(occluder.getWorldTransform());
 
-app.on("update", (dt) => {
+app.on("update", () => {
     tester.enqueue(id);
     tester.execute(camera.camera);
-    tester.frameUpdate(dt);
 
     const status = tester.getOcclusionStatus(id);
     entity.enabled = status !== OCCLUSION_OCCLUDED;
@@ -98,11 +100,11 @@ Rules that apply to every readback tester:
 1. `enqueue` every object you care about **this frame**, then `execute`.
 2. Results belong to a **previous** completed job. The first frames return `OCCLUSION_UNKNOWN`.
 3. Treat `UNKNOWN` as visible. Only skip the draw on `OCCLUSION_OCCLUDED`.
-4. `enqueue` returning `-1` (`SOME_ENQUEUE_PROBLEM`) means that item was not queued. For software occlusion that is a full AABB queue, not a busy worker (a busy worker drops the queue inside `execute`).
+4. `enqueue` returning `-1` (`SOME_ENQUEUE_PROBLEM`) means that item was not queued. For software occlusion that is a full AABB queue, not a busy worker (a busy worker **keeps** the queue and skips `execute` until idle). Software has no `frameUpdate`; completed jobs arrive on the worker message callback.
 
 In the snippets, `camera` is a PlayCanvas `CameraComponent` (`camera.camera` is `pc.Camera`).
 
-GPU backends (HZB, queries) follow the same `lock` / `enqueue` / `execute` contract, but WebGPU HZB culls via **indirect draw** instead of a CPU status. See [Choosing a backend](occlusion/choosing-backend.md).
+GPU backends (HZB, coverage, queries) follow the same `lock` / `enqueue` / `execute` contract, but WebGPU HZB culls via **indirect draw** instead of a CPU status. Coverage also needs `updateHZB(camera)` after opaque depth — `execute` does not build that chain. WebGL HZB and queries need `frameUpdate` if you constructed the tester yourself; `OcclusionCullingSystem` already runs it on `frameupdate`. See [Choosing a backend](occlusion/choosing-backend.md).
 
 ## Next
 

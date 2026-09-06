@@ -20,6 +20,7 @@ flowchart TB
         store --> testers
         testers --> sw["SoftwareOcclusionTester"]
         testers --> hzb["HZB WebGL readback / WebGPU indirect"]
+        testers --> coverage["WebGL coverage buffer"]
         testers --> queries["WebGL occlusion queries"]
     end
 
@@ -38,7 +39,7 @@ flowchart TB
 
 [`AABBStore`](extras.md) holds packed centers and half-extents, optionally as GPU textures. Occlusion testers do not own AABBs; they lock IDs on the store.
 
-`OcclusionCullingSystem` takes an `AABBStore` and constructs the GPU testers that match the current device (WebGL2 HZB + queries, or WebGPU HZB). Software occlusion is constructed separately: `new SoftwareOcclusionTester(aabbStore, params)`.
+`OcclusionCullingSystem` takes an `AABBStore` and constructs the GPU testers that match the current device (WebGL2 HZB + queries, or WebGPU HZB). Software occlusion and the coverage buffer are constructed separately: `new SoftwareOcclusionTester(aabbStore, params)`, `new WebglCoverageBuffer(device)` + `new WebglCoverageBufferTester(coverage, aabbStore)`.
 
 ## Frame order
 
@@ -55,13 +56,17 @@ sequenceDiagram
     Note over Instancer: frustum + LOD, enqueue visible instances
     App->>Tester: enqueue(id) for candidates
     App->>Tester: execute(camera)
-    Tester->>GPU: submit job / draw queries / build HZB
-    App->>Tester: frameUpdate(dt)
+    Tester->>GPU: submit job / draw queries / build HZB or coverage
+    Note over Tester: WebGL HZB / queries: frameUpdate (or OcclusionCullingSystem)
     Tester-->>App: getOcclusionStatus (previous job)
     App->>App: skip draws that are OCCLUDED
 ```
 
 Submit work early, consume results from the last **finished** job. Do not wait for the GPU or worker on the same frame unless you accept a stall.
+
+`frameUpdate` is not universal: software has none; coverage polls inside `execute`; WebGL HZB and queries harvest in `frameUpdate` (`OcclusionCullingSystem` does that on `frameupdate`).
+
+`WebglCoverageBufferTester` polls inside `execute`. Call `updateHZB` after opaque depth (`postrender`), and `execute` every frame (often in `update`, so tests use the last finished capture).
 
 For **WebGPU HZB**, `execute` writes `instanceCount` into an indirect draw buffer. There is no `getOcclusionStatus` on that path.
 
@@ -70,6 +75,7 @@ For **WebGPU HZB**, `execute` writes `instanceCount` into an indirect draw buffe
 These are implementation details, not a public API:
 
 - `SoftwareOcclusionWorker` (blob worker, Hi-Z only on the worker; owns occluder/mesh state)
-- HZB and query shaders
+- `CoverageCpuBuffer` (CPU reproject + AABB tests behind `WebglCoverageBufferTester.cpuBuffer`)
+- HZB, coverage, and query shaders
 
 Change them in source; do not document them for application code.

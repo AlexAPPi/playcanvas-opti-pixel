@@ -25,26 +25,28 @@ Default for moderate counts (hundreds to low thousands) where a linear frustum t
 
 Adds:
 
-- `setVisibilityAt` / `getVisibilityAt`
+- `setActiveAt` / `setVisibilityAt` / `setActiveAndVisibilityAt` (slots start false/false)
 - `lodFadeTime` (default `0.25` seconds)
-- `update(dt, camera, cameraPosition)`
+- `update(dt, camera, cameraPosition)` — frustum test requires both Active and Visible
 
 ```ts
 const instancer = new SimpleHierarchicalInstancer(device, {
     capacity: 512,
     lodFadeTime: 0.2,
 });
+// after setMatrixAt:
+instancer.setActiveAndVisibilityAt(id, true);
 ```
 
 ## `HierarchicalInstancer`
 
 Same as Simple, with a BVH over instance AABBs.
 
-Call `computeBVH()` **after** matrices (and the instance bounding box) are ready. With `autoUpdateBVH` (default `true`), `setMatrixAt` moves the leaf in the tree.
+Call `computeBVH()` **after** matrices, LOD meshes, and **Active** flags are ready — only Active instances are inserted. With `autoUpdateBVH` (default `true`), `setMatrixAt` moves an existing leaf (`move` no-ops if that id was never inserted).
 
 ```ts
 const instancer = new HierarchicalInstancer(device, { capacity: 8192 });
-// ... set matrices, add LOD ...
+// ... addLOD, setMatrixAt, setActiveAndVisibilityAt ...
 instancer.computeBVH({
     margin: 0,              // > 0 if instances move a lot
     getBBoxFromBSphere: false,
@@ -76,4 +78,5 @@ trees.addLOD(treeMeshes, forestRoot, 0);
 
 - Do not attach two instancers to the same `MeshInstance` list
 - Do not call `computeBVH` before LOD meshes exist — instance AABB comes from those meshes
+- Do not call `computeBVH` before instances are Active — inactive slots are skipped
 - LOD0 distance must stay `0` (`updateLOD` warns if you change it)

@@ -20,7 +20,7 @@ instancer.computeBVH({
 | `getBBoxFromBSphere` | `false` | Faster, less precise; mesh bounding sphere must be origin-centered |
 | `accurateCulling` | `true` | Test without applying margin at frustum time |
 
-`autoUpdateBVH` (default `true`) calls `bvh.move(id)` from `setMatrixAt`. For a one-shot scatter of static instances, fill matrices, `computeBVH()`, then set `autoUpdateBVH = false`.
+`autoUpdateBVH` (default `true`) calls `bvh.move(id)` from `setMatrixAt`. `move` does nothing if that id is not in the tree. `computeBVH` only inserts instances with Active set. For a one-shot scatter of static instances, fill matrices, enable Active (and Visible), `computeBVH()`, then set `autoUpdateBVH = false`.
 
 `disposeBVH()` drops the tree; `update()` falls back to the linear Simple path.
 
@@ -28,6 +28,7 @@ Call `computeBVH` after:
 
 1. LOD meshes exist (`addLOD`) so instance AABB is valid
 2. Matrices are assigned
+3. Instances you want in the tree are Active (`setActiveAndVisibilityAt` or `setActiveAt`)
 
 ## Standalone `BVH`
 

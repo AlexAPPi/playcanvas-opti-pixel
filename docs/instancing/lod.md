@@ -12,7 +12,7 @@ instancer.addLOD(lod2Meshes, root, 80);
 
 - LOD0 is the hero mesh. Its distance is fixed at 0.
 - Later levels activate when camera-distance² reaches that level’s stored distance.
-- `hysteresis` (0–1, a fraction of the level distance) is applied in `getObjectLODIndexForDistance`: the switch happens at `distance * (1 - hysteresis)`, which reduces flicker at the boundary.
+- `hysteresis` (0–1) is applied in **squared-distance** space in `getObjectLODIndexForDistance`: the switch happens at `level.distance * (1 - hysteresis)` (where `level.distance` is already the squared world distance). That reduces flicker at the boundary.
 - `root` is an optional entity whose local space is used for the combined mesh AABB.
 
 `removeLOD` / `updateLOD` exist on the basic instancer. Changing geometry means calling `updateInstanceBoundingBox()` (already done inside `addLOD`).
@@ -28,7 +28,9 @@ During a time fade, two LOD renders may enqueue the same instance with complemen
 
 ## Per-instance visibility
 
-`SimpleHierarchicalInstancer.setVisibilityAt(id, false)` excludes the instance from frustum tests and draws without freeing the slot. Use this for gameplay hide; call `resize` if you need more slots. Instancers have no `lock` / `unlock`.
+Slots start with Active and Visible both false. Call `setActiveAndVisibilityAt(id, true)` when the instance should draw.
+
+`setVisibilityAt(id, false)` hides without freeing the slot (gameplay hide). `SimpleHierarchicalInstancer.update` still requires Active as well. `computeBVH` only inserts Active instances; with a live BVH, `HierarchicalInstancer.update` then checks Visible. Call `resize` if you need more slots. Instancers have no `lock` / `unlock`.
 
 ## Combined with occlusion
 

@@ -20,6 +20,7 @@ Read these in order if you are new to the library. Skip to a choosing guide if y
 - [Overview](occlusion/overview.md)
 - [Choosing a backend](occlusion/choosing-backend.md)
 - [Hierarchical Z-buffer (HZB)](occlusion/hzb.md)
+- [Coverage buffer](occlusion/coverage.md)
 - [Occlusion queries](occlusion/queries.md)
 - [CPU software occlusion](occlusion/software.md)
 

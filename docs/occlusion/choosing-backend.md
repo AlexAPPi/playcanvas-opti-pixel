@@ -7,9 +7,10 @@ There is no single best tester. Choose by API (CPU bit vs indirect draw), latenc
 | [Software](software.md) | Any (CPU worker) | `getOcclusionStatus` | 1 job (often 1 frame) | Explicit: box, sphere, cone, cylinder, plane, mesh |
 | [HZB WebGL](hzb.md) | WebGL2 | `getOcclusionStatus` (readback / transform feedback) | ~1+ frames | Scene depth → Hi-Z |
 | [HZB WebGPU](hzb.md) | WebGPU | Indirect draw (`instanceCount`) | Same frame on GPU | Scene depth → Hi-Z |
+| [Coverage](coverage.md) | WebGL2 | `getOcclusionStatus` (PBO depth → CPU tests) | ~2+ frames | Scene depth → packed 256×128 |
 | [Queries](queries.md) | WebGL2 only | `getOcclusionStatus` | 1–N frames | Hardware occlusion queries on box proxies |
 
-WebGPU does not get the queries tester (`OcclusionCullingSystem` leaves it `null`). Use HZB there.
+WebGPU does not get the queries tester or the coverage buffer (`OcclusionCullingSystem` leaves queries `null`; coverage is never constructed by the system). Use HZB there.
 
 ## Decision sketch
 
@@ -27,6 +28,7 @@ flowchart TD
     cpu -->|no, cull draws on GPU| webgpu[WebgpuHZBTester indirect]
     gpu -->|WebGL2| hzbgl[WebglHZBCPUFBTester]
     gpu -->|WebGPU| webgpu
+    gpu -->|WebGL2, CPU tests on packed depth| cov[WebglCoverageBufferTester]
     gpu -->|WebGL2, prefer API queries| q[WebglOcclusionQueriesTester]
 ```
 
@@ -47,6 +49,15 @@ Raster resolution defaults to 256×128. That is conservative and cheap; it is no
 
 HZB quality depends on the depth buffer you feed it. Transparent and first-person near geometry need extra care (see [HZB](hzb.md)).
 
+## When to pick coverage
+
+- WebGL2, and you want a CPU `getOcclusionStatus` from **scene depth** without transform-feedback tests or query draws
+- Occluders are large solids already in the framebuffer (buildings, terrain)
+- A couple of frames of delay and a 256×128 packed buffer are acceptable
+- You would rather not maintain an explicit software occluder set
+
+Coverage downloads a small packed depth (async PBO) and tests AABBs on the CPU. It is coarser than GPU HZB and always one capture behind the camera. Call `updateHZB` after opaque depth and `execute` to poll/test — they are not the same call. See [coverage buffer](coverage.md).
+
 ## When to pick queries
 
 - WebGL2 only
@@ -58,7 +69,7 @@ HZB quality depends on the depth buffer you feed it. Transparent and first-perso
 
 ## Combining with instancing
 
-Use software or WebGL HZB/queries to **skip CPU enqueue** into an instancer. Use WebGPU HZB to **zero indirect instance counts** without reading back.
+Use software, WebGL HZB, coverage, or queries to **skip CPU enqueue** into an instancer. Use WebGPU HZB to **zero indirect instance counts** without reading back.
 
 Do not run two readback testers on the same objects every frame unless you are comparing them. Pick one production path.
 

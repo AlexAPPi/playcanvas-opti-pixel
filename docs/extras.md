@@ -26,7 +26,7 @@ Square (power-of-two-ish) 2D textures that pack arrays for shaders:
 | --- | --- |
 | `Mat4DataTexture` / `Mat4DataTextureArray` | Instance matrices |
 | `ColorDataTexture` / `ColorDataTextureArray` | Per-instance colors |
-| `Vec4F32Texture` / array | Generic vec4 (AABB uses this) |
+| `Vec4F32Texture` / `Vec4F32DataTextureArray` | Generic vec4 (AABB uses this) |
 | `SquareDataTexture` / array / `LayerProxy` | Typed-array backed square textures |
 
 Helpers: `getSquareTextureSize`, `getPixelFormatByArrayType`.
@@ -38,9 +38,9 @@ Instancers own a `Mat4DataTexture`. You only construct these if you write custom
 | Class | Role |
 | --- | --- |
 | `IndexManager` | Allocate / free integer slots |
-| `IndexQueue` / `IndexQueueEx` | Per-frame ID lists (`IndexQueueEx` used by software occlusion) |
+| `IndexQueue` / `IndexQueueEx` | Per-frame ID lists (`IndexQueueEx` used by software occlusion and the coverage tester) |
 | `NumberQueue` / `ValueSortQueue` | CPU number buffers |
-| `GPUIndexQueue` / `GPUElementQueue` | GPU-side queues (WebGPU HZB indirect path) |
+| `GPUIndexQueue` / `GPUElementQueue` | GPU-side queues (WebGL HZB transform-feedback input and WebGPU HZB indirect path) |
 
 ## Other
 

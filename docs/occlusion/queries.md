@@ -39,9 +39,9 @@ app.on("update", () => {
 
 With `autoUpdate`, `execute` runs on PlayCanvas `postrender:layer` for the **non-transparent** pass of `queriesLayerName`. Choose a layer that runs **after** occluders have written depth.
 
-If you drive it manually: `enqueue` → `execute(camera)` after that layer, and `frameUpdate(dt)` each frame to harvest completed queries.
+If you constructed the tester yourself: `enqueue` → `execute(camera)` after that layer, and `frameUpdate(dt)` each frame to harvest completed queries. `OcclusionCullingSystem` already calls `frameUpdate` on `frameupdate`.
 
-`enqueue` returns `-1` when `freeze` is true (`OcclusionCullingSystem` sets `freeze = !autoUpdate`).
+`enqueue` returns `-1` when `freeze` is true. `OcclusionCullingSystem.autoUpdate` assigns `queriesTester.freeze = !autoUpdate` **when that setter runs**. After construct, `autoUpdate` is false and `freeze` is still false, so you can `enqueue` and call `execute` yourself; the system still harvests on `frameupdate`. Assigning `autoUpdate = false` freezes enqueue — set `tester.freeze = false` if you still want to queue tests.
 
 ## Conservative vs accurate
 

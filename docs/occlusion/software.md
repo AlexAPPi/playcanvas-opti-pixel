@@ -25,10 +25,9 @@ const occluderId = tester.occluders.lockBox(building.getWorldTransform());
 // or: lockSphere, lockCylinder, lockCone, lockPlane
 // or: lockMesh(meshInstance), lockMeshData(positions, indices, matrix)
 
-app.on("update", (dt) => {
+app.on("update", () => {
     tester.enqueue(occludeeId);
     tester.execute(camera.camera);
-    tester.frameUpdate(dt);
 
     const visible = tester.getOcclusionStatus(occludeeId) !== OCCLUSION_OCCLUDED;
 });
@@ -45,26 +44,30 @@ sequenceDiagram
 
     Main->>Main: enqueue AABBs
     Main->>Main: execute(camera)
-    alt worker idle and queue non-empty
+    alt worker idle
         Main->>Worker: frame patches plus job
         Note over Main,Worker: dirty occluder/mesh ops if any
         Note over Main,Worker: vp and queueIds
-        Worker->>Worker: apply patches, clear, raster, Hi-Z, AABB tests
-        Worker-->>Main: compact flags plus stats
+        alt queue empty
+            Note over Worker: apply patches only; skip raster
+        else queue non-empty, no rasterized occluders
+            Worker-->>Main: all queued visible
+        else queue non-empty
+            Worker->>Worker: apply patches, clear, raster, Hi-Z, AABB tests
+            Worker-->>Main: compact flags plus stats
+        end
         Main->>Main: snapshot flags for getOcclusionStatus
     else worker busy
         Main->>Main: retain queue for next idle execute
-    else no occluders
-        Main->>Main: mark queued visible; flush pending removes if any
     end
 ```
 
 - Worker **owns** occluder types, matrices, and mesh geometry. Main keeps `OccluderStore` as the app-facing source of truth and sends **dirty commands** when it changes.
-- `execute` submits if the worker is idle and there is a non-empty queue **or** pending occluder/mesh patches. Patch-only frames skip raster/AABB tests on the worker.
+- If the worker is idle, `execute` posts a frame (view-projection, queue ids, and any dirty patches) and **clears** the queue. An empty queue still sends patches; the worker skips raster and AABB tests.
 - If the worker is busy, `execute` returns without submitting; **enqueued ids are kept** for the next idle frame. Last flags stay. Pending occluder edits still accumulate on main. The tester does not dedup — do not enqueue the same id again while the queue is still held.
 - `enqueue` returns `-1` (`SOME_ENQUEUE_PROBLEM`) only when the per-frame queue is already at AABB-store capacity.
-- If there are **zero occluders**, queued AABBs are marked visible immediately.
-- `frameUpdate` is a no-op kept for the CPU-tester API. Completed jobs arrive on the worker `message` callback.
+- If **no occluder rasterizes** (none registered, all out of frustum, or all smaller than a few pixels), the worker marks the queued AABBs visible.
+- There is no `frameUpdate`. Completed jobs arrive on the worker `message` callback.
 
 `ready` is false until the worker starts. `stats` holds timings in **milliseconds** from the last completed job (`rasterMs`, `hizBuildMs`, `aabbTestMs`, `workerMs`, counts, …). `occluderCount` is how many occluders were rasterized (in-frustum), not the live store size.
 

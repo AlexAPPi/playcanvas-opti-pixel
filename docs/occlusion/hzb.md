@@ -53,7 +53,7 @@ app.on("update", () => {
 });
 ```
 
-When `autoUpdate` is false, call `WebglHierarchicalZBuffer.update(camera)` and `tester.execute(camera)` yourself after opaque depth is available. Also call `tester.frameUpdate(dt)` so readbacks can complete.
+When `autoUpdate` is false, call `WebglHierarchicalZBuffer.update(camera)` and `tester.execute(camera)` yourself after opaque depth is available. `OcclusionCullingSystem` still runs `tester.frameUpdate` on `frameupdate`. If you constructed the tester yourself (no system), call `frameUpdate` each frame so readbacks can complete.
 
 The first `enqueue` can return `-1` until `execute` has allocated a write slot. Treat that like `OCCLUSION_UNKNOWN`.
 
@@ -84,10 +84,12 @@ app.on("update", () => {
 
 HZB is only as good as the depth you copy. Build it after opaque geometry, before you rely on the test.
 
-Resize: `system.resize()`. On canvas resize, WebGL HZB uses `resizeWithDelay`.
+On canvas resize, `OcclusionCullingSystem` rebuilds the pyramid automatically (WebGL uses `resizeWithDelay`). Call `system.resize()` after the **AABB store** grows so testers grow their queues — it does not rebuild the HZB.
 
 ## Limitations
 
 - Small or thin occludees can be marked visible (conservative sampling)
 - Objects that write depth after the HZB capture will not occlude this frame
 - First-person weapons / near-plane geometry can self-occlude; exclude them from the pyramid or from the test set
+
+For WebGL2 CPU tests on a packed downsample **without** transform feedback, see [coverage buffer](coverage.md).

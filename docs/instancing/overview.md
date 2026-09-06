@@ -24,7 +24,7 @@ flowchart BT
 | Class | Role |
 | --- | --- |
 | `BasicHierarchicalInstancer` | Capacity, matrix/color textures, `addLOD`, shader patching |
-| `SimpleHierarchicalInstancer` | Visibility flags, time-based LOD fade, `update()` frustum loop |
+| `SimpleHierarchicalInstancer` | Active/Visible flags, time-based LOD fade, `update()` frustum loop |
 | `HierarchicalInstancer` | Same as Simple, plus `computeBVH()` for faster frustum + LOD |
 | `BasicArrayHierarchicalInstancer` | Shared `sampler2DArray` textures, one layer view per logical group |
 
@@ -35,10 +35,12 @@ Pick a class in [Choosing an instancer](choosing-instancer.md). LOD distances an
 `SimpleHierarchicalInstancer.update(dt, camera, cameraPosition)`:
 
 1. Advances fade timers
-2. Tests each active instance against the camera frustum (or the BVH, if present)
+2. Tests each instance that is both **Active** and **Visible** against the camera frustum (or the BVH, if present — BVH `update` then checks Visible only; `computeBVH` inserts Active instances)
 3. Chooses LOD from camera-distance²
 4. Enqueues the instance into the LOD renderer’s GPU list
 5. Sorts if any LOD material needs object sort
+
+Slots start with both flags false. Enable them with `setActiveAndVisibilityAt(id, true)` after `setMatrixAt`.
 
 You still need those mesh instances in a PlayCanvas layer. The instancer only fills instance buffers and counts.
 
