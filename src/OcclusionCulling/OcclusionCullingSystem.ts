@@ -194,23 +194,3 @@ export class OcclusionCullingSystem extends pc.EventHandler {
         this._onPostRenderLayerHandle = this.app.scene.on(pc.EVENT_POSTRENDER_LAYER, this._onPostRenderLayer, this);
     }
 }
-
-/*
-let debugDiv: HTMLDivElement;
-
-function createDebug(device: pc.GraphicsDevice) {
-    if (!debugDiv) {
-        debugDiv = document.createElement('div');
-        debugDiv.style.position = 'absolute';
-        debugDiv.style.top = '48px';
-        debugDiv.style.left = '10px';
-        debugDiv.style.color = 'white';
-        debugDiv.style.fontSize = '12px';
-        debugDiv.style.pointerEvents = 'none';
-        debugDiv.style.display = 'flex';
-        debugDiv.style.flexDirection = 'column';
-        device.canvas.parentNode!.appendChild(debugDiv);
-    }
-    return debugDiv;
-}
-*/
