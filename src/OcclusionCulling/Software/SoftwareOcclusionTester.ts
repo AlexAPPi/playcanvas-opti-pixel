@@ -238,9 +238,6 @@ export class SoftwareOcclusionTester implements ICPUSoftwareOcclusionCullingTest
         return OCCLUSION_VISIBLE;
     }
 
-    public frameUpdate(_dt?: number) {
-    }
-
     public execute(camera: pc.Camera) {
 
         this._growHostIfNeeded(false);

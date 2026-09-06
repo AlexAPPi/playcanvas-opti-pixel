@@ -121,7 +121,7 @@ export interface IReadbackOcclusionCullingTester extends IOcclusionCullingTester
     /**
      * Return the result of the last occlusion test for the specified object.
      * @param id - The unique identifier of the object.
-     * @returns true if the object is occluded, otherwise false.
+     * @returns `OCCLUSION_UNKNOWN`, `OCCLUSION_VISIBLE`, or `OCCLUSION_OCCLUDED`.
      */
     getOcclusionStatus(id: TUnicalId): TOcclusionResult;
 
@@ -161,10 +161,4 @@ export interface ICPUSoftwareOcclusionCullingTester extends IReadbackOcclusionCu
      * Occluder store.
      */
     readonly occluders: OccluderStore;
-
-    /**
-     * Updates the tester.
-     * @param dt - The delta time.
-     */
-    frameUpdate(dt?: number): void;
 }
