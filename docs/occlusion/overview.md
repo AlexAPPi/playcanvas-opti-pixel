@@ -15,7 +15,7 @@ Readback testers (`IReadbackOcclusionCullingTester`) add:
 
 CPU software also has `occluders: OccluderStore`. It has **no** `frameUpdate` (jobs complete on the worker callback). Coverage polls inside `execute`. WebGL HZB and queries need `frameUpdate` (or `OcclusionCullingSystem` on `frameupdate`).
 
-The [coverage buffer](coverage.md) tester adds `updateHZB(camera)` after opaque depth. That call builds the packed downsample; `execute` only polls, reprojects, and tests.
+The [coverage buffer](coverage.md) tester adds `updateHZB(camera)` after opaque depth. That call builds the 256×128 max-downsample and packs **view-space Z**; `execute` only polls, reprojects, and tests.
 
 WebGPU HZB implements `IGPUIndirectDrawOcclusionCullingTester`: `enqueue` takes an indirect draw slot and primitive; the GPU writes the draw args. There is no CPU visibility bit.
 
@@ -50,7 +50,7 @@ Helper that, given `app` + `AABBStore`:
 - Creates `WebglOcclusionQueriesTester` on WebGL2 only
 - Optionally auto-updates HZB on `frameend` and queries on a named layer (`autoUpdate`, `camera`, `queriesLayerName`)
 
-Software occlusion and the [coverage buffer](coverage.md) are **not** created by this system. Instantiate `SoftwareOcclusionTester` or `WebglCoverageBuffer` + `WebglCoverageBufferTester` yourself.
+Software occlusion and the [coverage buffer](coverage.md) are **not** created by this system. Instantiate `SoftwareOcclusionTester` or `WebglCoverageBuffer` / `WebgpuCoverageBuffer` + `CoverageBufferTester` yourself.
 
 Debuggers: `system.drawHZB` uses `HierarchicalZBufferDebugger`. Query AABBs: `system.queriesDebugger?.debugItem(id)` (`QueriesDebugger` is not exported from the package). Coverage: construct `CoverageBufferDebugger` yourself (package export; bind the tester so `debug()` includes the reprojected CPU buffer). See [coverage buffer](coverage.md#debug-overlay).
 

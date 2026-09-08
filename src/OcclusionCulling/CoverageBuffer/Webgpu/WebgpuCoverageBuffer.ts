@@ -1,34 +1,35 @@
 import pc from "../../../engine.js";
 import { ICoverageBuffer } from "../ICoverageBuffer.js";
-import vertexCodeVS from "./WebglCoverageBuffer.vert.glsl.js";
-import fragmentCodePS from "./WebglCoverageBuffer.frag.glsl.js";
-import packCodeVS from "./WebglCoverageBuffer.pack.glsl.js";
+import computeCodeCS from "./WebgpuCoverageBuffer.comp.wgsl.js";
 import { getCameraDepthTexture, writeCameraParams } from "../../../Extras/CameraHelpers.js";
-import { executeTransformFeedbackShader } from "../../../Extras/TransformFeedbackHelpers.js";
-import { CoverageTFStateQueue } from "./CoverageTFStateQueue.js";
+import { CoverageGpuReadbackQueue } from "./CoverageGpuReadbackQueue.js";
 import { integerLog2 } from "../CoverageCpuBuffer.js";
 
+const workgroupSize = 8;
+
 /**
- * WebGL2 coverage depth buffer.
+ * WebGPU coverage depth buffer.
  *
  * Downsamples camera depth with a 4-tap max chain that keeps the
- * 256∶128 aspect at every level. The last level is packed with transform
- * feedback (float view-space Z). GPU→CPU download lives in {@link CoverageTFStateQueue}.
+ * 256∶128 aspect at every level. The last level is packed with a compute
+ * shader (float view-space Z). GPU→CPU download lives in {@link CoverageGpuReadbackQueue}.
  */
-export class WebglCoverageBuffer implements ICoverageBuffer {
+export class WebgpuCoverageBuffer implements ICoverageBuffer {
 
     private _enabled: boolean;
     private _cpuReadback: boolean;
     private _resizePending: boolean;
-    private _resizeTimeout: number | null;
-    private _device: pc.WebglGraphicsDevice;
-    private _shader: pc.Shader;
-    private _packShader: pc.Shader;
-    private _renderTargets: pc.RenderTarget[];
-    private _quadRenderPasses: pc.RenderPassShaderQuad[];
+    private _resizeTimeout: ReturnType<typeof setTimeout> | null;
+    private _device: pc.WebgpuGraphicsDevice;
     private _buffers: pc.Texture[];
-    private _pixelBuffer: pc.VertexBuffer;
-    private _readback: CoverageTFStateQueue;
+    private _bufferViews: pc.TextureView[];
+    private _readback: CoverageGpuReadbackQueue;
+
+    private _downsampleFromScreen: pc.Compute | null;
+    private _downsampleFromColor: pc.Compute | null;
+    private _packFromScreen: pc.Compute | null;
+    private _packFromColor: pc.Compute | null;
+    private _shaders: pc.Shader[] = [];
 
     private _screenWidth: number;
     private _screenHeight: number;
@@ -41,18 +42,9 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
     private _passWidths: number[];
     private _passHeights: number[];
 
-    private _readScreenDepthScope: pc.ScopeId;
-    private _invSrcSizeScope: pc.ScopeId;
-    private _destPixelToUvScope: pc.ScopeId;
-    private _destSizeScope: pc.ScopeId;
-    private _srcUvMaxScope: pc.ScopeId;
-    private _depthScope: pc.ScopeId;
-    private _cameraParamsScope: pc.ScopeId;
-
     private _viewProjection = new pc.Mat4();
     private _maxDownsampleStages: number;
     private _onDestroy: pc.EventHandle;
-    private _onContextLost: pc.EventHandle;
 
     public get enabled() { return this._enabled; }
     public set enabled(value) { this._enabled = value; }
@@ -122,18 +114,12 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         this._readback.minLatencyFrames = value;
     }
 
-    /** If true, `gl.flush()` after the PBO fence. Default off. */
-    public get flushOnSubmit() { return this._readback.flushOnSubmit; }
-    public set flushOnSubmit(value: boolean) {
-        this._readback.flushOnSubmit = value;
-    }
-
     /**
-     * @param device - WebGL2 device
+     * @param device - WebGPU device
      * @param maxWidth - CPU width, default 256
      * @param maxHeight - CPU height, default 128
      */
-    constructor(device: pc.WebglGraphicsDevice, maxWidth: number = 256, maxHeight: number = 128) {
+    constructor(device: pc.WebgpuGraphicsDevice, maxWidth: number = 256, maxHeight: number = 128) {
         this._enabled = true;
         this._cpuReadback = true;
         this._resizePending = false;
@@ -141,17 +127,9 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         this._device = device;
         this._maxWidth = Math.max(1, maxWidth | 0);
         this._maxHeight = Math.max(1, maxHeight | 0);
-        this._readScreenDepthScope = this._device.scope.resolve("uCoverageReadScreenDepth");
-        this._invSrcSizeScope = this._device.scope.resolve("uCoverageInvSrcSize");
-        this._destPixelToUvScope = this._device.scope.resolve("uCoverageDestPixelToUv");
-        this._destSizeScope = this._device.scope.resolve("uCoverageDestSize");
-        this._srcUvMaxScope = this._device.scope.resolve("uCoverageSrcUvMax");
-        this._depthScope = this._device.scope.resolve("uCoverageDepth");
-        this._cameraParamsScope = this._device.scope.resolve("uCoverageCameraParams");
         this._onDestroy = device.on("destroy", this.destroy, this);
-        this._onContextLost = device.on("contextlost", this._onDeviceContextLost, this);
         this._maxDownsampleStages = 4;
-        this._readback = new CoverageTFStateQueue(device, this._maxWidth * this._maxHeight, 4);
+        this._readback = new CoverageGpuReadbackQueue(device, this._maxWidth * this._maxHeight, 4);
         this._readback.minLatencyFrames = 2;
         this.resize(this.device.width, this.device.height, this._maxWidth, this._maxHeight);
     }
@@ -198,9 +176,8 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         this._height = this._maxHeight;
 
         this._buildPassSizes();
-        this._initShader();
+        this._initCompute();
         this._initRenders();
-        this._initPixelBuffer();
         this._readback.resize(this._maxWidth * this._maxHeight);
     }
 
@@ -227,13 +204,10 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         this._viewProjection.mul2(camera.projectionMatrix, camera.viewMatrix);
         writeCameraParams(_cameraParamsArr, camera);
 
-        const device = this.device;
-        const { vx, vy, vw, vh, sx, sy, sw, sh } = device;
-        const oldRenderTarget = device.getRenderTarget();
         const passCount = this._passWidths.length;
         const quadCount = Math.max(0, passCount - 1);
 
-        let srcBuffer = mainDepthTexture;
+        let srcBuffer: pc.Texture | pc.TextureView = mainDepthTexture;
         let srcWidth = mainDepthTexture.width;
         let srcHeight = mainDepthTexture.height;
         let readScreenDepth = 1;
@@ -246,23 +220,20 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
             const destW = this._passWidths[mip];
             const destH = this._passHeights[mip];
 
-            _invSrcSizeArr[0] = 1 / srcWidth;
-            _invSrcSizeArr[1] = 1 / srcHeight;
-            _destPixelToUvArr[0] = 1 / destW;
-            _destPixelToUvArr[1] = 1 / destH;
-
-            this._srcUvMaxScope.setValue(_srcUvMaxArr);
-            this._destPixelToUvScope.setValue(_destPixelToUvArr);
-            this._invSrcSizeScope.setValue(_invSrcSizeArr);
-            this._readScreenDepthScope.setValue(readScreenDepth);
-            this._depthScope.setValue(srcBuffer);
-
-            this._quadRenderPasses[mip].render();
+            this._dispatchDownsample(
+                srcBuffer,
+                srcWidth,
+                srcHeight,
+                destW,
+                destH,
+                readScreenDepth,
+                this._bufferViews[mip]
+            );
 
             readScreenDepth = 0;
             srcWidth = destW;
             srcHeight = destH;
-            srcBuffer = this._buffers[mip];
+            srcBuffer = this._bufferViews[mip];
 
             if (mip === 0) {
                 _srcUvMaxArr[0] = (srcWidth - 0.5) / srcWidth;
@@ -273,15 +244,10 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         if (this._cpuReadback) {
             this._pack(srcBuffer, srcWidth, srcHeight, readScreenDepth);
         }
-
-        device.setRenderTarget(oldRenderTarget);
-        device.setViewport(vx, vy, vw, vh);
-        device.setScissor(sx, sy, sw, sh);
     }
 
     public destroy() {
         this._onDestroy?.off();
-        this._onContextLost?.off();
         this._readback.destroy();
         this._disposeGpu();
     }
@@ -314,7 +280,6 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
 
         if (!this.isColor()) {
             defines.set("READ_DEPTH", "");
-            defines.set("WRITE_DEPTH", "");
         }
         else if (this.isFloat16()) {
             defines.set("DEPTH_IS_FLOAT16", "");
@@ -337,44 +302,113 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
             defines.set("WORKAROUND_FLOAT", "");
         }
 
+        defines.set("{DST_DEPTH_FORMAT}", this._dstStorageFormat());
+
         return defines;
     }
 
-    protected _initShader() {
+    private _dstStorageFormat() {
+        if (this.isFloat16()) {
+            return "r16float";
+        }
+        if (this.isFloat32()) {
+            return "r32float";
+        }
+        return "rgba8unorm";
+    }
+
+    private _textureFormat() {
+        if (!this.isColor()) {
+            return pc.PIXELFORMAT_DEPTH;
+        }
+        if (this.isFloat16()) {
+            return pc.PIXELFORMAT_R16F;
+        }
+        if (this.isFloat32()) {
+            return pc.PIXELFORMAT_R32F;
+        }
+        return pc.PIXELFORMAT_RGBA8;
+    }
+
+    private _uniformBufferFormat() {
+        return {
+            ub: new pc.UniformBufferFormat(this._device, [
+                new pc.UniformFormat("readScreenDepth", pc.UNIFORMTYPE_INT),
+                new pc.UniformFormat("invSrcSize", pc.UNIFORMTYPE_VEC2),
+                new pc.UniformFormat("destPixelToUv", pc.UNIFORMTYPE_VEC2),
+                new pc.UniformFormat("srcUvMax", pc.UNIFORMTYPE_VEC2),
+                new pc.UniformFormat("destSize", pc.UNIFORMTYPE_VEC2),
+                new pc.UniformFormat("padDest", pc.UNIFORMTYPE_VEC2),
+                new pc.UniformFormat("cameraParams", pc.UNIFORMTYPE_VEC4)
+            ])
+        };
+    }
+
+    private _createCompute(pack: boolean, fromScreen: boolean) {
 
         const defines = this._coverageDefines();
-
-        this._shader = pc.ShaderUtils.createShader(this._device, {
-            uniqueName: "COVERAGE_DEPTH_SHADER",
-            useTransformFeedback: false,
-            vertexGLSL: vertexCodeVS,
-            fragmentGLSL: fragmentCodePS,
-            fragmentDefines: defines,
-            attributes: {
-                aPosition: pc.SEMANTIC_POSITION
-            },
-        });
-
-        const packDefines = this._coverageDefines();
-        packDefines.delete("WRITE_DEPTH");
-
-        this._packShader = pc.ShaderUtils.createShader(this._device, {
-            uniqueName: "COVERAGE_PACK_TF_SHADER",
-            useTransformFeedback: true,
-            vertexGLSL: packCodeVS,
-            fragmentGLSL: "void main(void) { gl_FragColor = vec4(1.0); }",
-            vertexDefines: packDefines,
-            attributes: {
-                aCoveragePixel: pc.SEMANTIC_POSITION
-            },
-        });
-
-        const gl = this._device.gl;
-        const glProgram = this._packShader.impl.glProgram;
-        if (gl && glProgram) {
-            gl.transformFeedbackVaryings(glProgram, PACK_TF_VARYINGS, gl.INTERLEAVED_ATTRIBS);
-            gl.linkProgram(glProgram);
+        if (pack) {
+            defines.set("PACK_TO_BUFFER", "");
         }
+
+        const sampleType = fromScreen
+            ? pc.SAMPLETYPE_UNFILTERABLE_FLOAT
+            : pc.SAMPLETYPE_FLOAT;
+
+        const formats: Array<
+            pc.BindUniformBufferFormat | pc.BindTextureFormat | pc.BindStorageTextureFormat | pc.BindStorageBufferFormat
+        > = [
+            new pc.BindUniformBufferFormat("ub", pc.SHADERSTAGE_COMPUTE),
+            new pc.BindTextureFormat(
+                "srcDepth",
+                pc.SHADERSTAGE_COMPUTE,
+                pc.TEXTUREDIMENSION_2D,
+                sampleType,
+                true,
+                "srcDepthSampler"
+            )
+        ];
+
+        if (pack) {
+            formats.push(new pc.BindStorageBufferFormat("outDepth", pc.SHADERSTAGE_COMPUTE));
+        }
+        else {
+            formats.push(new pc.BindStorageTextureFormat(
+                "dstDepth",
+                this._textureFormat(),
+                pc.TEXTUREDIMENSION_2D,
+                true,
+                false
+            ));
+        }
+
+        const shader = new pc.Shader(this._device, {
+            name: pack
+                ? (fromScreen ? "CoveragePackFromScreen" : "CoveragePackFromColor")
+                : (fromScreen ? "CoverageDownsampleFromScreen" : "CoverageDownsampleFromColor"),
+            shaderLanguage: pc.SHADERLANGUAGE_WGSL,
+            cshader: computeCodeCS,
+            cdefines: defines,
+            cincludes: pc.ShaderChunks.get(this._device, pc.SHADERLANGUAGE_WGSL),
+            computeUniformBufferFormats: this._uniformBufferFormat(),
+            computeBindGroupFormat: new pc.BindGroupFormat(this._device, formats)
+        });
+
+        this._shaders.push(shader);
+
+        return new pc.Compute(
+            this._device,
+            shader,
+            shader.name
+        );
+    }
+
+    protected _initCompute() {
+
+        this._downsampleFromScreen = this._createCompute(false, true);
+        this._downsampleFromColor = this._createCompute(false, false);
+        this._packFromScreen = this._createCompute(true, true);
+        this._packFromColor = this._createCompute(true, false);
     }
 
     protected _initRenders() {
@@ -382,17 +416,10 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         const quadCount = Math.max(0, this._passWidths.length - 1);
 
         this._buffers = new Array(quadCount);
-        this._renderTargets = new Array(quadCount);
-        this._quadRenderPasses = new Array(quadCount);
+        this._bufferViews = new Array(quadCount);
         this._mipLevels = quadCount;
 
-        const depthByColor = this.isColor();
-        const format = (
-            !depthByColor    ? pc.PIXELFORMAT_DEPTH :
-            this.isFloat16() ? pc.PIXELFORMAT_R16F :
-            this.isFloat32() ? pc.PIXELFORMAT_R32F :
-                               pc.PIXELFORMAT_RGBA8
-        );
+        const format = this._textureFormat();
 
         for (let i = 0; i < quadCount; i++) {
 
@@ -406,79 +433,80 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
                 magFilter: pc.FILTER_NEAREST,
                 addressU: pc.ADDRESS_CLAMP_TO_EDGE,
                 addressV: pc.ADDRESS_CLAMP_TO_EDGE,
-                storage: false,
+                storage: true,
             });
 
-            const optsRt: ConstructorParameters<typeof pc.RenderTarget>[0] = {
-                name: "COVERAGE_DS_RT_" + i,
-                depth: false,
-                autoResolve: false,
-                mipLevel: 0,
-                colorBuffer: buffer,
-                stencil: false,
-                samples: 1,
-            };
-
-            if (!depthByColor) {
-                optsRt.depth = true;
-                optsRt.colorBuffer = null!;
-                optsRt.depthBuffer = buffer;
-            }
-
-            const rt = new pc.RenderTarget(optsRt);
-            const rps = new pc.RenderPassShaderQuad(this._device);
-
-            if (depthByColor) {
-                rps.blendState = pc.BlendState.NOBLEND;
-                rps.depthState = pc.DepthState.NODEPTH;
-            }
-            else {
-                rps.blendState = pc.BlendState.NOWRITE;
-                rps.depthState = pc.DepthState.WRITEDEPTH;
-            }
-
-            rps.shader = this._shader;
-            rps.init(rt);
-
-            if (depthByColor) {
-                rps.colorOps.clear = false;
-                rps.colorOps.genMipmaps = false;
-            }
+            buffer.upload();
 
             this._buffers[i] = buffer;
-            this._renderTargets[i] = rt;
-            this._quadRenderPasses[i] = rps;
+            this._bufferViews[i] = buffer.getView(0);
         }
     }
 
-    protected _initPixelBuffer() {
+    private _setPassParams(
+        compute: pc.Compute,
+        srcBuffer: pc.Texture | pc.TextureView,
+        srcWidth: number,
+        srcHeight: number,
+        destW: number,
+        destH: number,
+        readScreenDepth: number
+    ) {
 
-        this._pixelBuffer?.destroy();
+        _invSrcSizeArr[0] = 1 / srcWidth;
+        _invSrcSizeArr[1] = 1 / srcHeight;
+        _destPixelToUvArr[0] = 1 / destW;
+        _destPixelToUvArr[1] = 1 / destH;
+        _destSizeArr[0] = destW;
+        _destSizeArr[1] = destH;
 
-        const pixelCount = this._maxWidth * this._maxHeight;
-        const format = new pc.VertexFormat(this._device, [{
-            semantic: pc.SEMANTIC_POSITION,
-            components: 1,
-            type: pc.TYPE_FLOAT32,
-            normalize: false
-        }]);
+        compute.setParameter("srcUvMax", _srcUvMaxArr);
+        compute.setParameter("destPixelToUv", _destPixelToUvArr);
+        compute.setParameter("invSrcSize", _invSrcSizeArr);
+        compute.setParameter("destSize", _destSizeArr);
+        compute.setParameter("padDest", _padDestArr);
+        compute.setParameter("cameraParams", _cameraParamsArr);
+        compute.setParameter("readScreenDepth", readScreenDepth);
+        compute.setParameter("srcDepth", srcBuffer);
+        compute.setupDispatch(
+            Math.ceil(destW / workgroupSize),
+            Math.ceil(destH / workgroupSize)
+        );
+    }
 
-        this._pixelBuffer = new pc.VertexBuffer(this._device, format, pixelCount, {
-            usage: pc.BUFFER_STATIC
-        });
-        this._pixelBuffer.unlock();
+    private _dispatchDownsample(
+        srcBuffer: pc.Texture | pc.TextureView,
+        srcWidth: number,
+        srcHeight: number,
+        destW: number,
+        destH: number,
+        readScreenDepth: number,
+        dstView: pc.TextureView
+    ) {
+
+        const compute = readScreenDepth ? this._downsampleFromScreen : this._downsampleFromColor;
+        if (!compute) {
+            return;
+        }
+
+        this._setPassParams(compute, srcBuffer, srcWidth, srcHeight, destW, destH, readScreenDepth);
+        compute.setParameter("dstDepth", dstView);
+
+        _dispatchList[0] = compute;
+
+        this._device.computeDispatch(_dispatchList, compute.name);
     }
 
     protected _pack(
-        srcBuffer: pc.Texture,
+        srcBuffer: pc.Texture | pc.TextureView,
         srcWidth: number,
         srcHeight: number,
         readScreenDepth: number
     ) {
 
         const slot = this._readback.acquire();
-        const pixelBuffer = this._ensurePixelBuffer();
-        if (!slot || !pixelBuffer || !this._packShader) {
+        const compute = readScreenDepth ? this._packFromScreen : this._packFromColor;
+        if (!slot || !compute) {
             return;
         }
 
@@ -490,42 +518,14 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
 
         const destW = this._maxWidth;
         const destH = this._maxHeight;
-        const pixelCount = destW * destH;
 
-        _invSrcSizeArr[0] = 1 / srcWidth;
-        _invSrcSizeArr[1] = 1 / srcHeight;
-        _destPixelToUvArr[0] = 1 / destW;
-        _destPixelToUvArr[1] = 1 / destH;
-        _destSizeArr[0] = destW;
-        _destSizeArr[1] = destH;
+        this._setPassParams(compute, srcBuffer, srcWidth, srcHeight, destW, destH, readScreenDepth);
+        compute.setParameter("outDepth", outputBuffer);
 
-        this._srcUvMaxScope.setValue(_srcUvMaxArr);
-        this._destPixelToUvScope.setValue(_destPixelToUvArr);
-        this._destSizeScope.setValue(_destSizeArr);
-        this._invSrcSizeScope.setValue(_invSrcSizeArr);
-        this._readScreenDepthScope.setValue(readScreenDepth);
-        this._depthScope.setValue(srcBuffer);
-        this._cameraParamsScope.setValue(_cameraParamsArr);
+        _dispatchList[0] = compute;
 
-        executeTransformFeedbackShader(
-            this._packShader,
-            pixelCount,
-            pixelBuffer,
-            outputBuffer
-        );
-
+        this._device.computeDispatch(_dispatchList, compute.name);
         this._readback.submit(slot, this._viewProjection.data, _cameraParamsArr);
-    }
-
-    private _ensurePixelBuffer() {
-        if (!this._pixelBuffer || !this._pixelBuffer.impl?.bufferId) {
-            this._initPixelBuffer();
-        }
-        return this._pixelBuffer;
-    }
-
-    private _onDeviceContextLost() {
-        this._readback.onContextLost();
     }
 
     protected _disposeGpu() {
@@ -536,20 +536,27 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         }
 
         this._resizePending = false;
-        this._quadRenderPasses?.forEach(x => x?.destroy());
-        this._renderTargets?.forEach(x => x?.destroy());
+        this._downsampleFromScreen?.destroy();
+        this._downsampleFromColor?.destroy();
+        this._packFromScreen?.destroy();
+        this._packFromColor?.destroy();
+        this._downsampleFromScreen = null;
+        this._downsampleFromColor = null;
+        this._packFromScreen = null;
+        this._packFromColor = null;
+        this._shaders.forEach(x => x?.destroy());
+        this._shaders.length = 0;
         this._buffers?.forEach(x => x?.destroy());
-        this._pixelBuffer?.destroy();
-        this._pixelBuffer = null!;
-        this._shader?.destroy();
-        this._packShader?.destroy();
+        this._bufferViews = [];
+        this._buffers = [];
     }
 }
 
 const UV_FACTOR: [number, number] = [1, 1];
-const PACK_TF_VARYINGS = ["out_depth"];
+const _dispatchList: pc.Compute[] = [null!];
 const _invSrcSizeArr = new Float32Array(2);
 const _destPixelToUvArr = new Float32Array(2);
 const _destSizeArr = new Float32Array(2);
+const _padDestArr = new Float32Array(2);
 const _srcUvMaxArr = new Float32Array(2);
 const _cameraParamsArr = new Float32Array(4);

@@ -92,4 +92,4 @@ On canvas resize, `OcclusionCullingSystem` rebuilds the pyramid automatically (W
 - Objects that write depth after the HZB capture will not occlude this frame
 - First-person weapons / near-plane geometry can self-occlude; exclude them from the pyramid or from the test set
 
-For WebGL2 CPU tests on a packed downsample **without** transform feedback, see [coverage buffer](coverage.md).
+For CPU tests on a packed 256×128 **view-space Z** downsample **without** an HZB mip chain (WebGL2 or WebGPU), see [coverage buffer](coverage.md).
