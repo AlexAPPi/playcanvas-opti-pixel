@@ -137,7 +137,6 @@ export class WebgpuHZBTester implements IHierarchicalZBufferTester, IGPUIndirect
             cshader: `#include "mainCS"`,
             cdefines,
             cincludes,
-            // @ts-ignore
             computeUniformBufferFormats: {
                 ub: new pc.UniformBufferFormat(this._hzb.device, [
                     new pc.UniformFormat("nonIndexedSign", pc.UNIFORMTYPE_INT),
