@@ -51,7 +51,8 @@ export class CoverageCpuBuffer {
     private _height = 0;
     private _n0 = 0;
     private _data: Float32Array = new Float32Array(0);
-    private _scratch: Float32Array = new Float32Array(0);
+    private _holeMask: Uint8Array = new Uint8Array(0);
+    private _holes: Int32Array = new Int32Array(0);
     private _srcDepth: Float32Array = new Float32Array(0);
     private _srcVP = new Float32Array(16);
     private _dstVP = new Float32Array(16);
@@ -87,7 +88,8 @@ export class CoverageCpuBuffer {
         this._height = height | 0;
         this._n0 = this._width * this._height;
         this._data = new Float32Array(this._n0);
-        this._scratch = new Float32Array(this._n0);
+        this._holeMask = new Uint8Array(this._n0);
+        this._holes = new Int32Array(this._n0);
         this._srcDepth = new Float32Array(this._n0);
         this._data.fill(1e10);
         this._hasSrc = false;
@@ -223,6 +225,142 @@ export class CoverageCpuBuffer {
             : OCCLUSION_VISIBLE;
     }
 
+    /**
+     * Nearest view-space Z (metres) over a UV rectangle in 0..1, origin bottom-left
+     * (GL / packed CPU). Omit `u1`/`v1` for a single texel. The range is the same
+     * coverage map as AABB tests (`[u0,u1)` in texel space). Fully off-screen and
+     * an unbuilt buffer return {@link farClip}.
+     */
+    public getMinDepthUv(u0: number, v0: number, u1: number = u0, v1: number = v0): number {
+        return this._depthUv(u0, v0, u1, v1, false);
+    }
+
+    /** Farthest view-space Z over a UV rectangle. Same coordinates as {@link getMinDepthUv}. */
+    public getMaxDepthUv(u0: number, v0: number, u1: number = u0, v1: number = v0): number {
+        return this._depthUv(u0, v0, u1, v1, true);
+    }
+
+    /**
+     * Nearest view-space Z over an inclusive pixel rectangle, origin bottom-left.
+     * Omit `x1`/`y1` for a single pixel. Fully off-screen and an unbuilt buffer
+     * return {@link farClip}.
+     */
+    public getMinDepthPixels(x0: number, y0: number, x1: number = x0, y1: number = y0): number {
+        return this._depthPixels(x0, y0, x1, y1, false);
+    }
+
+    /** Farthest view-space Z over an inclusive pixel rectangle. Same coordinates as {@link getMinDepthPixels}. */
+    public getMaxDepthPixels(x0: number, y0: number, x1: number = x0, y1: number = y0): number {
+        return this._depthPixels(x0, y0, x1, y1, true);
+    }
+
+    private _depthUv(u0: number, v0: number, u1: number, v1: number, wantMax: boolean): number {
+
+        if (!this.valid) {
+            return this._dstFar;
+        }
+
+        if (u1 < u0) {
+            const t = u0; u0 = u1; u1 = t;
+        }
+        if (v1 < v0) {
+            const t = v0; v0 = v1; v1 = t;
+        }
+
+        if (u1 < 0 || v1 < 0 || u0 > 1 || v0 > 1) {
+            return this._dstFar;
+        }
+
+        if (u0 < 0) u0 = 0;
+        if (v0 < 0) v0 = 0;
+        if (u1 > 1) u1 = 1;
+        if (v1 > 1) v1 = 1;
+
+        const w = this._width;
+        const h = this._height;
+        return this._rectDepth(
+            unitToPixel(u0, w),
+            unitToPixel(v0, h),
+            unitToPixelEnd(u1, w),
+            unitToPixelEnd(v1, h),
+            wantMax
+        );
+    }
+
+    private _depthPixels(x0: number, y0: number, x1: number, y1: number, wantMax: boolean): number {
+
+        if (!this.valid) {
+            return this._dstFar;
+        }
+
+        x0 = x0 | 0;
+        y0 = y0 | 0;
+        x1 = x1 | 0;
+        y1 = y1 | 0;
+
+        if (x1 < x0) {
+            const t = x0; x0 = x1; x1 = t;
+        }
+        if (y1 < y0) {
+            const t = y0; y0 = y1; y1 = t;
+        }
+
+        const lastX = this._width - 1;
+        const lastY = this._height - 1;
+        if (x1 < 0 || y1 < 0 || x0 > lastX || y0 > lastY) {
+            return this._dstFar;
+        }
+
+        return this._rectDepth(x0, y0, x1, y1, wantMax);
+    }
+
+    /** Inclusive walk. Degenerate UV (`x1 < x0`) collapses to start, like `_rectOccluded`. */
+    private _rectDepth(x0: number, y0: number, x1: number, y1: number, wantMax: boolean): number {
+
+        const w = this._width;
+        const lastX = w - 1;
+        const lastY = this._height - 1;
+
+        if (x0 > lastX) x0 = lastX;
+        if (y0 > lastY) y0 = lastY;
+        if (x1 > lastX) x1 = lastX;
+        if (y1 > lastY) y1 = lastY;
+        if (x1 < x0) x1 = x0;
+        if (y1 < y0) y1 = y0;
+        if (x0 < 0) x0 = 0;
+        if (y0 < 0) y0 = 0;
+        if (x1 < 0) x1 = 0;
+        if (y1 < 0) y1 = 0;
+
+        const data = this._data;
+        let m = data[y0 * w + x0];
+        if (wantMax) {
+            for (let y = y0; y <= y1; y++) {
+                let index = y * w + x0;
+                const end = index + (x1 - x0);
+                for (; index <= end; index++) {
+                    const d = data[index];
+                    if (d > m) {
+                        m = d;
+                    }
+                }
+            }
+        }
+        else {
+            for (let y = y0; y <= y1; y++) {
+                let index = y * w + x0;
+                const end = index + (x1 - x0);
+                for (; index <= end; index++) {
+                    const d = data[index];
+                    if (d < m) {
+                        m = d;
+                    }
+                }
+            }
+        }
+        return m;
+    }
+
     private _reproject(src: Float32Array, srcVP: Float32Array, dstVP: Float32Array) {
 
         if (!invert16(_inv, srcVP)) {
@@ -232,20 +370,111 @@ export class CoverageCpuBuffer {
 
         mul16(_reproject, dstVP, _inv);
 
+        this._data.fill(this._dstFar);
+
+        if (this._srcOrtho || this._dstOrtho) {
+            this._scatterGeneric(src);
+        }
+        else {
+            this._scatterPerspective(src);
+        }
+
+        fillHolesFar3x3(this._data, this._holeMask, this._holes, this._width, this._height, this._dstFar);
+    }
+
+    /**
+     * Perspective source and destination. NDC depth is affine in `1/L`, so scaling every
+     * component by `L` removes that divide; the denominator that falls out **is** the
+     * destination view-space Z, which also removes the final linearize.
+     * One divide per pixel instead of three.
+     */
+    private _scatterPerspective(src: Float32Array) {
+
         const w = this._width;
         const h = this._height;
         const lastX = w - 1;
         const lastY = h - 1;
         const dest = this._data;
-        const emptyZ = this._dstFar;
+        const srcFar = this._srcFar;
+        const srcNear = this._srcNear;
+        const dstNear = this._dstNear;
+        const dstFar = this._dstFar;
+
+        const r = _reproject;
+        const r0 = r[0], r1 = r[1], r3 = r[3];
+        const r4 = r[4], r5 = r[5], r7 = r[7];
+        const r8 = r[8], r9 = r[9], r11 = r[11];
+        const r12 = r[12], r13 = r[13], r15 = r[15];
+        const ndcStepX = 2 / w;
+        const ndcStepY = 2 / h;
+        const sxk = w * 0.5;
+        const syk = h * 0.5;
+
+        // ndcZ = A / L + B, in the -1..1 clip range the projection matrix was built for.
+        const invDiffSrc = 1 / (srcNear - srcFar);
+        const A = 2 * srcNear * srcFar * invDiffSrc;
+        const B = -2 * srcFar * invDiffSrc - 1;
+        const kW = r11 * A;
+        const kX = r8 * A;
+        const kY = r9 * A;
+
+        for (let y = 0; y < h; y++) {
+
+            const ndcY = (y + 0.5) * ndcStepY - 1;
+            const srcRow = y * w;
+            const cwY = r7 * ndcY + r15 + r11 * B;
+            const nxY = r4 * ndcY + r12 + r8 * B;
+            const nyY = r5 * ndcY + r13 + r9 * B;
+
+            for (let x = 0; x < w; x++) {
+
+                const L = src[srcRow + x];
+                if (!(L > 0 && L < srcFar)) {
+                    continue;
+                }
+
+                const ndcX = (x + 0.5) * ndcStepX - 1;
+                const eyeZ = (r3 * ndcX + cwY) * L + kW;
+                if (!(eyeZ > dstNear && eyeZ < dstFar)) {
+                    continue;
+                }
+
+                const invEyeZ = 1 / eyeZ;
+                const nx = ((r0 * ndcX + nxY) * L + kX) * invEyeZ;
+                const ny = ((r1 * ndcX + nyY) * L + kY) * invEyeZ;
+                if (nx < -1 || nx > 1 || ny < -1 || ny > 1) {
+                    continue;
+                }
+
+                let x0 = (sxk * nx + sxk) | 0;
+                let y0 = (syk * ny + syk) | 0;
+                if (x0 > lastX) x0 = lastX;
+                else if (x0 < 0) x0 = 0;
+                if (y0 > lastY) y0 = lastY;
+                else if (y0 < 0) y0 = 0;
+
+                const di = y0 * w + x0;
+                if (eyeZ < dest[di]) {
+                    dest[di] = eyeZ;
+                }
+            }
+        }
+    }
+
+    /** Any ortho source or destination. Goes through NDC depth and linearizes at the end. */
+    private _scatterGeneric(src: Float32Array) {
+
+        const w = this._width;
+        const h = this._height;
+        const lastX = w - 1;
+        const lastY = h - 1;
+        const dest = this._data;
         const srcFar = this._srcFar;
         const srcNear = this._srcNear;
         const srcOrtho = this._srcOrtho;
         const dstNear = this._dstNear;
         const dstFar = this._dstFar;
         const dstOrtho = this._dstOrtho;
-
-        dest.fill(emptyZ);
 
         const r = _reproject;
         const r0 = r[0], r1 = r[1], r2 = r[2], r3 = r[3];
@@ -262,7 +491,6 @@ export class CoverageCpuBuffer {
         const diffDst = dstNear - dstFar;
         const srcRange = srcFar - srcNear;
         const dstRange = dstFar - dstNear;
-        const persp = !srcOrtho && !dstOrtho;
 
         for (let y = 0; y < h; y++) {
 
@@ -280,9 +508,11 @@ export class CoverageCpuBuffer {
                     continue;
                 }
 
-                const z = srcOrtho
+                // Depth01 is what the pack shader linearized; the matrices want -1..1.
+                const depth01 = srcOrtho
                     ? (srcRange === 0 ? 0 : (L - srcNear) / srcRange)
                     : (nfSrc / L - srcFar) * invDiffSrc;
+                const z = depth01 * 2 - 1;
                 const ndcX = (x + 0.5) * ndcStepX - 1;
                 const cw = r3 * ndcX + r11 * z + cwY;
                 if (cw <= NEAR_EPS) {
@@ -296,7 +526,7 @@ export class CoverageCpuBuffer {
                     continue;
                 }
 
-                const nz = (r2 * ndcX + r10 * z + nzY) * invCw;
+                const nz = ((r2 * ndcX + r10 * z + nzY) * invCw) * 0.5 + 0.5;
                 if (!(nz > 0 && nz < 1)) {
                     continue;
                 }
@@ -308,17 +538,15 @@ export class CoverageCpuBuffer {
                 if (y0 > lastY) y0 = lastY;
                 else if (y0 < 0) y0 = 0;
 
-                const L2 = persp || !dstOrtho
-                    ? nfDst / (dstFar + nz * diffDst)
-                    : dstNear + nz * dstRange;
+                const L2 = dstOrtho
+                    ? dstNear + nz * dstRange
+                    : nfDst / (dstFar + nz * diffDst);
                 const di = y0 * w + x0;
                 if (L2 < dest[di]) {
                     dest[di] = L2;
                 }
             }
         }
-
-        fillHolesFar3x3(dest, this._scratch, w, h, emptyZ);
     }
 
     private _rectOccluded(
@@ -388,7 +616,12 @@ function copyWithRange(dst: Float32Array, src: Float32Array, n: number) {
     _rangeMax = max;
 }
 
-function fillHolesFar3x3(data: Float32Array, tmp: Float32Array, w: number, h: number, emptyZ: number) {
+/**
+ * Fills scatter holes with the farthest real neighbour in 3×3 and tracks the range.
+ * `mask` marks the holes of this pass so a filled one is never read as a neighbour;
+ * that is what a full copy of `data` used to be for.
+ */
+function fillHolesFar3x3(data: Float32Array, mask: Uint8Array, holes: Int32Array, w: number, h: number, emptyZ: number) {
 
     let min = 1e30;
     let max = 0;
@@ -405,68 +638,88 @@ function fillHolesFar3x3(data: Float32Array, tmp: Float32Array, w: number, h: nu
         return;
     }
 
-    tmp.set(data);
+    let holeCount = 0;
+    for (let i = 0; i < n; i++) {
+        const d = data[i];
+        if (d < emptyZ) {
+            mask[i] = 0;
+            if (d < min) min = d;
+            if (d > max) max = d;
+        }
+        else {
+            mask[i] = 1;
+            holes[holeCount++] = i;
+        }
+    }
+
+    if (holeCount === 0) {
+        _rangeMin = min;
+        _rangeMax = max;
+        return;
+    }
 
     const lastX = w - 1;
     const lastY = h - 1;
 
-    for (let y = 0; y < h; y++) {
+    for (let k = 0; k < holeCount; k++) {
 
+        const i = holes[k];
+        const y = (i / w) | 0;
+        const x = i - y * w;
         const y0 = y > 0 ? y - 1 : 0;
         const y1 = y < lastY ? y + 1 : lastY;
+        const x0 = x > 0 ? x - 1 : 0;
+        const x1 = x < lastX ? x + 1 : lastX;
+        let m = 0;
+        let found = false;
 
-        for (let x = 0; x < w; x++) {
-
-            const i = y * w + x;
-            let d = tmp[i];
-
-            if (!(d < emptyZ)) {
-
-                const x0 = x > 0 ? x - 1 : 0;
-                const x1 = x < lastX ? x + 1 : lastX;
-                let m = 0;
-                let found = false;
-
-                for (let yy = y0; yy <= y1; yy++) {
-                    const row = yy * w;
-                    for (let xx = x0; xx <= x1; xx++) {
-                        const z = tmp[row + xx];
-                        if (z < emptyZ) {
-                            found = true;
-                            if (z > m) {
-                                m = z;
-                            }
-                        }
+        for (let yy = y0; yy <= y1; yy++) {
+            const row = yy * w;
+            for (let xx = x0; xx <= x1; xx++) {
+                const j = row + xx;
+                if (mask[j] !== 0) {
+                    continue;
+                }
+                const z = data[j];
+                if (z < emptyZ) {
+                    found = true;
+                    if (z > m) {
+                        m = z;
                     }
                 }
-
-                d = found ? m : emptyZ;
-                data[i] = d;
             }
-
-            if (d < min) min = d;
-            if (d > max) max = d;
         }
+
+        const d = found ? m : emptyZ;
+        data[i] = d;
+        if (d < min) min = d;
+        if (d > max) max = d;
     }
 
     _rangeMin = min;
     _rangeMax = max;
 }
 
-function ndcToPixel(ndc: number, size: number) {
-    let u = ndc * 0.5 + 0.5;
+function unitToPixel(u: number, size: number) {
     if (u < 0) u = 0;
     else if (u > 1) u = 1;
     return (u * size) | 0;
 }
 
-function ndcToPixelEnd(ndc: number, size: number) {
-    let u = ndc * 0.5 + 0.5;
+function unitToPixelEnd(u: number, size: number) {
     if (u < 0) u = 0;
     else if (u > 1) u = 1;
     const r = u * size;
     const i = r | 0;
     return (i === r ? i : i + 1) - 1;
+}
+
+function ndcToPixel(ndc: number, size: number) {
+    return unitToPixel(ndc * 0.5 + 0.5, size);
+}
+
+function ndcToPixelEnd(ndc: number, size: number) {
+    return unitToPixelEnd(ndc * 0.5 + 0.5, size);
 }
 
 function aabbEyeRange(
@@ -719,10 +972,5 @@ function projectAabb(
 
     return _minX <= _maxX;
 }
-
-
-
-
-
 
 
