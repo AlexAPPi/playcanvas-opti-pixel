@@ -11,7 +11,7 @@ PlayCanvas device picks the implementation:
 
 `OcclusionCullingSystem` constructs the matching pair. You can also instantiate the concrete classes yourself if you need a custom frame graph.
 
-`IHierarchicalZBuffer` is a texture/size view. `update(camera)` exists on `WebglHierarchicalZBuffer` and `WebgpuHierarchicalZBuffer`, not on the interface.
+`IHierarchicalZBuffer` is a texture/size view. `update(camera)` exists on `WebglHierarchicalZBuffer` and `WebgpuHierarchicalZBuffer`, not on the interface. Coverage buffers implement the same view via `ICoverageBuffer`, which does add `update`.
 
 ## What `autoUpdate` actually does
 
@@ -82,7 +82,7 @@ app.on("update", () => {
 
 ## Depth source
 
-HZB is only as good as the depth you copy. Build it after opaque geometry, before you rely on the test.
+HZB is only as good as the depth you copy. Build it after opaque geometry, before you rely on the test. The pyramid samples PlayCanvas **depth grab** (`pc.Camera.renderPassDepthGrab`); enable it with `CameraComponent.requestSceneDepthMap(true)`.
 
 On canvas resize, `OcclusionCullingSystem` rebuilds the pyramid automatically (WebGL uses `resizeWithDelay`). Call `system.resize()` after the **AABB store** grows so testers grow their queues — it does not rebuild the HZB.
 

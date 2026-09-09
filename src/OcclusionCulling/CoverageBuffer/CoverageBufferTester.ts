@@ -19,7 +19,7 @@ import { ICoverageBuffer } from "./ICoverageBuffer.js";
 /**
  * GPU coverage depth → CPU AABB tester.
  *
- * {@link updateHZB} downsamples scene depth (4-tap max, 256∶128 chain) and
+ * {@link updateGPUDepthBuffer} downsamples scene depth (4-tap max, 256∶128 chain) and
  * packs the last level as view-space Z for GPU→CPU download. {@link execute} polls the
  * readback, reprojects the last capture, and tests queued AABBs on the CPU.
  * Results lag at least one GPU frame.
@@ -114,7 +114,7 @@ export class CoverageBufferTester implements IGPU2CPUReadbackOcclusionCullingTes
      * packs the last level for readback. Call after opaque geometry has
      * written depth. Distinct from {@link execute}, which only tests the queued AABBs.
      */
-    public updateHZB(camera: pc.Camera): void {
+    public updateGPUDepthBuffer(camera: pc.Camera): void {
         if (this._coverage.enabled && !this._coverage.resizePending) {
             this._coverage.update(camera);
         }
@@ -122,7 +122,7 @@ export class CoverageBufferTester implements IGPU2CPUReadbackOcclusionCullingTes
 
     /**
      * Polls finished readbacks, reprojects the last capture, and tests the queue.
-     * Does not build the downsample chain — call {@link updateHZB} after opaque depth.
+     * Does not build the downsample chain — call {@link updateGPUDepthBuffer} after opaque depth.
      */
     public execute(camera: pc.Camera) {
 

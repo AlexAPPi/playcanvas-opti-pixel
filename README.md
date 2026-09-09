@@ -77,7 +77,7 @@ app.on("update", () => {
 Exports live in `src/index.ts`.
 
 - **Instancer** — `BasicHierarchicalInstancer`, `SimpleHierarchicalInstancer`, `HierarchicalInstancer`, `BasicArrayHierarchicalInstancer`, LOD fade helpers
-- **Occlusion** — `OcclusionCullingSystem`, HZB (WebGL / WebGPU), coverage buffer (WebGL), occlusion queries (WebGL), `SoftwareOcclusionTester` + `OccluderStore`
+- **Occlusion** — `OcclusionCullingSystem`, HZB (WebGL / WebGPU), coverage buffer (WebGL / WebGPU), occlusion queries (WebGL), `SoftwareOcclusionTester` + `OccluderStore`
 - **BVH** — `BVH`, `HybridBuilder`
 - **Extras** — `AABBStore`, square / mat4 / color data textures, index and GPU queues
 

@@ -13,7 +13,7 @@ import { integerLog2 } from "../CoverageCpuBuffer.js";
  *
  * Downsamples camera depth with a 4-tap max chain that keeps the
  * 256∶128 aspect at every level. The last level is packed with transform
- * feedback (float view-space Z). GPU→CPU download lives in {@link CoverageTFStateQueue}.
+ * feedback (float view-space Z). GPU->CPU download lives in {@link CoverageTFStateQueue}.
  */
 export class WebglCoverageBuffer implements ICoverageBuffer {
 
@@ -28,6 +28,8 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
     private _quadRenderPasses: pc.RenderPassShaderQuad[];
     private _buffers: pc.Texture[];
     private _pixelBuffer: pc.VertexBuffer;
+    private _packTargetBuffer: pc.Texture;
+    private _packTarget: pc.RenderTarget;
     private _readback: CoverageTFStateQueue;
 
     private _screenWidth: number;
@@ -53,6 +55,7 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
     private _maxDownsampleStages: number;
     private _onDestroy: pc.EventHandle;
     private _onContextLost: pc.EventHandle;
+    private _onContextRestored: pc.EventHandle;
 
     public get enabled() { return this._enabled; }
     public set enabled(value) { this._enabled = value; }
@@ -67,7 +70,11 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         const buffers = this._buffers;
         return buffers && buffers.length > 0 ? buffers[buffers.length - 1] : null;
     }
-    /** Last GPU downsample target. The packed 256×128 download is {@link cpuDepth}, not a texture. */
+
+    /**
+     * Last GPU downsample target.
+     * The packed {@link maxWidth}x{@link maxHeight} download is {@link cpuDepth}, not a texture.
+     */
     public get cpuTexture() { return this.texture; }
     public get buffers() { return this._buffers; }
     public get mipLevels() { return this._mipLevels; }
@@ -117,23 +124,29 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         this._readback.slotCount = value;
     }
 
-    public get minReadbackLatency() { return this._readback.minLatencyFrames; }
-    public set minReadbackLatency(value: number) {
-        this._readback.minLatencyFrames = value;
+    public get minReadbackLag() { return this._readback.minReadbackLag; }
+    public set minReadbackLag(value: number) {
+        this._readback.minReadbackLag = value;
     }
 
-    /** If true, `gl.flush()` after the PBO fence. Default off. */
-    public get flushOnSubmit() { return this._readback.flushOnSubmit; }
-    public set flushOnSubmit(value: boolean) {
-        this._readback.flushOnSubmit = value;
+    /**
+     * Submit a packed capture every N `execute` ticks. Harvest still polls
+     * every tick. The downsample chain is skipped on ticks that will not
+     * capture. Default `1`. Raise on devices where `getBufferSubData` hitches.
+     */
+    public get readbackPeriod() { return this._readback.readbackPeriod; }
+    public set readbackPeriod(value: number) {
+        this._readback.readbackPeriod = value;
     }
 
     /**
      * @param device - WebGL2 device
      * @param maxWidth - CPU width, default 256
      * @param maxHeight - CPU height, default 128
+     * @param slotCount - number of readback slots, default 4
+     * @param minReadbackLag - minimum execute ticks before polling a slot, default 2
      */
-    constructor(device: pc.WebglGraphicsDevice, maxWidth: number = 256, maxHeight: number = 128) {
+    constructor(device: pc.WebglGraphicsDevice, maxWidth: number = 256, maxHeight: number = 128, slotCount: number = 4, minReadbackLag: number = 2) {
         this._enabled = true;
         this._cpuReadback = true;
         this._resizePending = false;
@@ -150,9 +163,10 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         this._cameraParamsScope = this._device.scope.resolve("uCoverageCameraParams");
         this._onDestroy = device.on("destroy", this.destroy, this);
         this._onContextLost = device.on("contextlost", this._onDeviceContextLost, this);
+        this._onContextRestored = device.on("devicerestored", this._onDeviceContextRestored, this);
         this._maxDownsampleStages = 4;
-        this._readback = new CoverageTFStateQueue(device, this._maxWidth * this._maxHeight, 4);
-        this._readback.minLatencyFrames = 2;
+        this._readback = new CoverageTFStateQueue(device, this._maxWidth * this._maxHeight, slotCount);
+        this._readback.minReadbackLag = minReadbackLag;
         this.resize(this.device.width, this.device.height, this._maxWidth, this._maxHeight);
     }
 
@@ -200,6 +214,7 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         this._buildPassSizes();
         this._initShader();
         this._initRenders();
+        this._initPackTarget();
         this._initPixelBuffer();
         this._readback.resize(this._maxWidth * this._maxHeight);
     }
@@ -226,6 +241,12 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
 
         this._viewProjection.mul2(camera.projectionMatrix, camera.viewMatrix);
         writeCameraParams(_cameraParamsArr, camera);
+
+        // Android getBufferSubData waits for the GPU process to drain, so we
+        // only build the chain on ticks that will actually pack a capture.
+        if (this._cpuReadback && !this._readback.canAcquire()) {
+            return;
+        }
 
         const device = this.device;
         const { vx, vy, vw, vh, sx, sy, sw, sh } = device;
@@ -282,6 +303,7 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
     public destroy() {
         this._onDestroy?.off();
         this._onContextLost?.off();
+        this._onContextRestored?.off();
         this._readback.destroy();
         this._disposeGpu();
     }
@@ -441,7 +463,7 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
             rps.init(rt);
 
             if (depthByColor) {
-                rps.colorOps.clear = false;
+                rps.colorOps.clear = true;
                 rps.colorOps.genMipmaps = false;
             }
 
@@ -478,11 +500,12 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
 
         const slot = this._readback.acquire();
         const pixelBuffer = this._ensurePixelBuffer();
-        if (!slot || !pixelBuffer || !this._packShader) {
+        if (!slot || !pixelBuffer || !this._packShader || !this._packTarget) {
             return;
         }
 
         slot.beforeFill();
+
         const outputBuffer = slot.outputBuffer;
         if (!outputBuffer) {
             return;
@@ -511,10 +534,45 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
             this._packShader,
             pixelCount,
             pixelBuffer,
-            outputBuffer
+            outputBuffer,
+            this._packTarget
         );
 
         this._readback.submit(slot, this._viewProjection.data, _cameraParamsArr);
+    }
+
+    /**
+     * Throwaway 1×1 target bound for the pack draw. Rasterization is off, so it
+     * is never written. It exists so the pack neither binds the backbuffer
+     * mid-frame (a tile flush on mobile) nor keeps the last chain target bound,
+     * which would sample the render target's own color buffer.
+     */
+    protected _initPackTarget() {
+
+        this._packTargetBuffer?.destroy();
+        this._packTarget?.destroy();
+
+        this._packTargetBuffer = new pc.Texture(this._device, {
+            name: "COVERAGE_PACK_RT_TX",
+            width: 1,
+            height: 1,
+            format: pc.PIXELFORMAT_RGBA8,
+            mipmaps: false,
+            minFilter: pc.FILTER_NEAREST,
+            magFilter: pc.FILTER_NEAREST,
+            addressU: pc.ADDRESS_CLAMP_TO_EDGE,
+            addressV: pc.ADDRESS_CLAMP_TO_EDGE,
+            storage: false,
+        });
+
+        this._packTarget = new pc.RenderTarget({
+            name: "COVERAGE_PACK_RT",
+            colorBuffer: this._packTargetBuffer,
+            depth: false,
+            stencil: false,
+            autoResolve: false,
+            samples: 1,
+        });
     }
 
     private _ensurePixelBuffer() {
@@ -528,6 +586,10 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         this._readback.onContextLost();
     }
 
+    private _onDeviceContextRestored() {
+        this.resize();
+    }
+
     protected _disposeGpu() {
 
         if (this._resizeTimeout) {
@@ -539,6 +601,10 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         this._quadRenderPasses?.forEach(x => x?.destroy());
         this._renderTargets?.forEach(x => x?.destroy());
         this._buffers?.forEach(x => x?.destroy());
+        this._packTarget?.destroy();
+        this._packTargetBuffer?.destroy();
+        this._packTarget = null!;
+        this._packTargetBuffer = null!;
         this._pixelBuffer?.destroy();
         this._pixelBuffer = null!;
         this._shader?.destroy();

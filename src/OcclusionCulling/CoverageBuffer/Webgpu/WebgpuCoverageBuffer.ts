@@ -59,6 +59,7 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
         const buffers = this._buffers;
         return buffers && buffers.length > 0 ? buffers[buffers.length - 1] : null;
     }
+
     /** Last GPU downsample target. The packed 256×128 download is {@link cpuDepth}, not a texture. */
     public get cpuTexture() { return this.texture; }
     public get buffers() { return this._buffers; }
@@ -109,9 +110,9 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
         this._readback.slotCount = value;
     }
 
-    public get minReadbackLatency() { return this._readback.minLatencyFrames; }
-    public set minReadbackLatency(value: number) {
-        this._readback.minLatencyFrames = value;
+    public get minReadbackLag() { return this._readback.minReadbackLag; }
+    public set minReadbackLag(value: number) {
+        this._readback.minReadbackLag = value;
     }
 
     /**
@@ -130,7 +131,7 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
         this._onDestroy = device.on("destroy", this.destroy, this);
         this._maxDownsampleStages = 4;
         this._readback = new CoverageGpuReadbackQueue(device, this._maxWidth * this._maxHeight, 4);
-        this._readback.minLatencyFrames = 2;
+        this._readback.minReadbackLag = 2;
         this.resize(this.device.width, this.device.height, this._maxWidth, this._maxHeight);
     }
 

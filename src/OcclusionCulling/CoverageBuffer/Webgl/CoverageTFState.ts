@@ -3,8 +3,14 @@ import pc from "../../../engine.js";
 export type TCoverageReadbackPoll = "pending" | "ready" | "failed";
 
 /**
- * One in-flight coverage pack: TF output buffer + STREAM_READ PBO,
- * same copy / fence / getBufferSubData sequence as WebGL HZB TF readback.
+ * One in-flight slot: TF output buffer + STREAM_READ PBO + fence.
+ * `beginRead()` copies and inserts a fence.
+ * `poll()` checks the fence without waiting.
+ * `read()` pulls data only after the fence is ready.
+ *
+ * The PBO lives with the slot. It is recreated only if a capture is dropped
+ * unread — otherwise ANGLE treats the next write as write-after-fence-before-read
+ * and the following `getBufferSubData` takes the slow path.
  */
 export class CoverageTFState {
 
@@ -35,6 +41,7 @@ export class CoverageTFState {
         this._deleteSync();
         this.pending = false;
         this.submitFrame = 0;
+        this._unread = false;
         this._createOutputBuffer();
         this._createPbo();
     }
@@ -47,35 +54,30 @@ export class CoverageTFState {
 
     public beforeFill(): void {
         this._ensureOutputBuffer();
+        this._deletePbo();
     }
 
     public abortRead(): void {
         this._deleteSync();
-        if (this._unread) {
-            this._deletePbo();
-        }
+        this._deletePbo();
         this.pending = false;
+        this._unread = false;
     }
 
     /**
      * Copy TF output into the STREAM_READ PBO and insert a fence.
-     * Recycled slots reuse the existing PBO (no `bufferData` orphan).
-     * `flush` is off by default: Android GLES often stalls on `gl.flush`
-     * after a pack; the fence still completes at the end of the frame.
+     * Does not block the CPU. Call after TF has written `outputBuffer`.
+     * No `gl.flush()`: on Android GLES a flush after pack often stalls;
+     * the fence still completes at the end of the frame.
      */
-    public beginRead(flush = false): void {
+    public beginRead(): void {
+
         const count = this._pixelCount;
         this._deleteSync();
 
         if (count <= 0) {
             this.pending = false;
             return;
-        }
-
-        // Do not recreate outputBuffer here:
-        // the caller just wrote TF into it.
-        if (this._unread) {
-            this._deletePbo();
         }
 
         this._ensurePbo();
@@ -99,17 +101,20 @@ export class CoverageTFState {
         if (!this._sync) {
             this._deletePbo();
             this.pending = false;
+            this._unread = false;
             return;
         }
 
         this._unread = true;
         this.pending = true;
-
-        if (flush) {
-            gl.flush();
-        }
     }
 
+    /**
+     * Check the fence without waiting.
+     * `"pending"` — GPU has not reached it yet.
+     * `"ready"` — safe to call `read()`.
+     * `"failed"` — the fence is gone or `WAIT_FAILED`.
+     */
     public poll(): TCoverageReadbackPoll {
         if (!this._sync) {
             return "failed";
@@ -123,9 +128,19 @@ export class CoverageTFState {
         }
 
         this._deleteSync();
-        return res === gl.WAIT_FAILED ? "failed" : "ready";
+
+        if (res === gl.WAIT_FAILED) {
+            return "failed";
+        }
+
+        return "ready";
     }
 
+    /**
+     * Copy the PBO into `dest`.
+     * Call only after `poll()` returns `"ready"`.
+     * Returns the number of floats read.
+     */
     public read(dest: Float32Array): number {
         const count = this._pixelCount;
         if (count <= 0 || !this._pbo || dest.length < count) {
@@ -133,11 +148,12 @@ export class CoverageTFState {
         }
 
         const gl = this._device.gl;
-        gl.bindBuffer(gl.COPY_READ_BUFFER, this._pbo);
-        gl.getBufferSubData(gl.COPY_READ_BUFFER, 0, dest, 0, count);
-        gl.bindBuffer(gl.COPY_READ_BUFFER, null);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this._pbo);
+        gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, dest, 0, count);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
 
         this._unread = false;
+        this.pending = false;
         return count;
     }
 

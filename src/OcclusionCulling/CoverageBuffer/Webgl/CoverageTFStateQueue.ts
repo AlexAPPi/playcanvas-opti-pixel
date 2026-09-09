@@ -2,18 +2,25 @@ import pc from "../../../engine.js";
 import { CoverageTFState } from "./CoverageTFState.js";
 
 /**
- * In-flight coverage PBO pool, same role as WebGL HZB TF readback:
- * acquire a slot, TF writes into `slot.outputBuffer`, then {@link submit}
- * copies to a STREAM_READ PBO. {@link frameUpdate} harvests the newest ready
- * capture. Do not harvest from `coverage.update` / postrender.
+ * In-flight queue for coverage TF readback without stalling on `clientWaitSync`.
+ *
+ * Flow:
+ *  - `acquire()` → a slot, only on a capture tick ({@link readbackPeriod})
+ *  - TF writes into `slot.outputBuffer`
+ *  - `slot.beginRead()` → `copyBufferSubData` + fence
+ *  - `frameUpdate()` → `harvest()` every tick: FIFO, one poll, no wait
+ *  - if `poll()` is `"ready"` and {@link minReadbackLag} has elapsed → `read()` into the CPU buffer
+ *
+ * {@link readbackPeriod} is the capture cadence: the downsample chain is not
+ * drawn idle, and unread STREAM_READ captures do not pile up in flight.
  */
 export class CoverageTFStateQueue {
 
     private _device: pc.WebglGraphicsDevice;
     private _pixelCount = 0;
-    private _slotCount = 1;
-    private _minLatencyFrames = 2;
-    private _flushOnSubmit = false;
+    private _slotCount = 4;
+    private _minReadbackLag = 2;
+    private _readbackPeriod = 1;
     private _frameId = 0;
     private _submitFrame = -1;
     private _slots: CoverageTFState[] = [];
@@ -23,9 +30,9 @@ export class CoverageTFStateQueue {
     private _cpuReady = false;
     private _cpuVersion = 0;
 
-    constructor(device: pc.WebglGraphicsDevice, pixelCount: number, slotCount: number = 4) {
+    public constructor(device: pc.WebglGraphicsDevice, pixelCount: number, slotCount: number = 4) {
         this._device = device;
-        this._slotCount = Math.max(1, slotCount | 0);
+        this._slotCount = Math.max(2, slotCount | 0);
         this.resize(pixelCount);
     }
 
@@ -36,25 +43,37 @@ export class CoverageTFStateQueue {
     public get cpuViewProjection() { return this._cpuVP; }
     public get cpuCameraParams() { return this._cpuParams; }
 
-    public get minLatencyFrames() { return this._minLatencyFrames; }
-    public set minLatencyFrames(value: number) {
-        this._minLatencyFrames = Math.max(0, value | 0);
-    }
-
-    /** If true, `gl.flush()` after the PBO fence. Default off (Android GLES stalls). */
-    public get flushOnSubmit() { return this._flushOnSubmit; }
-    public set flushOnSubmit(value: boolean) {
-        this._flushOnSubmit = !!value;
+    public get minReadbackLag() { return this._minReadbackLag; }
+    public set minReadbackLag(value: number) {
+        this._minReadbackLag = Math.max(0, value | 0);
     }
 
     public get slotCount() { return this._slotCount; }
     public set slotCount(value: number) {
-        const next = Math.max(1, value | 0);
+        const next = Math.max(2, value | 0);
         if (next === this._slotCount) {
             return;
         }
         this._slotCount = next;
         this._rebuildSlots();
+    }
+
+    /**
+     * Capture every N `execute` ticks. Harvest still polls every tick so a
+     * finished fence is read on a different frame than the next pack.
+     * `1` = every frame.
+     */
+    public get readbackPeriod() { return this._readbackPeriod; }
+    public set readbackPeriod(value: number) {
+        this._readbackPeriod = Math.max(1, value | 0);
+    }
+
+    /**
+     * True when this tick will accept a new pack
+     * (same predicate as {@link acquire}).
+     */
+    public canAcquire(): boolean {
+        return this._findFreeSlot() !== null;
     }
 
     public resize(pixelCount: number) {
@@ -86,38 +105,46 @@ export class CoverageTFStateQueue {
         this.harvest();
     }
 
+    /**
+     * FIFO: poll the oldest eligible slot only. Never skip a fenced capture —
+     * rewriting its PBO before getBufferSubData is what ANGLE warns about and
+     * on Android turns the next read into a full GPU-process drain.
+     */
     public harvest() {
-
         const slots = this._slots;
-        let newest = -1;
+        let oldest = -1;
+        let oldestFrame = 0x7fffffff;
 
         for (let i = 0; i < slots.length; i++) {
-
             const slot = slots[i];
             if (!slot.pending) {
                 continue;
             }
-
-            if (this._frameId - slot.submitFrame < this._minLatencyFrames) {
+            if (this._frameId - slot.submitFrame < this._minReadbackLag) {
                 continue;
             }
-
-            const status = slot.poll();
-            if (status === "failed") {
-                slot.abortRead();
-                continue;
-            }
-
-            if (status === "ready" && (newest < 0 || slot.submitFrame > slots[newest].submitFrame)) {
-                newest = i;
+            if (slot.submitFrame < oldestFrame) {
+                oldestFrame = slot.submitFrame;
+                oldest = i;
             }
         }
 
-        if (newest < 0) {
+        if (oldest < 0) {
             return;
         }
 
-        const slot = slots[newest];
+        const slot = slots[oldest];
+        const status = slot.poll();
+
+        if (status === "failed") {
+            slot.abortRead();
+            return;
+        }
+
+        if (status !== "ready") {
+            return;
+        }
+
         const copied = slot.read(this._cpuDepth);
         if (copied > 0) {
             this._cpuVP.set(slot.vp);
@@ -125,18 +152,51 @@ export class CoverageTFStateQueue {
             this._cpuReady = true;
             this._cpuVersion++;
         }
-
-        for (let i = 0; i < slots.length; i++) {
-            const other = slots[i];
-            if (other.pending && other.submitFrame <= slot.submitFrame) {
-                other.abortRead();
-            }
+        else {
+            slot.abortRead();
         }
     }
 
+    /**
+     * Free slot for a pack this frame.
+     * `null` if this is not a capture tick, a slot was already submitted this
+     * frame, or every slot is busy.
+     */
     public acquire(): CoverageTFState | null {
+        return this._findFreeSlot();
+    }
+
+    /**
+     * Finish the slot: copy into the PBO and insert a fence.
+     * Returns `true` if the readback was scheduled.
+     */
+    public submit(slot: CoverageTFState, vp: Float32Array, cameraParams: Float32Array): boolean {
+        slot.vp.set(vp);
+        slot.cameraParams.set(cameraParams);
+        slot.submitFrame = this._frameId;
+        slot.beginRead();
+
+        if (!slot.pending) {
+            return false;
+        }
+
+        this._submitFrame = this._frameId;
+        return true;
+    }
+
+    private _isCaptureTick() {
+        // frameId is incremented in execute. Tick 1, 1+N, 1+2N, … so the first
+        // execute can already pack, and updateHZB before the first execute cannot.
+        return ((this._frameId - 1) % this._readbackPeriod) === 0;
+    }
+
+    private _findFreeSlot(): CoverageTFState | null {
 
         if (this._submitFrame === this._frameId) {
+            return null;
+        }
+
+        if (!this._isCaptureTick()) {
             return null;
         }
 
@@ -151,23 +211,7 @@ export class CoverageTFStateQueue {
         return null;
     }
 
-    public submit(slot: CoverageTFState, vp: Float32Array, cameraParams: Float32Array): boolean {
-
-        slot.vp.set(vp);
-        slot.cameraParams.set(cameraParams);
-        slot.submitFrame = this._frameId;
-        slot.beginRead(this._flushOnSubmit);
-
-        if (!slot.pending) {
-            return false;
-        }
-
-        this._submitFrame = this._frameId;
-        return true;
-    }
-
     private _rebuildSlots() {
-
         this._disposeSlots();
 
         const n = this._slotCount;

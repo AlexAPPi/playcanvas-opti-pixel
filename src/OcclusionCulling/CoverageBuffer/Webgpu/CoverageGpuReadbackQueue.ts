@@ -2,17 +2,17 @@ import pc from "../../../engine.js";
 import { CoverageGpuReadbackState } from "./CoverageGpuReadbackState.js";
 
 /**
- * In-flight coverage mapAsync pool, same role as WebGL {@link CoverageTFStateQueue}:
+ * In-flight coverage readback pool, same role as WebGL {@link CoverageTFStateQueue}:
  * acquire a slot, compute writes into `slot.outputBuffer`, then {@link submit}
- * copies to a MAP_READ staging buffer. {@link frameUpdate} harvests the newest
- * ready capture. Do not harvest from `coverage.update` / postrender.
+ * starts `StorageBuffer.read`. {@link frameUpdate} harvests the newest ready
+ * capture. Do not harvest from `coverage.update` / postrender.
  */
 export class CoverageGpuReadbackQueue {
 
     private _device: pc.WebgpuGraphicsDevice;
     private _pixelCount = 0;
     private _slotCount = 1;
-    private _minLatencyFrames = 2;
+    private _minReadbackLag = 2;
     private _frameId = 0;
     private _submitFrame = -1;
     private _slots: CoverageGpuReadbackState[] = [];
@@ -35,9 +35,9 @@ export class CoverageGpuReadbackQueue {
     public get cpuViewProjection() { return this._cpuVP; }
     public get cpuCameraParams() { return this._cpuParams; }
 
-    public get minLatencyFrames() { return this._minLatencyFrames; }
-    public set minLatencyFrames(value: number) {
-        this._minLatencyFrames = Math.max(0, value | 0);
+    public get minReadbackLag() { return this._minReadbackLag; }
+    public set minReadbackLag(value: number) {
+        this._minReadbackLag = Math.max(0, value | 0);
     }
 
     public get slotCount() { return this._slotCount; }
@@ -71,6 +71,11 @@ export class CoverageGpuReadbackQueue {
         this.harvest();
     }
 
+    /**
+     * Newest ready slot whose {@link minReadbackLag} has elapsed.
+     * Older pending downloads are ignored (their promises still finish so
+     * the output buffer can be reused); they are not rewritten while in flight.
+     */
     public harvest() {
 
         const slots = this._slots;
@@ -83,7 +88,7 @@ export class CoverageGpuReadbackQueue {
                 continue;
             }
 
-            if (this._frameId - slot.submitFrame < this._minLatencyFrames) {
+            if (this._frameId - slot.submitFrame < this._minReadbackLag) {
                 continue;
             }
 
@@ -103,15 +108,7 @@ export class CoverageGpuReadbackQueue {
         }
 
         const slot = slots[newest];
-        const stolen = slot.stealReady(this._cpuDepth);
-        if (stolen) {
-            this._cpuDepth = stolen;
-            this._cpuVP.set(slot.vp);
-            this._cpuParams.set(slot.cameraParams);
-            this._cpuReady = true;
-            this._cpuVersion++;
-        }
-        else if (slot.read(this._cpuDepth) > 0) {
+        if (slot.read(this._cpuDepth) > 0) {
             this._cpuVP.set(slot.vp);
             this._cpuParams.set(slot.cameraParams);
             this._cpuReady = true;
@@ -135,7 +132,7 @@ export class CoverageGpuReadbackQueue {
         const slots = this._slots;
         for (let i = 0; i < slots.length; i++) {
             const slot = slots[i];
-            if (!slot.pending && !slot.unread) {
+            if (!slot.pending) {
                 return slot;
             }
         }

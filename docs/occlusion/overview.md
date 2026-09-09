@@ -15,7 +15,7 @@ Readback testers (`IReadbackOcclusionCullingTester`) add:
 
 CPU software also has `occluders: OccluderStore`. It has **no** `frameUpdate` (jobs complete on the worker callback). Coverage polls inside `execute`. WebGL HZB and queries need `frameUpdate` (or `OcclusionCullingSystem` on `frameupdate`).
 
-The [coverage buffer](coverage.md) tester adds `updateHZB(camera)` after opaque depth. That call builds the 256×128 max-downsample and packs **view-space Z**; `execute` only polls, reprojects, and tests.
+The [coverage buffer](coverage.md) tester adds `updateGPUDepthBuffer(camera)` after opaque depth. That call builds the 256×128 max-downsample and packs **view-space Z**; `execute` only polls, reprojects, and tests. The camera needs a PlayCanvas depth grab (`requestSceneDepthMap`).
 
 WebGPU HZB implements `IGPUIndirectDrawOcclusionCullingTester`: `enqueue` takes an indirect draw slot and primitive; the GPU writes the draw args. There is no CPU visibility bit.
 
