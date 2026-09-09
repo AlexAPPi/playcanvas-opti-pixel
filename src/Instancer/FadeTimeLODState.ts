@@ -71,6 +71,26 @@ export class FadeTimeLODState {
         }
     }
 
+    public setTime(indexes: Iterable<number>, time: number): void {
+        const times = this.time;
+        for (const index of indexes) {
+            times[index] = time;
+        }
+    }
+
+    public setLods(indexes: Iterable<number>, currentLod: number, targetLod: number, time?: number): void {
+        const packed = ((currentLod & LOD_MASK) << 4) | (targetLod & LOD_MASK);
+        const data = this.data;
+        const times = this.time;
+        const writeTime = time !== undefined;
+        for (const index of indexes) {
+            data[index] = packed;
+            if (writeTime) {
+                times[index] = time;
+            }
+        }
+    }
+
     public get(
         index: number,
         targetLod: number,
