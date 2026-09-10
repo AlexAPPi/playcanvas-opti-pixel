@@ -22,6 +22,7 @@ export class CoverageTFStateQueue {
     private _minReadbackLag = 2;
     private _readbackPeriod = 1;
     private _frameId = 0;
+    private _captureTick = 0;
     private _submitFrame = -1;
     private _slots: CoverageTFState[] = [];
     private _cpuDepth: Float32Array;
@@ -59,9 +60,9 @@ export class CoverageTFStateQueue {
     }
 
     /**
-     * Capture every N `execute` ticks. Harvest still polls every tick so a
-     * finished fence is read on a different frame than the next pack.
-     * `1` = every frame.
+     * Capture every N pack attempts. Harvest still polls every
+     * {@link frameUpdate} so a finished fence is read on a different frame
+     * than the next pack. `1` = every frame.
      */
     public get readbackPeriod() { return this._readbackPeriod; }
     public set readbackPeriod(value: number) {
@@ -100,7 +101,7 @@ export class CoverageTFStateQueue {
         this._submitFrame = -1;
     }
 
-    public frameUpdate() {
+    public frameUpdate(dt: number) {
         this._frameId++;
         this.harvest();
     }
@@ -111,18 +112,25 @@ export class CoverageTFStateQueue {
      * on Android turns the next read into a full GPU-process drain.
      */
     public harvest() {
+
         const slots = this._slots;
+        const minReadbackLag = this._minReadbackLag;
+
         let oldest = -1;
         let oldestFrame = 0x7fffffff;
 
         for (let i = 0; i < slots.length; i++) {
+
             const slot = slots[i];
+
             if (!slot.pending) {
                 continue;
             }
-            if (this._frameId - slot.submitFrame < this._minReadbackLag) {
+
+            if (this._frameId - slot.submitFrame < minReadbackLag) {
                 continue;
             }
+
             if (slot.submitFrame < oldestFrame) {
                 oldestFrame = slot.submitFrame;
                 oldest = i;
@@ -185,9 +193,10 @@ export class CoverageTFStateQueue {
     }
 
     private _isCaptureTick() {
-        // frameId is incremented in execute. Tick 1, 1+N, 1+2N, … so the first
-        // execute can already pack, and updateHZB before the first execute cannot.
-        return ((this._frameId - 1) % this._readbackPeriod) === 0;
+        // Capture tick advances on acquire. Tick 1, 1+N, 1+2N, …
+        // frameId (minReadbackLag) is incremented in frameUpdate.
+        this._captureTick++;
+        return ((this._captureTick - 1) % this._readbackPeriod) === 0;
     }
 
     private _findFreeSlot(): CoverageTFState | null {

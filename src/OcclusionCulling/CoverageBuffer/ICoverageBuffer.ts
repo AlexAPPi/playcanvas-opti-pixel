@@ -14,11 +14,10 @@ export interface ICoverageBuffer extends IHierarchicalZBuffer {
     readonly cpuWidth: number;
     readonly cpuHeight: number;
     readonly cpuViewProjection: Float32Array;
-    /** Capture `camera_params`: (1/far, far, near, ortho). Packed CPU depth is view-space Z. */
     readonly cpuCameraParams: Float32Array;
     readonly cpuUvFactor: [number, number];
     cpuReadback: boolean;
-    frameUpdate(): void;
+    frameUpdate(dt: number): void;
     update(camera: pc.Camera): void;
     resize(width?: number, height?: number, maxWidth?: number, maxHeight?: number): void;
     destroy(): void;

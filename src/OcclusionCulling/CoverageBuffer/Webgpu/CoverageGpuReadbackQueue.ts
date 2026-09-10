@@ -66,7 +66,7 @@ export class CoverageGpuReadbackQueue {
         this._submitFrame = -1;
     }
 
-    public frameUpdate() {
+    public frameUpdate(dt: number) {
         this._frameId++;
         this.harvest();
     }

@@ -130,9 +130,10 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
     }
 
     /**
-     * Submit a packed capture every N `execute` ticks. Harvest still polls
-     * every tick. The downsample chain is skipped on ticks that will not
-     * capture. Default `1`. Raise on devices where `getBufferSubData` hitches.
+     * Submit a packed capture every N pack attempts (`update` /
+     * `updateGPUDepthBuffer`). Harvest still polls every {@link frameUpdate}.
+     * The downsample chain is skipped on ticks that will not capture.
+     * Default `1`. Raise on devices where `getBufferSubData` hitches.
      */
     public get readbackPeriod() { return this._readback.readbackPeriod; }
     public set readbackPeriod(value: number) {
@@ -144,7 +145,7 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
      * @param maxWidth - CPU width, default 256
      * @param maxHeight - CPU height, default 128
      * @param slotCount - number of readback slots, default 4
-     * @param minReadbackLag - minimum execute ticks before polling a slot, default 2
+     * @param minReadbackLag - minimum `frameUpdate` ticks before polling a slot, default 2
      */
     constructor(device: pc.WebglGraphicsDevice, maxWidth: number = 256, maxHeight: number = 128, slotCount: number = 4, minReadbackLag: number = 2) {
         this._enabled = true;
@@ -219,8 +220,8 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         this._readback.resize(this._maxWidth * this._maxHeight);
     }
 
-    public frameUpdate() {
-        this._readback.frameUpdate();
+    public frameUpdate(dt: number) {
+        this._readback.frameUpdate(dt);
     }
 
     public update(camera: pc.Camera) {

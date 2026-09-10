@@ -20,9 +20,9 @@ import { ICoverageBuffer } from "./ICoverageBuffer.js";
  * GPU coverage depth → CPU AABB tester.
  *
  * {@link updateGPUDepthBuffer} downsamples scene depth (4-tap max, 256∶128 chain) and
- * packs the last level as view-space Z for GPU→CPU download. {@link execute} polls the
- * readback, reprojects the last capture, and tests queued AABBs on the CPU.
- * Results lag at least one GPU frame.
+ * packs the last level as view-space Z for GPU→CPU download. {@link frameUpdate} polls
+ * finished readbacks. {@link execute} reprojects the last capture and tests queued AABBs
+ * on the CPU. Results lag at least one GPU frame.
  *
  * Works with {@link WebglCoverageBuffer} (transform feedback + PBO) and
  * {@link WebgpuCoverageBuffer} (compute pack + mapAsync).
@@ -112,7 +112,8 @@ export class CoverageBufferTester implements IGPU2CPUReadbackOcclusionCullingTes
     /**
      * Builds the coverage downsample chain from the camera depth buffer and
      * packs the last level for readback. Call after opaque geometry has
-     * written depth. Distinct from {@link execute}, which only tests the queued AABBs.
+     * written depth. Distinct from {@link frameUpdate} (harvest) and
+     * {@link execute} (AABB tests).
      */
     public updateGPUDepthBuffer(camera: pc.Camera): void {
         if (this._coverage.enabled && !this._coverage.resizePending) {
@@ -121,14 +122,24 @@ export class CoverageBufferTester implements IGPU2CPUReadbackOcclusionCullingTes
     }
 
     /**
-     * Polls finished readbacks, reprojects the last capture, and tests the queue.
+     * Increments the coverage frame id and harvests finished GPU→CPU downloads.
+     * Call every frame (typically on `frameupdate`, or at the start of `update`).
+     * Distinct from {@link execute}, which only tests queued AABBs.
+     * @param dt - The time since the last frame.
+     */
+    public frameUpdate(dt: number): void {
+        this._coverage.frameUpdate(dt);
+    }
+
+    /**
+     * Reprojects the last harvested capture and tests the queue.
+     * Does not poll readbacks — call {@link frameUpdate} every frame.
      * Does not build the downsample chain — call {@link updateGPUDepthBuffer} after opaque depth.
      */
     public execute(camera: pc.Camera) {
 
         this._growIfNeeded();
         this._aabbStore.update();
-        this._coverage.frameUpdate();
 
         if (!this._coverage.enabled || this._coverage.resizePending) {
             this._appliedVersion = -1;
@@ -139,6 +150,7 @@ export class CoverageBufferTester implements IGPU2CPUReadbackOcclusionCullingTes
 
         this._viewProjection.mul2(camera.projectionMatrix, camera.viewMatrix);
         this._view.copy(camera.viewMatrix);
+
         writeCameraParams(this._cameraParams, camera);
 
         if (!this._coverage.cpuReady) {
@@ -151,25 +163,28 @@ export class CoverageBufferTester implements IGPU2CPUReadbackOcclusionCullingTes
         this._cpuBuffer.resize(this._coverage.cpuWidth, this._coverage.cpuHeight);
 
         if (this._appliedVersion !== this._coverage.cpuVersion) {
-            this._cpuBuffer.setSource(this._coverage.cpuDepth, this._coverage.cpuViewProjection, this._coverage.cpuCameraParams);
+            this._cpuBuffer.setSource(
+                this._coverage.cpuDepth,
+                this._coverage.cpuViewProjection,
+                this._coverage.cpuCameraParams
+            );
             this._appliedVersion = this._coverage.cpuVersion;
         }
 
         const node = camera.node as pc.GraphNode | undefined;
+
+        let cameraX = 0;
+        let cameraY = 0;
+        let cameraZ = 0;
+
         if (node) {
             const d = node.getWorldTransform().data;
-            this._cpuBuffer.update(this._viewProjection.data, d[12], d[13], d[14], this._cameraParams);
-        }
-        else {
-            this._cpuBuffer.update(this._viewProjection.data, 0, 0, 0, this._cameraParams);
-        }
-
-        if (!this._cpuBuffer.valid) {
-            this._resultFlags.fill(OCCLUSION_UNKNOWN);
-            this._queue.clear();
-            return;
+            cameraX = d[12];
+            cameraY = d[13];
+            cameraZ = d[14];
         }
 
+        this._cpuBuffer.update(this._viewProjection.data, cameraX, cameraY, cameraZ, this._cameraParams);
         this._testQueue();
         this._queue.clear();
     }
@@ -205,14 +220,16 @@ export class CoverageBufferTester implements IGPU2CPUReadbackOcclusionCullingTes
     private _testQueue() {
 
         const count = this._queue.count;
+        const flags = this._resultFlags;
+
         if (count <= 0 || !this._cpuBuffer.valid) {
+            flags.fill(OCCLUSION_UNKNOWN);
             return;
         }
 
         const ids = this._queue.indexes;
         const centers = this._aabbStore.centersData;
         const halves = this._aabbStore.halfExtentsData;
-        const flags = this._resultFlags;
         const cap = flags.length;
         const vp = this._viewProjection.data;
         const view = this._view.data;

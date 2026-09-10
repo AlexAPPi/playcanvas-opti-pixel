@@ -182,8 +182,8 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
         this._readback.resize(this._maxWidth * this._maxHeight);
     }
 
-    public frameUpdate() {
-        this._readback.frameUpdate();
+    public frameUpdate(dt: number) {
+        this._readback.frameUpdate(dt);
     }
 
     public update(camera: pc.Camera) {

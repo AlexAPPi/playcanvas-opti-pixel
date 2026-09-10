@@ -57,16 +57,17 @@ sequenceDiagram
     App->>Tester: enqueue(id) for candidates
     App->>Tester: execute(camera)
     Tester->>GPU: submit job / draw queries / HZB tests
-    Note over Tester: WebGL HZB / queries: frameUpdate (or OcclusionCullingSystem)
+    Note over Tester: HZB / queries: frameUpdate via OcclusionCullingSystem
+    Note over Tester: Coverage: tester.frameUpdate yourself
     Tester-->>App: getOcclusionStatus (previous job)
     App->>App: skip draws that are OCCLUDED
 ```
 
 Submit work early, consume results from the last **finished** job. Do not wait for the GPU or worker on the same frame unless you accept a stall.
 
-`frameUpdate` is not universal: software has none; coverage polls inside `execute`; WebGL HZB and queries harvest in `frameUpdate` (`OcclusionCullingSystem` does that on `frameupdate`).
+`frameUpdate` is not universal: software has none; coverage, WebGL HZB, and queries harvest in `frameUpdate`. `OcclusionCullingSystem` runs HZB and queries on `frameupdate`, but **not** coverage — call `tester.frameUpdate(dt)` yourself.
 
-`CoverageBufferTester` polls inside `execute`. Call `updateGPUDepthBuffer` after opaque depth (`postrender`), and `execute` every frame (often in `update`, so tests use the last finished capture).
+`CoverageBufferTester` harvests in `frameUpdate`. Call that every frame, `execute` after enqueue (often in `update`), and `updateGPUDepthBuffer` after opaque depth (`postrender`) so tests use the last finished capture.
 
 For **WebGPU HZB**, `execute` writes `instanceCount` into an indirect draw buffer. There is no `getOcclusionStatus` on that path.
 

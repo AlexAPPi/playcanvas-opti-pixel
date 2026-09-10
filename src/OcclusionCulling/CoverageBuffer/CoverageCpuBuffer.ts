@@ -80,7 +80,9 @@ export class CoverageCpuBuffer {
 
     public resize(width: number, height: number) {
 
-        if (width === this._width && height === this._height && this._n0 > 0) {
+        if (width === this._width &&
+            height === this._height &&
+            this._n0 > 0) {
             return;
         }
 

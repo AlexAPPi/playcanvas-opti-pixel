@@ -11,7 +11,7 @@ PlayCanvas device picks the implementation:
 
 `OcclusionCullingSystem` constructs the matching pair. You can also instantiate the concrete classes yourself if you need a custom frame graph.
 
-`IHierarchicalZBuffer` is a texture/size view. `update(camera)` exists on `WebglHierarchicalZBuffer` and `WebgpuHierarchicalZBuffer`, not on the interface. Coverage buffers implement the same view via `ICoverageBuffer`, which does add `update`.
+`IHierarchicalZBuffer` is a texture/size view. `update(camera)` exists on `WebglHierarchicalZBuffer` and `WebgpuHierarchicalZBuffer`, not on the interface. Coverage buffers implement the same view via `ICoverageBuffer`, which does add `update` and `frameUpdate`.
 
 ## What `autoUpdate` actually does
 
