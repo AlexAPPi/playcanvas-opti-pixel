@@ -221,7 +221,7 @@ If you replace the coverage-buffer instance, set `debug.tester` again.
 
 | vs | Coverage difference |
 | --- | --- |
-| [HZB WebGL](hzb.md) | HZB keeps a full mip chain and tests on GPU (transform feedback), then reads **flags**. Coverage downsamples with a 4-tap max chain, then a pack pass writes **view-space Z** and tests on CPU. Coarser, and never uses the depth that was just submitted this frame. |
+| [HZB WebGL](hzb.md) | HZB keeps a full mip chain and tests on GPU (transform feedback), then reads **flags** with the same WebGL2 PBO/FIFO download as coverage. Coverage downsamples with a 4-tap max chain, then a pack pass writes **view-space Z** and tests on CPU. Coarser, and never uses the depth that was just submitted this frame. |
 | [HZB WebGPU](hzb.md) | WebGPU HZB culls by writing indirect `instanceCount`. Coverage still gives a CPU `getOcclusionStatus` bit from a packed 256×128 download. |
 | [Queries](queries.md) | Queries rasterize box proxies with `ANY_SAMPLES_PASSED`. Coverage uses the depth you already rendered and one small readback. No per-object query draws. WebGL2 only for queries. |
 | [Software](software.md) | Software rasterizes **explicit** occluders on a worker. Coverage uses **scene depth**, so you do not maintain an occluder set — but you inherit GPU latency, reprojection, and 256×128. |

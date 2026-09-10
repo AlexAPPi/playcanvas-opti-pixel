@@ -32,6 +32,20 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
     private _aabbStore: IAABBStore;
     private _modelViewProjection = new pc.Mat4();
 
+    public get readbackSlots() { return this._queue.slotCount; }
+    public set readbackSlots(value: number) { this._queue.slotCount = value; }
+
+    public get minReadbackLag() { return this._queue.minReadbackLag; }
+    public set minReadbackLag(value: number) { this._queue.minReadbackLag = value; }
+
+    /**
+     * Submit a TF capture every N {@link frameUpdate} ticks that try to
+     * reserve a fill slot. Harvest still polls every {@link frameUpdate}.
+     * Default `1`. Raise on devices where `getBufferSubData` hitches.
+     */
+    public get readbackPeriod() { return this._queue.readbackPeriod; }
+    public set readbackPeriod(value: number) { this._queue.readbackPeriod = value; }
+
     public get hzb() { return this._hzb; }
     public set hzb(v: WebglHierarchicalZBuffer) {
         this._hzb = v;
@@ -160,52 +174,62 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
 
     private _internalTest(camera: pc.Camera) {
 
-        const state = this._queue.next();
+        const state = this._queue.fillSlot;
         const viewMatrix = camera.viewMatrix;
         const projectionMatrix = camera.projectionMatrix;
 
         this._modelViewProjection.mul2(projectionMatrix, viewMatrix);
 
-        if (state && state.count > 0) {
-
-            const count = Math.min(state.count, state.outputBuffer.numVertices);
-            const uvFactor = this.hzb.uvFactor;
-
-            _screenSizeArr[0] = this.hzb.screenWidth;
-            _screenSizeArr[1] = this.hzb.screenHeight;
-
-            _hzbSizeArr[0] = this.hzb.width;
-            _hzbSizeArr[1] = this.hzb.height;
-
-            _hzbUvFactorArr[0] = uvFactor[0];
-            _hzbUvFactorArr[1] = uvFactor[1];
-
-            this._centersTextureScope.setValue(this._aabbStore.centersTexture);
-            this._halfExtentsTextureScope.setValue(this._aabbStore.halfExtentsTexture);
-            this._screenSizeScope.setValue(_screenSizeArr);
-            this._hzbSizeScope.setValue(_hzbSizeArr);
-            this._uHZBUvFactorScope.setValue(_hzbUvFactorArr);
-
-            // TODO: mobile android hzb mips slowed
-            this._hzbScope1.setValue(this._hzb.texture);
-            this._hzbScope2.setValue(this._hzb.texture2);
-
-            this._matrixViewProjectionScope.setValue(this._modelViewProjection.data);
-
-            state.beforeFill();
-
-            const vertexBuffer = state.indexQueue.buffer;
-            const outputBuffer = state.outputBuffer;
-
-            executeTransformFeedbackShader(
-                this._shader,
-                count,
-                vertexBuffer,
-                outputBuffer
-            );
-
-            state.beginRead();
+        if (!state) {
+            return;
         }
+
+        if (state.count <= 0) {
+            this._queue.releaseFill();
+            return;
+        }
+
+        state.beforeFill();
+
+        const outputBuffer = state.outputBuffer;
+        const vertexBuffer = state.indexQueue.buffer;
+        if (!outputBuffer || !vertexBuffer) {
+            this._queue.releaseFill();
+            return;
+        }
+
+        const count = Math.min(state.count, outputBuffer.numVertices);
+        const uvFactor = this.hzb.uvFactor;
+
+        _screenSizeArr[0] = this.hzb.screenWidth;
+        _screenSizeArr[1] = this.hzb.screenHeight;
+
+        _hzbSizeArr[0] = this.hzb.width;
+        _hzbSizeArr[1] = this.hzb.height;
+
+        _hzbUvFactorArr[0] = uvFactor[0];
+        _hzbUvFactorArr[1] = uvFactor[1];
+
+        this._centersTextureScope.setValue(this._aabbStore.centersTexture);
+        this._halfExtentsTextureScope.setValue(this._aabbStore.halfExtentsTexture);
+        this._screenSizeScope.setValue(_screenSizeArr);
+        this._hzbSizeScope.setValue(_hzbSizeArr);
+        this._uHZBUvFactorScope.setValue(_hzbUvFactorArr);
+
+        // TODO: mobile android hzb mips slowed
+        this._hzbScope1.setValue(this._hzb.texture);
+        this._hzbScope2.setValue(this._hzb.texture2);
+
+        this._matrixViewProjectionScope.setValue(this._modelViewProjection.data);
+
+        executeTransformFeedbackShader(
+            this._shader,
+            count,
+            vertexBuffer,
+            outputBuffer
+        );
+
+        this._queue.submitFill();
     }
 
     public execute(camera: pc.Camera) {

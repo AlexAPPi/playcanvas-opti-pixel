@@ -1,9 +1,12 @@
-import pc from "../../../engine.js";
+import pc from "../../engine.js";
 
-export type TCoverageReadbackPoll = "pending" | "ready" | "failed";
+export type TTFReadbackPoll = "pending" | "ready" | "failed";
+export type TTFElementType = "float32" | "uint32";
 
 /**
- * One in-flight slot: TF output buffer + STREAM_READ PBO + fence.
+ * One in-flight WebGL2 transform-feedback slot: TF output buffer + STREAM_READ
+ * PBO + fence. Shared by coverage pack and HZB flag readback.
+ *
  * `beginRead()` copies and inserts a fence.
  * `poll()` checks the fence without waiting.
  * `read()` pulls data only after the fence is ready.
@@ -12,34 +15,48 @@ export type TCoverageReadbackPoll = "pending" | "ready" | "failed";
  * unread — otherwise ANGLE treats the next write as write-after-fence-before-read
  * and the following `getBufferSubData` takes the slow path.
  */
-export class CoverageTFState {
+export class TFState {
 
     public outputBuffer: pc.VertexBuffer;
     public vp = new Float32Array(16);
     public cameraParams = new Float32Array(4);
     public submitFrame = 0;
     public pending = false;
+    /** Held for enqueue / fill between `acquire` and `submit`. */
+    public reserved = false;
 
     private _device: pc.WebglGraphicsDevice;
-    private _pixelCount = 0;
+    private _elementCount = 0;
+    private _copyCount = 0;
+    private _elementType: TTFElementType;
     private _pbo: WebGLBuffer | null = null;
     private _sync: WebGLSync | null = null;
     private _unread = false;
 
-    constructor(device: pc.WebglGraphicsDevice, pixelCount: number) {
+    constructor(
+        device: pc.WebglGraphicsDevice,
+        elementCount: number,
+        elementType: TTFElementType = "float32"
+    ) {
         this._device = device;
-        this.resize(pixelCount);
+        this._elementType = elementType;
+        this.resize(elementCount);
     }
 
     public get unread() { return this._unread; }
-    public get pixelCount() { return this._pixelCount; }
+    public get elementCount() { return this._elementCount; }
+    public get pixelCount() { return this._elementCount; }
+    public get elementType() { return this._elementType; }
+    public get copyCount() { return this._copyCount; }
 
-    public resize(pixelCount: number) {
-        this._pixelCount = Math.max(0, pixelCount | 0);
+    public resize(elementCount: number) {
+        this._elementCount = Math.max(0, elementCount | 0);
+        this._copyCount = 0;
         this._destroyOutputBuffer();
         this._deletePbo();
         this._deleteSync();
         this.pending = false;
+        this.reserved = false;
         this.submitFrame = 0;
         this._unread = false;
         this._createOutputBuffer();
@@ -54,14 +71,15 @@ export class CoverageTFState {
 
     public beforeFill(): void {
         this._ensureOutputBuffer();
-        this._deletePbo();
     }
 
     public abortRead(): void {
         this._deleteSync();
         this._deletePbo();
         this.pending = false;
+        this.reserved = false;
         this._unread = false;
+        this._copyCount = 0;
     }
 
     /**
@@ -69,15 +87,26 @@ export class CoverageTFState {
      * Does not block the CPU. Call after TF has written `outputBuffer`.
      * No `gl.flush()`: on Android GLES a flush after pack often stalls;
      * the fence still completes at the end of the frame.
+     *
+     * @param copyCount - Elements to copy. Defaults to the full buffer.
      */
-    public beginRead(): void {
+    public beginRead(copyCount?: number): void {
 
-        const count = this._pixelCount;
+        const count = copyCount == null
+            ? this._elementCount
+            : Math.max(0, Math.min(this._elementCount, copyCount | 0));
+
+        this._copyCount = count;
         this._deleteSync();
+        this.reserved = false;
 
         if (count <= 0) {
             this.pending = false;
             return;
+        }
+
+        if (this._unread) {
+            this._deletePbo();
         }
 
         this._ensurePbo();
@@ -86,6 +115,7 @@ export class CoverageTFState {
         const srcId = this.outputBuffer?.impl?.bufferId;
         if (!gl || !srcId || !this._pbo) {
             this.pending = false;
+            this._copyCount = 0;
             return;
         }
 
@@ -102,6 +132,7 @@ export class CoverageTFState {
             this._deletePbo();
             this.pending = false;
             this._unread = false;
+            this._copyCount = 0;
             return;
         }
 
@@ -115,7 +146,7 @@ export class CoverageTFState {
      * `"ready"` — safe to call `read()`.
      * `"failed"` — the fence is gone or `WAIT_FAILED`.
      */
-    public poll(): TCoverageReadbackPoll {
+    public poll(): TTFReadbackPoll {
         if (!this._sync) {
             return "failed";
         }
@@ -139,10 +170,10 @@ export class CoverageTFState {
     /**
      * Copy the PBO into `dest`.
      * Call only after `poll()` returns `"ready"`.
-     * Returns the number of floats read.
+     * Returns the number of elements read.
      */
-    public read(dest: Float32Array): number {
-        const count = this._pixelCount;
+    public read(dest: Float32Array | Uint32Array): number {
+        const count = this._copyCount;
         if (count <= 0 || !this._pbo || dest.length < count) {
             return 0;
         }
@@ -154,6 +185,7 @@ export class CoverageTFState {
 
         this._unread = false;
         this.pending = false;
+        this._copyCount = 0;
         return count;
     }
 
@@ -162,6 +194,8 @@ export class CoverageTFState {
         this._pbo = null;
         this._unread = false;
         this.pending = false;
+        this.reserved = false;
+        this._copyCount = 0;
     }
 
     private _ensureOutputBuffer() {
@@ -178,17 +212,19 @@ export class CoverageTFState {
     }
 
     private _createOutputBuffer() {
-        const count = this._pixelCount;
+        const count = this._elementCount;
         if (count <= 0) {
             this.outputBuffer = null!;
             return;
         }
 
+        const isUint = this._elementType === "uint32";
         const format = new pc.VertexFormat(this._device, [{
             semantic: pc.SEMANTIC_ATTR6,
             components: 1,
-            type: pc.TYPE_FLOAT32,
-            normalize: false
+            type: isUint ? pc.TYPE_UINT32 : pc.TYPE_FLOAT32,
+            normalize: false,
+            ...(isUint ? { asInt: true } : {})
         }]);
 
         this.outputBuffer = new pc.VertexBuffer(this._device, format, count, {
@@ -204,7 +240,7 @@ export class CoverageTFState {
 
     private _createPbo() {
         const gl = this._device.gl;
-        const bytes = this._pixelCount * 4;
+        const bytes = this._elementCount * 4;
         if (!gl || bytes <= 0) {
             this._pbo = null;
             return;

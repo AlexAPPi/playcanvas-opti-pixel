@@ -6,6 +6,8 @@ import packCodeVS from "./WebglCoverageBuffer.pack.glsl.js";
 import { getCameraDepthTexture, writeCameraParams } from "../../../Extras/CameraHelpers.js";
 import { executeTransformFeedbackShader } from "../../../Extras/TransformFeedbackHelpers.js";
 import { CoverageTFStateQueue } from "./CoverageTFStateQueue.js";
+import { TFState } from "../../../GPUReadback/Webgl/TFState.js";
+import type { TFStateQueue } from "../../../GPUReadback/Webgl/TFStateQueue.js";
 import { integerLog2 } from "../CoverageCpuBuffer.js";
 
 /**
@@ -13,7 +15,8 @@ import { integerLog2 } from "../CoverageCpuBuffer.js";
  *
  * Downsamples camera depth with a 4-tap max chain that keeps the
  * 256∶128 aspect at every level. The last level is packed with transform
- * feedback (float view-space Z). GPU->CPU download lives in {@link CoverageTFStateQueue}.
+ * feedback (float view-space Z). GPU->CPU download lives in {@link CoverageTFStateQueue}
+ * ({@link TFStateQueue} + PBO/FIFO shared with WebGL HZB).
  */
 export class WebglCoverageBuffer implements ICoverageBuffer {
 
@@ -245,8 +248,13 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
 
         // Android getBufferSubData waits for the GPU process to drain, so we
         // only build the chain on ticks that will actually pack a capture.
-        if (this._cpuReadback && !this._readback.canAcquire()) {
-            return;
+        // `acquire()` consumes {@link readbackPeriod} even when it returns null.
+        let slot: TFState | null = null;
+        if (this._cpuReadback) {
+            slot = this._readback.acquire();
+            if (!slot) {
+                return;
+            }
         }
 
         const device = this.device;
@@ -292,8 +300,8 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
             }
         }
 
-        if (this._cpuReadback) {
-            this._pack(srcBuffer, srcWidth, srcHeight, readScreenDepth);
+        if (slot) {
+            this._pack(slot, srcBuffer, srcWidth, srcHeight, readScreenDepth);
         }
 
         device.setRenderTarget(oldRenderTarget);
@@ -493,15 +501,16 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
     }
 
     protected _pack(
+        slot: TFState,
         srcBuffer: pc.Texture,
         srcWidth: number,
         srcHeight: number,
         readScreenDepth: number
     ) {
 
-        const slot = this._readback.acquire();
         const pixelBuffer = this._ensurePixelBuffer();
-        if (!slot || !pixelBuffer || !this._packShader || !this._packTarget) {
+        if (!pixelBuffer || !this._packShader || !this._packTarget) {
+            slot.reserved = false;
             return;
         }
 
@@ -509,6 +518,7 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
 
         const outputBuffer = slot.outputBuffer;
         if (!outputBuffer) {
+            slot.reserved = false;
             return;
         }
 
@@ -539,7 +549,9 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
             this._packTarget
         );
 
-        this._readback.submit(slot, this._viewProjection.data, _cameraParamsArr);
+        slot.vp.set(this._viewProjection.data);
+        slot.cameraParams.set(_cameraParamsArr);
+        this._readback.submit(slot);
     }
 
     /**

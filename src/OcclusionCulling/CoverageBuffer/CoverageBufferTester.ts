@@ -238,17 +238,16 @@ export class CoverageBufferTester implements IGPU2CPUReadbackOcclusionCullingTes
         for (let i = 0; i < count; i++) {
 
             const id = ids[i];
-            if (id >= cap) {
-                continue;
-            }
+            if (id < cap) {
 
-            const base = id << 2;
-            flags[id] = cpuBuffer.testAabb(
-                centers[base], centers[base + 1], centers[base + 2],
-                halves[base], halves[base + 1], halves[base + 2],
-                vp,
-                view
-            );
+                const base = id << 2;
+                flags[id] = cpuBuffer.testAabb(
+                    centers[base], centers[base + 1], centers[base + 2],
+                    halves[base], halves[base + 1], halves[base + 2],
+                    vp,
+                    view
+                );
+            }
         }
     }
 }

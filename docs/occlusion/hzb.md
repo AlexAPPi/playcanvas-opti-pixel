@@ -55,9 +55,17 @@ app.on("update", () => {
 
 When `autoUpdate` is false, call `WebglHierarchicalZBuffer.update(camera)` and `tester.execute(camera)` yourself after opaque depth is available. `OcclusionCullingSystem` still runs `tester.frameUpdate` on `frameupdate`. If you constructed the tester yourself (no system), call `frameUpdate` each frame so readbacks can complete.
 
-The first `enqueue` can return `-1` until `execute` has allocated a write slot. Treat that like `OCCLUSION_UNKNOWN`.
+WebGL HZB uses the same GPU→CPU download as the coverage buffer: `copyBufferSubData` into a STREAM_READ PBO, `fenceSync`, FIFO harvest of one slot per `frameUpdate`, no `gl.flush()`. Default **4** in-flight slots and **2** frames of `minReadbackLag`. `enqueue` can return `-1` (`SOME_ENQUEUE_PROBLEM`) on a non-capture tick (`readbackPeriod`) or when every slot is busy — treat that like `OCCLUSION_UNKNOWN`.
 
 Readback is **delayed** by at least one GPU frame. Treat `UNKNOWN` as visible.
+
+| Property | Default | Meaning |
+| --- | --- | --- |
+| `readbackSlots` | `4` (clamped to at least **2**) | In-flight TF/download slots |
+| `minReadbackLag` | `2` | `frameUpdate` ticks to wait before polling a slot |
+| `readbackPeriod` | `1` | Reserve a fill slot / submit a capture every N `frameUpdate` ticks. Harvest still polls every `frameUpdate`. On Android Chrome, `getBufferSubData` is an ordered GPU-process wait — set this to `3` (or higher) there. |
+
+Do not call `gl.flush()` after the PBO fence. `frameUpdate` must run **before** `enqueue` in the same tick (`OcclusionCullingSystem` already does that on `frameupdate`).
 
 `HierarchicalZBufferDebugger` can overlay mips (`system.drawHZB = true`).
 
