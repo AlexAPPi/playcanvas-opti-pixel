@@ -14,7 +14,7 @@
     "@webgpu/types": "^0.1.69",
     "esbuild": "^0.28.1",
     "npm-dts": "^1.1.6",
-    "playcanvas": "^2.19.6",
+    "playcanvas": "^2.22.2",
     "typedoc": "^0.28.20",
     "typescript": "^5.1.6"
   },
