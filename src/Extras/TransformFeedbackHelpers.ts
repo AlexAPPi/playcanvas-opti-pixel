@@ -1,5 +1,6 @@
 import pc from "../engine.js";
 
+const _outputBuffers: pc.VertexBuffer[] = [null!];
 const _tmpPrimitive = {
     type: pc.PRIMITIVE_POINTS,
     base: 0,
@@ -24,20 +25,23 @@ export function executeTransformFeedbackShader(
     const device = shader.device as unknown as pc.WebglGraphicsDevice;
     const oldRt = device.getRenderTarget();
 
+    _outputBuffers[0] = outputBuffer;
     _tmpPrimitive.count = numElements;
 
     device.setRenderTarget(renderTarget ?? null);
     device.updateBegin();
     device.setVertexBuffer(vertexBuffer);
     device.setRaster(false);
-    device.setTransformFeedbackBuffer(outputBuffer);
+    device.setTransformFeedbackBuffers(_outputBuffers);
     device.setShader(shader);
 
     // @ts-ignore
     device.draw(_tmpPrimitive);
 
-    device.setTransformFeedbackBuffer(null!);
+    device.setTransformFeedbackBuffers(null);
     device.setRaster(true);
     device.updateEnd();
     device.setRenderTarget(oldRt);
+
+    _outputBuffers[0] = null!;
 }

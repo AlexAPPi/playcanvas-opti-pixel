@@ -183,6 +183,8 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
     }
 
     public isColor() {
+        // TODO: Depth recording also works perfectly,
+        // but we need to add a way to record the depth values.
         return true;
     }
 

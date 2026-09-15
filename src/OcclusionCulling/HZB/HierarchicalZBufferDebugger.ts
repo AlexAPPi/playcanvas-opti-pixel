@@ -10,6 +10,7 @@ import { IHierarchicalZBufferTester } from "./IHierarchicalZBufferTester.js";
 export class HierarchicalZBufferDebugger {
 
     private _app: pc.AppBase;
+    private _wireRenderer: pc.WireRenderer;
     private _tester: IHierarchicalZBufferTester | undefined;
     private _hzb: WebglHierarchicalZBuffer | WebgpuHierarchicalZBuffer | undefined;
     private _debugAABBTexture: pc.Texture;
@@ -25,6 +26,8 @@ export class HierarchicalZBufferDebugger {
 
     constructor(app: pc.AppBase, hzbOrTester: WebglHierarchicalZBuffer | WebgpuHierarchicalZBuffer | IHierarchicalZBufferTester) {
         this._app = app;
+        this._wireRenderer = new pc.WireRenderer(app);
+        this._wireRenderer.depthTest = false;
         this._debugAABBTexture = new pc.Texture(this._app.graphicsDevice, {
             width: 1,
             height: 1,
@@ -134,7 +137,8 @@ export class HierarchicalZBufferDebugger {
             _maxPoint.copy(boundingBox.center).add(boundingBox.halfExtents);
 
             if (box) {
-                this._app.drawWireAlignedBox(_minPoint, _maxPoint, occlusionStatus === OCCLUSION_OCCLUDED ? pc.Color.RED : pc.Color.GREEN, false);
+                this._wireRenderer.color.copy(occlusionStatus === OCCLUSION_OCCLUDED ? pc.Color.RED : pc.Color.GREEN);
+                this._wireRenderer.boxMinMax(_minPoint, _maxPoint);
             }
 
             if (rect) {

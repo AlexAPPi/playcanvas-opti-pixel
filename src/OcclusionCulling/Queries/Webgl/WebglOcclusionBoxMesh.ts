@@ -20,7 +20,7 @@ export class WebglOcclusionBoxMesh extends BoxMesh<pc.WebglGraphicsDevice> {
         device.setDepthState(depthTestNoWrite);
         device.setAlphaToCoverage(false);
         device.setShader(this.shader);
-        device.setTransformFeedbackBuffer(undefined!);
+        device.setTransformFeedbackBuffers(null);
         device.setStencilState(null, null);
         device.activateShader();
 

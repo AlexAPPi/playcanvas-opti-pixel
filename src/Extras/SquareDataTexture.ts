@@ -162,6 +162,7 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
     protected _writeLayout: IGpuTextureWriteLayout;
     protected _writeSize: IGpuTextureWriteSize;
 
+    public get data() { return this._data; }
     public get pixelsPerInstance() { return this._pixelsPerInstance; }
     public get channels() { return this._channels; }
     public get capacity() { return this._capacity; }
@@ -170,7 +171,6 @@ export class SquareDataTexture<TArray extends TypedArrayType> implements ISquare
         this._ensureGpuTexture();
         return this._texture!;
     }
-    public get data() { return this._data; }
 
     constructor(device: pc.GraphicsDevice | null, params: ISquareDataTextureParams<TArray>) {
 

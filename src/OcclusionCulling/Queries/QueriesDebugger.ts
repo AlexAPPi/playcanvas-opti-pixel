@@ -7,10 +7,13 @@ const _aabb = new pc.BoundingBox();
 export class QueriesDebugger {
 
     private _app: pc.AppBase;
+    private _wireRenderer: pc.WireRenderer;
     private _tester: WebglOcclusionQueriesTester;
 
     constructor(app: pc.AppBase, tester: WebglOcclusionQueriesTester) {
         this._app = app;
+        this._wireRenderer = new pc.WireRenderer(app);
+        this._wireRenderer.depthTest = false;
         this._tester = tester;
     }
 
@@ -27,7 +30,8 @@ export class QueriesDebugger {
         _minPoint.copy(_aabb.center).sub(_aabb.halfExtents);
         _maxPoint.copy(_aabb.center).add(_aabb.halfExtents);
 
-        this._app.drawWireAlignedBox(_minPoint, _maxPoint, occlusionStatus === OCCLUSION_OCCLUDED ? pc.Color.RED : pc.Color.GREEN, false);
+        this._wireRenderer.color.copy(occlusionStatus === OCCLUSION_OCCLUDED ? pc.Color.RED : pc.Color.GREEN);
+        this._wireRenderer.boxMinMax(_minPoint, _maxPoint);
     }
 }
 

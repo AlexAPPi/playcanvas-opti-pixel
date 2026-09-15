@@ -2,19 +2,19 @@ import { BoxType } from "../BVHNode.js";
 
 export function intersectsBoxMask(frustum: pc.Frustum, box: BoxType, mask: number) {
 
+    const planeData = frustum.planeData;
+
     for (let i = 0; i < 6; i++) {
 
         const bit = 0b100000 >> i;
 
         if ((mask & bit) === 0) continue;
 
-        const pp = frustum.planes[i];
-        const pn = pp.normal;
-
-        const px = pn.x;
-        const py = pn.y;
-        const pz = pn.z;
-        const planeConstant = pp.distance;
+        const pi = i * 4;
+        const px = planeData[pi];
+        const py = planeData[pi + 1];
+        const pz = planeData[pi + 2];
+        const planeConstant = planeData[pi + 3];
 
         const ix = px > 0 ? 1 : 0;
         const iy = py > 0 ? 3 : 2;
@@ -42,48 +42,60 @@ export function intersectsBoxMask(frustum: pc.Frustum, box: BoxType, mask: numbe
 
 export function isIntersected(frustum: pc.Frustum, box: BoxType, mask: number): boolean {
 
+    const planeData = frustum.planeData;
+
     for (let i = 0; i < 6; i++) {
+
         const bit = 0b100000 >> i;
+
         if ((mask & bit) === 0) continue;
 
-        const pp = frustum.planes[i];
-        const pn = pp.normal;
-
-        const px = pn.x;
-        const py = pn.y;
-        const pz = pn.z;
-        const planeConstant = pp.distance;
+        const pi = i * 4;
+        const px = planeData[pi];
+        const py = planeData[pi + 1];
+        const pz = planeData[pi + 2];
+        const planeConstant = planeData[pi + 3];
 
         const xMin = px > 0 ? box[1] : box[0];
         const yMin = py > 0 ? box[3] : box[2];
         const zMin = pz > 0 ? box[5] : box[4];
 
         const minDot = (px * xMin) + (py * yMin) + (pz * zMin);
-        if (minDot < -planeConstant) return false;
+        if (minDot < -planeConstant) {
+            return false;
+        }
     }
     return true;
 }
 
 export function isIntersectedMargin(frustum: pc.Frustum, box: BoxType, mask: number, margin: number): boolean {
-    if (mask === 0) return true;
+
+    if (mask === 0) {
+        return true;
+    }
+
+    const planeData = frustum.planeData;
+
     for (let i = 0; i < 6; i++) {
+
         const bit = 0b100000 >> i;
+
         if ((mask & bit) === 0) continue;
 
-        const pp = frustum.planes[i];
-        const pn = pp.normal;
-
-        const px = pn.x;
-        const py = pn.y;
-        const pz = pn.z;
-        const planeConstant = pp.distance;
+        const pi = i * 4;
+        const px = planeData[pi];
+        const py = planeData[pi + 1];
+        const pz = planeData[pi + 2];
+        const planeConstant = planeData[pi + 3];
 
         const xMin = px > 0 ? box[1] - margin : box[0] + margin;
         const yMin = py > 0 ? box[3] - margin : box[2] + margin;
         const zMin = pz > 0 ? box[5] - margin : box[4] + margin;
 
         const minDot = (px * xMin) + (py * yMin) + (pz * zMin);
-        if (minDot < -planeConstant) return false;
+        if (minDot < -planeConstant) {
+            return false;
+        }
     }
     return true;
 }
