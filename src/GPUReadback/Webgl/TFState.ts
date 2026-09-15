@@ -172,7 +172,7 @@ export class TFState {
      * Call only after `poll()` returns `"ready"`.
      * Returns the number of elements read.
      */
-    public read(dest: Float32Array | Uint32Array): number {
+    public read(dest: Float32Array | Uint32Array, dstOffset: number = 0): number {
         const count = this._copyCount;
         if (count <= 0 || !this._pbo || dest.length < count) {
             return 0;
@@ -180,7 +180,7 @@ export class TFState {
 
         const gl = this._device.gl;
         gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this._pbo);
-        gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, dest, 0, count);
+        gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, dest, dstOffset, count);
         gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
 
         this._unread = false;
