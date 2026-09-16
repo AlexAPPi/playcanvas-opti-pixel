@@ -3,7 +3,7 @@ import { ICoverageBuffer } from "../ICoverageBuffer.js";
 import computeCodeCS from "./WebgpuCoverageBuffer.comp.wgsl.js";
 import { getCameraDepthTexture, writeCameraParams } from "../../../Extras/CameraHelpers.js";
 import { CoverageGpuReadbackQueue } from "./CoverageGpuReadbackQueue.js";
-import { integerLog2 } from "../CoverageCpuBuffer.js";
+import { integerLog2 } from "../CoverageMath.js";
 
 const workgroupSize = 8;
 

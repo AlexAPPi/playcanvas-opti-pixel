@@ -8,7 +8,7 @@ import { executeTransformFeedbackShader } from "../../../Extras/TransformFeedbac
 import { CoverageTFStateQueue } from "./CoverageTFStateQueue.js";
 import { TFState } from "../../../GPUReadback/Webgl/TFState.js";
 import type { TFStateQueue } from "../../../GPUReadback/Webgl/TFStateQueue.js";
-import { integerLog2 } from "../CoverageCpuBuffer.js";
+import { integerLog2 } from "../CoverageMath.js";
 
 /**
  * WebGL2 coverage depth buffer.
