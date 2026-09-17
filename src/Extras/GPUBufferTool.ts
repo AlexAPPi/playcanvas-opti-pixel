@@ -35,7 +35,7 @@ export class GPUBufferTool {
         }
     }
 
-    public static updateOfTexture(texture: pc.Texture | null, data: Uint32Array<ArrayBuffer> | Uint16Array<ArrayBuffer> | Uint8Array<ArrayBuffer>, length: number, normalize: boolean = true): void {
+    public static updateOfTexture(texture: pc.Texture | null, data: Uint32Array<ArrayBuffer> | Uint16Array<ArrayBuffer> | Uint8Array<ArrayBuffer> | Float32Array<ArrayBuffer>, length: number, normalize: boolean = true): void {
 
         if (texture) {
 
@@ -67,14 +67,13 @@ export class GPUBufferTool {
                 const bytesPerRowUnaligned = width * formatInfo!.size!;
                 const bytesPerRow = Math.ceil(bytesPerRowUnaligned / 256) * 256; // bytesPerRow must be multiple of 256
 
-                let alignedData = data;
-                
-                if (normalize) {
+                let alignedData: Uint8Array<ArrayBuffer> | Uint16Array<ArrayBuffer> | Uint32Array<ArrayBuffer> | Float32Array<ArrayBuffer> = data;
+
+                if (normalize || bytesPerRow !== bytesPerRowUnaligned) {
 
                     const requiredBufferSize = bytesPerRow * height;
-                    const proxy = new Uint8Array(data.buffer);
-
-                    alignedData = new Uint8Array(requiredBufferSize);
+                    const proxy = new Uint8Array(data.buffer, data.byteOffset, data.byteLength);
+                    const padded = new Uint8Array(requiredBufferSize);
 
                     for (let row = 0; row < height; row++) {
 
@@ -82,11 +81,13 @@ export class GPUBufferTool {
                         const destStart = row * bytesPerRow;
 
                         for (let i = 0; i < bytesPerRowUnaligned; i++) {
-                            alignedData[destStart + i] = proxy[srcStart + i];
+                            padded[destStart + i] = proxy[srcStart + i];
                         }
                     }
+
+                    alignedData = padded;
                 }
-                
+
                 wgpu.queue.writeTexture(
                     { texture: wgpuTexture },
                     alignedData,
