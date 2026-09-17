@@ -6,6 +6,15 @@
 export type TOkForeachCallback = (index: number) => void | boolean;
 
 /**
+ * Callback used by bitset difference iteration.
+ *
+ * `value` is the bit the compared set holds at `index`.
+ *
+ * Return `false` to stop iteration early.
+ */
+export type TDifferenceForeachCallback = (index: number, value: boolean) => void | boolean;
+
+/**
  * Read-only bitset interface.
  *
  * Provides access to bit values, search helpers, and filtered iteration.
@@ -45,6 +54,20 @@ export interface IReadonlyBitSet {
      * @remarks Returning `false` from the callback stops iteration early.
      */
     forEachFilter(value: boolean, callback: TOkForeachCallback): void;
+
+    /**
+     * Iterates over the bits that differ between this set and `other`.
+     *
+     * Only the range both sets have in common is compared, so a longer
+     * set keeps its trailing bits to itself.
+     *
+     * @param other Bitset to compare against.
+     * @param callback Called for every differing index with the bit `other` holds there.
+     * @remarks Returning `false` from the callback stops iteration early.
+     * @remarks The callback may write the reported index back into this set,
+     * which makes it usable as an incremental "apply the difference" pass.
+     */
+    forEachDifference(other: IReadonlyBitSet, callback: TDifferenceForeachCallback): void;
 
     /**
      * Counts bits matching the requested value.
@@ -396,6 +419,73 @@ export class BitSet implements IReadonlyBitSet {
                 if (((word >>> bit) & 1) === want) {
                     if (callback(base + bit) === false) return;
                 }
+            }
+        }
+    }
+
+    /**
+     * Iterates over the bits that differ between this set and `other`.
+     *
+     * Only the range both sets have in common is compared, so a longer
+     * set keeps its trailing bits to itself.
+     *
+     * @param other Bitset to compare against.
+     * @param callback Called for every differing index with the bit `other` holds there.
+     * @remarks Returning `false` from the callback stops iteration early.
+     * @remarks The callback may write the reported index back into this set,
+     * which makes it usable as an incremental "apply the difference" pass.
+     */
+    public forEachDifference(other: IReadonlyBitSet, callback: TDifferenceForeachCallback): void {
+
+        const size = Math.min(this._size, other.size);
+
+        if (size === 0) {
+            return;
+        }
+
+        // Foreign implementations expose no words, so compare bit by bit.
+        if (!(other instanceof BitSet)) {
+
+            for (let idx = 0; idx < size; idx++) {
+                const value = other.get(idx);
+                if (value !== this.get(idx) && callback(idx, value) === false) return;
+            }
+
+            return;
+        }
+
+        if (this._clean && other._clean && this._cleanValue === other._cleanValue) {
+            return;
+        }
+
+        const thisArr = this._array;
+        const otherArr = other._array;
+        const numWords = (size + 31) >>> 5;
+        const lastWordIdx = numWords - 1;
+        const lastWordMask = tailMask(size - (lastWordIdx << 5));
+
+        for (let wordIdx = 0; wordIdx < numWords; wordIdx++) {
+
+            const otherWord = otherArr[wordIdx];
+
+            // Read up front: the callback is allowed to write this word back.
+            let diff = thisArr[wordIdx] ^ otherWord;
+
+            if (wordIdx === lastWordIdx) {
+                diff &= lastWordMask;
+            }
+
+            if (diff === 0) {
+                continue;
+            }
+
+            const base = wordIdx << 5;
+
+            while (diff !== 0) {
+                const lsb = diff & -diff;
+                const bit = lowestBitIndex(lsb);
+                if (callback(base + bit, (otherWord & lsb) !== 0) === false) return;
+                diff ^= lsb;
             }
         }
     }
