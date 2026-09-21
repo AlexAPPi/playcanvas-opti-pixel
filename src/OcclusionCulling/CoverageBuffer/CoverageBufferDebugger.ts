@@ -1,38 +1,32 @@
-import debugShaderGLSL from "../HZB/HierarchicalZBufferDebugger.glsl.js";
-import debugShaderWGSL from "../HZB/HierarchicalZBufferDebugger.wgsl.js";
+import debugShaderGLSL from "./CoverageBufferDebugger.glsl.js";
+import debugShaderWGSL from "./CoverageBufferDebugger.wgsl.js";
 import pc from "../../engine.js";
-import { GPUBufferTool } from "../../Extras/GPUBufferTool.js";
 import { OCCLUSION_OCCLUDED } from "../IOcclusionCullingTester.js";
-import { CoverageBufferTester } from "./CoverageBufferTester.js";
-import { CoverageCpuBuffer } from "./CoverageCpuBuffer.js";
 import { ICoverageBuffer } from "./ICoverageBuffer.js";
+import { CoverageBufferTesterWorker } from "./CoverageBufferTesterWorker.js";
+import { CoverageCpuBufferViewer } from "./CoverageCpuBufferViewer.js";
 
-/**
- * Overlay for coverage GPU 256∶128 downsample chain, CPU readback target,
- * and the reprojected test buffer used for AABB tests.
- *
- * Each chain texture has no mipmaps, so sampling always uses lod 0.
- * Uses the same decode / Y-flip as {@link HierarchicalZBufferDebugger}
- * (`drawTexture` scales Y by -height).
- */
 export class CoverageBufferDebugger {
 
     private _app: pc.AppBase;
-    private _tester: CoverageBufferTester | undefined;
+    private _wireRenderer: pc.WireRenderer;
+    private _tester: CoverageBufferTesterWorker | undefined;
     private _debugAABBTexture: pc.Texture;
-    private _debugTextureShaderDesc: any;
+    private _linearShaderDesc: any;
     private _frameMaterials: pc.ShaderMaterial[] = [];
     private _onFrameEnd: pc.EventHandle | null = null;
     private _packedUpload = createDebugFloatUpload();
     private _reprojectUpload = createDebugFloatUpload();
 
-    public set tester(v: CoverageBufferTester) {
+    public set tester(v: CoverageBufferTesterWorker) {
         this._tester = v;
         this._initDeps();
     }
 
-    public constructor(app: pc.AppBase, tester: CoverageBufferTester) {
+    public constructor(app: pc.AppBase, tester: CoverageBufferTesterWorker) {
         this._app = app;
+        this._wireRenderer = new pc.WireRenderer(app);
+        this._wireRenderer.depthTest = false;
         this._debugAABBTexture = new pc.Texture(this._app.graphicsDevice, {
             width: 1,
             height: 1,
@@ -60,133 +54,35 @@ export class CoverageBufferDebugger {
     }
 
     private _initDeps() {
-
-        const coverage = this._tester?.coverage;
-        if (!coverage) {
-            return;
-        }
-
-        const defines =
-            !coverage.isColor() ?   "#define READ_DEPTH" :
-             coverage.isFloat16() ? "#define DEPTH_IS_FLOAT16" :
-             coverage.isFloat32() ? "#define DEPTH_IS_FLOAT" :
-                                    "";
-
-        this._debugTextureShaderDesc = this._app.scene.immediate.getShaderDesc("COVERAGE_DEBUG_TEXTURE_SHADER",
-            `
-                ${defines}
-                ${debugShaderGLSL}
-            `,
-            `
-                ${defines}
-                ${debugShaderWGSL}
-            `
+        this._linearShaderDesc = this._app.scene.immediate.getShaderDesc("COVERAGE_DEBUG_R32F_SHADER",
+            debugShaderGLSL,
+            debugShaderWGSL
         );
     }
 
-    /**
-     * Right-side strip: GPU chain, packed CPU download, then the reprojected test buffer.
-     */
-    public debug(count: number = 0, maxElementHeight: number = 0.25, spacing: number = 0.02, x: number = 0.75, w: number = 0.25) {
+    public drawDepth(x: number = 0, y: number = 0, width: number = 2, height: number = 2) {
 
         const coverage = this._tester?.coverage;
-        if (!coverage) {
-            return;
-        }
-
-        const chain = Math.max(coverage.mipLevels | 0, 0);
-        const nChain = count > 0 ? Math.min(count, chain) : chain;
-        const showPacked = !!coverage.cpuReady;
-        const showReprojected = !!this._tester?.cpuBuffer.valid;
-        const n = nChain + (showPacked ? 1 : 0) + (showReprojected ? 1 : 0);
-
-        if (n <= 0) {
-            return;
-        }
-
-        const autoElementHeight = Math.max(0.01, Math.min(2 / n, maxElementHeight) - spacing);
-        const totalHeight = n * autoElementHeight + (n - 1) * spacing;
-        const baseY = totalHeight / 2 - autoElementHeight / 2;
-        const step = nChain <= 1 ? 0 : (chain - 1) / (nChain - 1);
-
-        let row = 0;
-        for (let i = 0; i < nChain; i++) {
-            const level = Math.floor(i * step);
-            const y = baseY - row * (autoElementHeight + spacing);
-            this.debugBuffer(level, x, y, w, autoElementHeight);
-            row++;
-        }
-
-        if (showPacked) {
-            this.debugPacked(x, baseY - row * (autoElementHeight + spacing), w, autoElementHeight);
-            row++;
-        }
-
-        if (showReprojected) {
-            this.debugReprojected(x, baseY - row * (autoElementHeight + spacing), w, autoElementHeight);
-        }
-    }
-
-    /**
-     * One GPU chain texture. Coverage has no POT padding.
-     */
-    public debugBuffer(i: number, x: number, y: number, width: number, height: number) {
-
-        const coverage = this._tester?.coverage;
-        const buffers = coverage?.buffers;
-        if (!coverage || !buffers || buffers.length === 0) {
-            return;
-        }
-
-        const index = Math.max(0, Math.min(i | 0, buffers.length - 1));
-        const buffer = buffers[index];
-        if (!this._isTextureDrawable(buffer)) {
-            return;
-        }
-
-        this._drawDepth(buffer, coverage.uvFactor, x, y, width, height);
-    }
-
-    /**
-     * Packed CPU download (view-space Z after GPU→CPU readback, not yet reprojected).
-     * UV 0..1 maps to the camera. Call after `tester.execute`.
-     */
-    public debugPacked(x: number = 0, y: number = 0, width: number = 2, height: number = 2) {
-
-        const buffer = this._uploadPacked(this._tester?.coverage);
+        const buffer = this._uploadPacked(coverage);
         if (!buffer) {
             return;
         }
 
-        this._drawDepth(buffer, [1, 1], x, y, width, height, true);
+        this._drawDepth(buffer, coverage?.cpuCameraParams[1] || 1, x, y, width, height);
     }
 
-    /**
-     * CPU coverage after reprojection into the current camera. Requires a tester.
-     * Remaining scatter holes after 3×3 far fill are white (view Z = far).
-     * Call after `tester.execute`.
-     */
-    public debugReprojected(x: number = 0, y: number = 0, width: number = 2, height: number = 2) {
+    public drawReprojectedDepth(x: number = 0, y: number = 0, width: number = 2, height: number = 2) {
 
-        const buffer = this._uploadReprojected(this._tester?.cpuBuffer);
+        const viewer = this._tester?.cpuViewer;
+        const buffer = this._uploadReprojected(viewer);
         if (!buffer) {
             return;
         }
 
-        this._drawDepth(buffer, [1, 1], x, y, width, height, true);
+        this._drawDepth(buffer, viewer?.farClip || 1, x, y, width, height);
     }
 
-    public debugMipLevel(level: number) {
-        this.debugBuffer(level, 0, 0, 2, 2);
-    }
-
-    /**
-     * Wire AABB and its screen rectangle. Requires a tester.
-     *
-     * @param packed - Overlay {@link debugPacked} unless `reprojected` is set
-     * @param reprojected - Overlay {@link debugReprojected} (wins over `packed`)
-     */
-    public debugItem(index: number, box: boolean = true, rect: boolean = true, packed: boolean = false, reprojected: boolean = false) {
+    public debugItem(index: number, box: boolean = true, rect: boolean = true) {
 
         if (!this._tester) {
             return;
@@ -197,20 +93,14 @@ export class CoverageBufferDebugger {
         const boundingBox = info.boundingBox;
         const occlusionStatus = this._tester.getOcclusionStatus(index);
 
-        if (reprojected) {
-            this.debugReprojected(0, 0, 2, 2);
-        }
-        else if (packed) {
-            this.debugPacked(0, 0, 2, 2);
-        }
-
         if (info.inFrustum) {
 
             _minPoint.copy(boundingBox.center).sub(boundingBox.halfExtents);
             _maxPoint.copy(boundingBox.center).add(boundingBox.halfExtents);
 
             if (box) {
-                this._app.drawWireAlignedBox(_minPoint, _maxPoint, occlusionStatus === OCCLUSION_OCCLUDED ? pc.Color.RED : pc.Color.GREEN, false);
+                this._wireRenderer.color.copy(occlusionStatus === OCCLUSION_OCCLUDED ? pc.Color.RED : pc.Color.GREEN);
+                this._wireRenderer.boxMinMax(_minPoint, _maxPoint);
             }
 
             if (rect) {
@@ -234,16 +124,16 @@ export class CoverageBufferDebugger {
         );
     }
 
-    private _uploadReprojected(cpuBuffer: CoverageCpuBuffer | undefined) {
+    private _uploadReprojected(viewer: CoverageCpuBufferViewer | undefined) {
 
-        if (!cpuBuffer?.valid) {
+        if (!viewer?.valid) {
             return null;
         }
 
         return this._uploadFloatDepth(
-            cpuBuffer.depth,
-            cpuBuffer.width,
-            cpuBuffer.height,
+            viewer.depth,
+            viewer.width,
+            viewer.height,
             this._reprojectUpload,
             "COVERAGE_DEBUG_REPROJECT_TX"
         );
@@ -258,23 +148,22 @@ export class CoverageBufferDebugger {
     ) {
 
         const n = w * h;
-        const nBytes = n << 2;
-
         if (src.length < n) {
             return null;
         }
 
         if (!cache.texture ||
             cache.texture.width !== w ||
-            cache.texture.height !== h) {
+            cache.texture.height !== h ||
+            cache.texture.format !== pc.PIXELFORMAT_R32F) {
             cache.texture?.destroy();
-            cache.rgba = new Uint8Array(n * 4) as Uint8Array<ArrayBuffer>;
             cache.texture = new pc.Texture(this._app.graphicsDevice, {
                 name,
                 width: w,
                 height: h,
                 mipmaps: false,
-                format: pc.PIXELFORMAT_RGBA8,
+                flipY: false,
+                format: pc.PIXELFORMAT_R32F,
                 minFilter: pc.FILTER_NEAREST,
                 magFilter: pc.FILTER_NEAREST,
                 addressU: pc.ADDRESS_CLAMP_TO_EDGE,
@@ -282,57 +171,32 @@ export class CoverageBufferDebugger {
             });
         }
 
-        if (!cache.srcBytes || cache.src !== src || cache.srcBytes.length !== nBytes) {
-            cache.src = src;
-            cache.srcBytes = new Uint8Array(src.buffer, src.byteOffset, nBytes);
-        }
+        const locked = cache.texture.lock();
+        new Float32Array(locked.buffer, locked.byteOffset, n).set(src.subarray(0, n));
+        cache.texture.unlock();
 
-        const srcBytes = cache.srcBytes;
-        const dst = cache.rgba!;
-        // Packed CPU is GL/NDC order (row 0 = bottom). WebGPU texture row 0 is top.
-        const flipY = this._app.graphicsDevice.isWebGPU;
-
-        for (let y = 0; y < h; y++) {
-            const srcY = flipY ? (h - 1 - y) : y;
-            const srcRow = srcY * w * 4;
-            const dstRow = y * w * 4;
-            for (let i = 0; i < w * 4; i += 4) {
-                dst[dstRow + i]     = srcBytes[srcRow + i + 3];
-                dst[dstRow + i + 1] = srcBytes[srcRow + i + 2];
-                dst[dstRow + i + 2] = srcBytes[srcRow + i + 1];
-                dst[dstRow + i + 3] = srcBytes[srcRow + i];
-            }
-        }
-
-        GPUBufferTool.updateOfTexture(cache.texture, dst, n, false);
         return cache.texture;
     }
 
-    private _isTextureDrawable(buffer: pc.Texture | null | undefined): buffer is pc.Texture {
-        return !!buffer && buffer.width > 0 && buffer.height > 0;
-    }
+    private _drawDepth(buffer: pc.Texture, far: number, x: number, y: number, width: number, height: number) {
 
-    private _drawDepth(buffer: pc.Texture, uvFactor: [number, number], x: number, y: number, width: number, height: number, linearViewZ: boolean = false) {
-
-        if (!this._debugTextureShaderDesc) {
+        if (!this._linearShaderDesc) {
             return;
         }
 
         const debugMaterial = new pc.ShaderMaterial();
         debugMaterial.cull = pc.CULLFACE_NONE;
-        debugMaterial.shaderDesc = this._debugTextureShaderDesc;
-        debugMaterial.setParameter("uHZBFactor", uvFactor);
+        debugMaterial.shaderDesc = this._linearShaderDesc;
         debugMaterial.setParameter("uDepthMip", buffer);
-        debugMaterial.setParameter("uDepthMipLevel", 0);
-        if (linearViewZ) {
-            const far = this._tester?.cpuBuffer.farClip || 1;
-            _debugCamParams[0] = far > 0 ? 1 / far : 1;
-            _debugCamParams[1] = 1;
-            _debugCamParams[2] = 0;
-            _debugCamParams[3] = 1;
-            debugMaterial.setParameter("camera_params", _debugCamParams);
-        }
+
+        _debugCamParams[0] = far > 0 ? 1 / far : 1;
+        _debugCamParams[1] = 1;
+        _debugCamParams[2] = 0;
+        _debugCamParams[3] = 1;
+
+        debugMaterial.setParameter("camera_params", _debugCamParams);
         debugMaterial.update();
+
         this._frameMaterials.push(debugMaterial);
         this._app.drawTexture(x, y, width, height, buffer, debugMaterial);
     }
@@ -351,19 +215,13 @@ const _debugCamParams = new Float32Array(4);
 
 interface IDebugFloatUpload {
     texture: pc.Texture | null;
-    rgba: Uint8Array<ArrayBuffer> | null;
-    src: Float32Array | null;
-    srcBytes: Uint8Array | null;
 }
 
 function createDebugFloatUpload(): IDebugFloatUpload {
-    return { texture: null, rgba: null, src: null, srcBytes: null };
+    return { texture: null };
 }
 
 function destroyDebugFloatUpload(cache: IDebugFloatUpload) {
     cache.texture?.destroy();
     cache.texture = null;
-    cache.rgba = null;
-    cache.src = null;
-    cache.srcBytes = null;
 }

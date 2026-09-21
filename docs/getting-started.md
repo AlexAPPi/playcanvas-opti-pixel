@@ -26,7 +26,7 @@ Almost every system in this library uses **stable integer IDs**:
 
 Instancers use the same idea with instance indices: `0 .. capacity-1`. Matrices live in a data texture, not on individual `MeshInstance` nodes.
 
-Occlusion testers share an [`AABBStore`](extras.md). `tester.lock(...)` is usually a pass-through to that store, so one store can feed several testers.
+HZB, queries, and software testers share an [`AABBStore`](extras.md). `tester.lock(...)` is usually a pass-through to that store, so one store can feed those testers. Coverage testers own their AABBs: `lock` / `unlock` / `enqueueAabbUpdate` on the tester.
 
 ## First instancer
 

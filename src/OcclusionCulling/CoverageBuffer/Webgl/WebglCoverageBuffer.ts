@@ -16,7 +16,8 @@ import { integerLog2 } from "../CoverageMath.js";
  * Downsamples camera depth with a 4-tap max chain that keeps the
  * 256∶128 aspect at every level. The last level is packed with transform
  * feedback (float view-space Z). GPU->CPU download lives in {@link CoverageTFStateQueue}
- * ({@link TFStateQueue} + PBO/FIFO shared with WebGL HZB).
+ * ({@link TFStateQueue} + PBO/fence shared with WebGL HZB; coverage harvest
+ * takes the newest ready slot, HZB stays FIFO).
  */
 export class WebglCoverageBuffer implements ICoverageBuffer {
 

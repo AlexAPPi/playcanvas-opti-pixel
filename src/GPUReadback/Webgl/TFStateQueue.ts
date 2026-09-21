@@ -7,7 +7,7 @@ export type TTFSlotFactory<TSlot extends TFState> = (
 ) => TSlot;
 
 /**
- * In-flight queue for WebGL2 TF readback without stalling on `clientWaitSync`.
+ * In-flight queue for WebGL2 TF readback without waiting on the fence.
  *
  * Used by coverage pack and HZB flag download.
  *

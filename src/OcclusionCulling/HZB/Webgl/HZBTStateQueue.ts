@@ -5,7 +5,8 @@ import { HZBTFState } from "./HZBTFState.js";
 import { OCCLUSION_OCCLUDED, OCCLUSION_UNKNOWN, OCCLUSION_VISIBLE, TOcclusionResult } from "../../IOcclusionCullingTester.js";
 
 /**
- * HZB GPU->CPU flag download on the same FIFO PBO queue as coverage.
+ * HZB GPU->CPU flag download on the same PBO/fence slots as coverage.
+ * Harvest stays FIFO: each slot is a different AABB queue and must not be skipped.
  *
  * A fill slot is reserved on {@link frameUpdate} (or the first {@link enqueue})
  * so AABB ids can be queued before {@link submitFill}. Harvest is FIFO, one

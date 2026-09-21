@@ -54,17 +54,21 @@ export class CoverageGpuReadbackState {
     }
 
     public abortRead(): void {
+
         this._aborted = true;
         this._failed = false;
+
         if (!this.pending) {
             this._ready = false;
             return;
         }
+
         if (this._ready) {
             this._ready = false;
             this.pending = false;
             return;
         }
+
         // In-flight StorageBuffer.read cannot be cancelled; ignore it when
         // the promise settles. Keep pending so acquire will not reuse the
         // output buffer until that copy has finished.
@@ -110,25 +114,20 @@ export class CoverageGpuReadbackState {
     }
 
     public poll(): TCoverageReadbackPoll {
-        if (this._failed) {
-            return "failed";
-        }
-        if (this._ready) {
-            return "ready";
-        }
-        if (!this.pending) {
-            return "failed";
-        }
+        if (this._failed) { return "failed"; }
+        if (this._ready) { return "ready"; }
+        if (!this.pending) { return "failed"; }
         return "pending";
     }
 
-    public read(dest: Float32Array): number {
+    public read(dest: Float32Array, dstOffset: number = 0): number {
         const count = this._pixelCount;
-        if (count <= 0 || !this._ready || dest.length < count) {
+        const offset = dstOffset | 0;
+        if (count <= 0 || !this._ready || offset < 0 || dest.length - offset < count) {
             return 0;
         }
 
-        dest.set(this._scratch);
+        dest.set(this._scratch, offset);
         this._ready = false;
         this.pending = false;
         return count;

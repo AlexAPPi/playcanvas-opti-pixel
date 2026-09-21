@@ -98,15 +98,13 @@ export class TFState {
 
         this._copyCount = count;
         this._deleteSync();
+        this._deletePbo();
+
         this.reserved = false;
 
         if (count <= 0) {
             this.pending = false;
             return;
-        }
-
-        if (this._unread) {
-            this._deletePbo();
         }
 
         this._ensurePbo();
@@ -126,6 +124,9 @@ export class TFState {
         gl.bindBuffer(gl.COPY_READ_BUFFER, null);
         gl.bindBuffer(gl.COPY_WRITE_BUFFER, null);
 
+        // Begin read run after render, no need to flush
+        // gl.flush();
+
         this._sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
 
         if (!this._sync) {
@@ -141,10 +142,13 @@ export class TFState {
     }
 
     /**
-     * Check the fence without waiting.
+     * Check the fence without waiting. Idempotent: `"ready"` does not consume
+     * the fence — `read()` / `abortRead()` delete it.
+     * Uses `getSyncParameter` rather than `clientWaitSync(0)`: on some
+     * ANGLE/Adreno drivers the latter still flushes.
      * `"pending"` — GPU has not reached it yet.
      * `"ready"` — safe to call `read()`.
-     * `"failed"` — the fence is gone or `WAIT_FAILED`.
+     * `"failed"` — the fence is gone or the status is not signaled.
      */
     public poll(): TTFReadbackPoll {
         if (!this._sync) {
@@ -152,19 +156,21 @@ export class TFState {
         }
 
         const gl = this._device.gl;
-        const res = gl.clientWaitSync(this._sync, 0, 0);
-
-        if (res === gl.TIMEOUT_EXPIRED) {
-            return "pending";
-        }
-
-        this._deleteSync();
-
-        if (res === gl.WAIT_FAILED) {
+        if (!gl) {
+            this._deleteSync();
             return "failed";
         }
 
-        return "ready";
+        const status = gl.getSyncParameter(this._sync, gl.SYNC_STATUS);
+        if (status === gl.UNSIGNALED) {
+            return "pending";
+        }
+        if (status === gl.SIGNALED) {
+            return "ready";
+        }
+
+        this._deleteSync();
+        return "failed";
     }
 
     /**
@@ -173,14 +179,22 @@ export class TFState {
      * Returns the number of elements read.
      */
     public read(dest: Float32Array | Uint32Array, dstOffset: number = 0): number {
-        const count = this._copyCount;
-        if (count <= 0 || !this._pbo || dest.length < count) {
+
+        const gl = this._device.gl;
+        if (!gl) {
             return 0;
         }
 
-        const gl = this._device.gl;
+        this._deleteSync();
+
+        const count = this._copyCount;
+        const offset = dstOffset | 0;
+        if (count <= 0 || !this._pbo || offset < 0 || dest.length - offset < count) {
+            return 0;
+        }
+
         gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this._pbo);
-        gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, dest, dstOffset, count);
+        gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, dest, offset, count);
         gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
 
         this._unread = false;
@@ -224,12 +238,13 @@ export class TFState {
             components: 1,
             type: isUint ? pc.TYPE_UINT32 : pc.TYPE_FLOAT32,
             normalize: false,
-            ...(isUint ? { asInt: true } : {})
+            asInt: isUint
         }]);
 
         this.outputBuffer = new pc.VertexBuffer(this._device, format, count, {
             usage: pc.BUFFER_GPUDYNAMIC
         });
+
         this.outputBuffer.unlock();
     }
 

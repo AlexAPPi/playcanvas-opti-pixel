@@ -31,7 +31,7 @@ WebGPU HZB implements `IGPUIndirectDrawOcclusionCullingTester`: `enqueue` takes 
 
 ## Shared store
 
-Construct testers with the same `AABBStore` if they should see the same occludees:
+HZB, queries, and software testers share an `AABBStore` if they should see the same occludees:
 
 ```ts
 const aabbs = new AABBStore(device, 8192);
@@ -39,7 +39,9 @@ const software = new SoftwareOcclusionTester(aabbs);
 const system = new OcclusionCullingSystem(app, aabbs);
 ```
 
-`lock` on a tester writes into that store. Do not `lock` the same object twice on two testers unless you want two IDs.
+`lock` on those testers writes into that store. Do not `lock` the same object twice on two testers unless you want two IDs.
+
+Coverage testers own a CPU AABB pool. Construct them with only the coverage buffer (`new CoverageBufferTesterWorker(coverage)`); `lock` / `unlock` / `enqueueAabbUpdate` go on the tester, not on a public `AABBStore`.
 
 ## `OcclusionCullingSystem`
 
@@ -50,8 +52,8 @@ Helper that, given `app` + `AABBStore`:
 - Creates `WebglOcclusionQueriesTester` on WebGL2 only
 - Optionally auto-updates HZB on `frameend` and queries on a named layer (`autoUpdate`, `camera`, `queriesLayerName`)
 
-Software occlusion and the [coverage buffer](coverage.md) are **not** created by this system. Instantiate `SoftwareOcclusionTester` or `WebglCoverageBuffer` / `WebgpuCoverageBuffer` + `CoverageBufferTester` yourself.
+Software occlusion and the [coverage buffer](coverage.md) are **not** created by this system. Instantiate `SoftwareOcclusionTester` or `WebglCoverageBuffer` / `WebgpuCoverageBuffer` + `CoverageBufferTesterWorker` yourself.
 
-Debuggers: `system.drawHZB` uses `HierarchicalZBufferDebugger`. Query AABBs: `system.queriesDebugger?.debugItem(id)` (`QueriesDebugger` is not exported from the package). Coverage: construct `CoverageBufferDebugger` yourself (package export; bind the tester so `debug()` includes the reprojected CPU buffer). See [coverage buffer](coverage.md#debug-overlay).
+Debuggers: `system.drawHZB` uses `HierarchicalZBufferDebugger`. Query AABBs: `system.queriesDebugger?.debugItem(id)` (`QueriesDebugger` is not exported from the package). Coverage: construct `CoverageBufferDebugger` yourself (package export). `drawDepth` / `drawReprojectedDepth` overlay the packed and reprojected maps; `debugItem(id)` draws the AABB and screen rect. See [coverage buffer](coverage.md#debug-overlay).
 
 Pick a backend in [Choosing a backend](choosing-backend.md).

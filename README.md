@@ -19,7 +19,7 @@ Full table of contents: [docs/README.md](docs/README.md).
 npm install playcanvas-opti-pixel playcanvas
 ```
 
-Requires **PlayCanvas 2.x** (developed against `playcanvas@^2.19`). WebGL2 and WebGPU are both supported; not every occlusion backend is available on both.
+Requires **PlayCanvas 2.x** (developed against `playcanvas@^2.22`). WebGL2 and WebGPU are both supported; not every occlusion backend is available on both.
 
 ```ts
 import {
@@ -77,7 +77,7 @@ app.on("update", () => {
 Exports live in `src/index.ts`.
 
 - **Instancer** — `BasicHierarchicalInstancer`, `SimpleHierarchicalInstancer`, `HierarchicalInstancer`, `BasicArrayHierarchicalInstancer`, LOD fade helpers
-- **Occlusion** — `OcclusionCullingSystem`, HZB (WebGL / WebGPU), coverage buffer (WebGL / WebGPU), occlusion queries (WebGL), `SoftwareOcclusionTester` + `OccluderStore`
+- **Occlusion** — `OcclusionCullingSystem`, HZB (WebGL / WebGPU), coverage buffer (WebGL / WebGPU + `CoverageBufferTesterWorker`), occlusion queries (WebGL), `SoftwareOcclusionTester` + `OccluderStore`
 - **BVH** — `BVH`, `HybridBuilder`
 - **Extras** — `AABBStore`, square / mat4 / color data textures, index and GPU queues
 

@@ -14,7 +14,7 @@ store.update(); // upload GPU textures if they were created
 store.unlock(id);
 ```
 
-Textures (`centersTexture`, `halfExtentsTexture`) are created on first access. Software occlusion can stay CPU-only if you never touch those getters.
+Textures (`centersTexture`, `halfExtentsTexture`) are created on first access. Software occlusion can stay CPU-only if you never touch those getters. Coverage testers do not use this store.
 
 `version` increments on lock/update/resize so consumers can skip copies.
 

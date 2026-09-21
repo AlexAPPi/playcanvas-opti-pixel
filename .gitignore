@@ -1,6 +1,7 @@
 node_modules
 dist
 docs/api
+*.wasm
 
 pcconfig.json
 pcconfig.*.json

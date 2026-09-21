@@ -2,8 +2,8 @@ import pc from "../../engine.js";
 import { IHierarchicalZBuffer } from "../HZB/IHierarchicalZBuffer.js";
 
 /**
- * GPU coverage downsample + packed CPU **view-space Z** (metres). Shared by WebGL (TF/PBO) and
- * WebGPU (compute / mapAsync) so {@link CoverageBufferTester} can sit on either.
+ * GPU coverage downsample + packed CPU **view-space Z** (metres).
+ * Shared by WebGL (TF/PBO) and WebGPU (compute / mapAsync) so a coverage worker tester can sit on either.
  */
 export interface ICoverageBuffer extends IHierarchicalZBuffer {
     readonly device: pc.GraphicsDevice;
