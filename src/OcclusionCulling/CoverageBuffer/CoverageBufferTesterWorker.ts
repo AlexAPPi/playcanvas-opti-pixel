@@ -137,7 +137,13 @@ export class CoverageBufferTesterWorker implements IGPU2CPUReadbackOcclusionCull
 
     public updateGPUDepthBuffer(camera: pc.Camera): void {
         if (this._coverage.enabled && !this._coverage.resizePending) {
-            this._coverage.update(camera);
+            this._coverage.captureDepthGrab(camera);
+        }
+    }
+
+    public updateGPUSceneDepth(camera: pc.Camera): void {
+        if (this._coverage.enabled && !this._coverage.resizePending) {
+            this._coverage.captureSceneDepthMap(camera);
         }
     }
 

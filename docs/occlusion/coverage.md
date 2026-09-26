@@ -4,7 +4,7 @@ Coverage downsamples the camera depth grab to a packed **view-space Z** map (met
 
 `OcclusionCullingSystem` does **not** create this path. Instantiate a buffer plus `CoverageBufferTesterWorker` yourself.
 
-GPU chain levels stay in device Z. The pack pass linearizes. The worker reprojects the last finished capture into the current camera, then tests queued AABBs against that map.
+With a depth grab, GPU chain levels stay in device Z and the pack pass linearizes. With CameraFrame, the first pass decodes scene depth to view-space metres and the pack pass leaves those values alone. The worker reprojects the last finished capture into the current camera, then tests queued AABBs against that map.
 
 ## Setup
 
@@ -46,6 +46,19 @@ app.on("postrender", () => {
 });
 ```
 
+`CameraFrame` does not create a depth grab. Enable its scene depth and capture that instead. `requestSceneDepthMap` is ignored while `framePasses` is set.
+
+```ts
+cameraFrame.rendering.sceneDepthMap = true;
+cameraFrame.update();
+
+app.on("postrender", () => {
+    tester.updateGPUSceneDepth(camera.camera);
+});
+```
+
+`rendering.sceneDepthMap` forces the linear prepass. TAA, DoF, volumetric fog, or SSAO combine can publish scene depth on their own (sometimes as `1 / viewZ`). `updateGPUSceneDepth` decodes either encoding to view-space metres. Call it from `postrender` — in `update` the map is still the previous frame while the stored view-projection is this frame's.
+
 `lock` / `unlock` / `enqueueAabbUpdate` live on the tester. Coverage owns a CPU AABB pool (`CoverageAABBStore`); it does not use the shared [`AABBStore`](../extras.md).
 
 Call `tester.destroy()` and `coverage.destroy()` when done. `tester.resize(newCapacity)` grows the AABB pool. Canvas / depth-grab size changes: `coverage.resizeWithDelay()` (or `resize()`).
@@ -56,9 +69,10 @@ The three calls are not interchangeable.
 
 | Call | When | What it does |
 | --- | --- | --- |
-| `tester.frameUpdate(dt)` | Every frame, typically on `frameupdate`, **before** `enqueue` / `execute` | Harvest the newest finished GPU download into `coverage.cpuDepth` |
+| `tester.frameUpdate(dt)` | Every frame, typically on `frameupdate`, **before** `enqueue` / `execute` | Copy the newest ready download into `coverage.cpuDepth` and drop the older ones |
 | `tester.enqueue` then `execute(camera)` | `update`, after harvest | Copy the last capture (if `cpuVersion` changed), transfer a job bus to the worker, clear the queue |
-| `tester.updateGPUDepthBuffer(camera)` | After opaque depth (`postrender`) | Max-downsample the depth grab and pack view-space Z. Starts a new async readback. |
+| `tester.updateGPUDepthBuffer(camera)` | After opaque depth (`postrender`) | Max-downsample the depth grab and pack view-space Z, then start an async readback on a free slot. Skipped when every slot is busy, or on a WebGL tick that `readbackPeriod` skips. |
+| `tester.updateGPUSceneDepth(camera)` | `postrender`, with CameraFrame | Same chain, from `camera.sceneDepthMap` instead of the depth grab. Same skip when every slot is busy. |
 
 ```mermaid
 sequenceDiagram
@@ -68,7 +82,7 @@ sequenceDiagram
     participant Worker
 
     App->>Tester: frameUpdate(dt)
-    Tester->>Buffer: harvest newest ready slot
+    Tester->>Buffer: harvest the finished download
     App->>Tester: enqueue(id)
     App->>Tester: execute(camera)
     alt cpuReady, worker idle, bus on main
@@ -80,8 +94,12 @@ sequenceDiagram
     else not cpuReady / resizePending / disabled
         Note over Tester: flags UNKNOWN, queue cleared
     end
-    App->>Tester: updateGPUDepthBuffer(camera)
-    Tester->>Buffer: downsample plus pack plus beginRead
+    App->>Tester: updateGPUDepthBuffer or updateGPUSceneDepth
+    alt a readback slot is free
+        Tester->>Buffer: downsample plus pack plus beginRead
+    else every slot busy, or WebGL skipped this tick
+        Note over Buffer: skip downsample and readback
+    end
 ```
 
 - Results belong to a **previous** completed job. The first frames return `OCCLUSION_UNKNOWN`.
@@ -92,7 +110,7 @@ sequenceDiagram
 - If the buffer is disabled, not `cpuReady`, or `resizePending`, `execute` fills `UNKNOWN` and **clears** the queue.
 - `OcclusionCullingSystem` does not call coverage `frameUpdate`. You must.
 
-`update` without a depth grab is a no-op (no `renderPassDepthGrab` texture). Enable `requestSceneDepthMap(true)` before the first pack.
+`captureDepthGrab` without a depth grab is a no-op (no `renderPassDepthGrab` texture). Enable `requestSceneDepthMap(true)` before the first pack. `captureSceneDepthMap` is a no-op until `camera.sceneDepthMap` has been published.
 
 ## GPU downsample and pack
 
@@ -100,14 +118,18 @@ Both devices keep a 256∶128 aspect at every level (`stages = min(maxDownsample
 
 | Device | Downsample | Pack | Download |
 | --- | --- | --- | --- |
-| WebGL2 (`WebglCoverageBuffer`) | Fullscreen quads | Transform feedback | `copyBufferSubData` into a STREAM_READ PBO, `fenceSync` |
-| WebGPU (`WebgpuCoverageBuffer`) | Compute | Compute into a storage buffer | `StorageBuffer.read` (throwaway MAP_READ staging) |
+| WebGL2 (`WebglCoverageBuffer`) | Fullscreen quads | Transform feedback | Ring of `readbackSlots` `STREAM_READ` PBOs (default 5). `copyBufferSubData` + `fenceSync`. One `getBufferSubData` per `frameUpdate` |
+| WebGPU (`WebgpuCoverageBuffer`) | Compute | Compute into one storage buffer | Ring of `readbackSlots` persistent `MAP_READ` staging buffers (default 5). `copyBufferToBuffer`, then `mapAsync` after that frame submits |
 
-Coverage harvests the **newest** ready capture and drops older ready slots. That is different from WebGL HZB, which stays FIFO because each HZB slot is a different AABB queue.
+Up to `readbackSlots` packed downloads stay in flight. A new downsample starts whenever a slot is free, so call capture from every `postrender`. A frame with no free slot does no GPU work.
 
-Do not harvest from `update` / `postrender`. `frameUpdate` is the poll.
+`frameUpdate` publishes the **newest** eligible slot and retires the older ones unread. Coverage is not FIFO (HZB is): every capture replaces the whole depth map, so an older one is only staler. Draining FIFO would pin the latency at `readbackSlots` — once the ring filled, each tick would free exactly one slot and the next capture would refill it, so the oldest would never get younger.
 
-On canvas resize the depth grab size changes; `update` calls `resize` when the grab texture size does not match `screenWidth` / `screenHeight`. `resizePending` (from `resizeWithDelay`) makes `updateGPUDepthBuffer` skip the chain until the timeout fires.
+Do not harvest from `captureDepthGrab` / `captureSceneDepthMap` / `postrender`. `frameUpdate` is the poll.
+
+On canvas resize the depth grab size changes; `captureDepthGrab` calls `resize` when the grab texture size does not match `screenWidth` / `screenHeight`. `resizePending` (from `resizeWithDelay`) makes `updateGPUDepthBuffer` skip the chain until the timeout fires.
+
+That rebuilds the downsample chain only. The readback ring and `cpuDepth` follow `maxWidth` / `maxHeight`, which a screen resize does not change, so the in-flight captures and the last published one survive — coverage keeps culling while the window is being dragged. Changing `maxWidth` / `maxHeight` does rebuild the ring and clears `cpuReady` until the next capture lands.
 
 ## Readback knobs
 
@@ -115,22 +137,22 @@ Shared by both buffers (defaults match WebGL HZB):
 
 | Property | Default | Meaning |
 | --- | --- | --- |
-| `readbackSlots` | `4` | In-flight pack/download slots. WebGL clamps to at least **2**. |
-| `minReadbackLag` | `2` | `frameUpdate` ticks to wait before polling a slot |
+| `readbackSlots` | `5` | In-flight download slots, clamped to at least `2`. Extra slots absorb a GPU hitch without skipping captures; they do not add latency, since harvest takes the newest. Changing it drops downloads that have not landed. `cpuDepth` from the last finished slot stays. |
+| `minReadbackLag` | `2` | `frameUpdate` ticks to wait before copying a finished slot into `cpuDepth`. Other slots can still capture during the wait. |
 
 WebGL only:
 
 | Property | Default | Meaning |
 | --- | --- | --- |
-| `readbackPeriod` | `1` | Submit a packed capture every N `updateGPUDepthBuffer` attempts. Harvest still polls every `frameUpdate`. The downsample chain is skipped on ticks that will not capture. On Android Chrome, `getBufferSubData` is an ordered GPU-process wait — set this to `3` (or higher) there. |
+| `readbackPeriod` | `1` | While a slot is free, submit a packed capture every N `updateGPUDepthBuffer` attempts. A busy ring does not advance the counter. Harvest still polls every `frameUpdate`. On Android Chrome, `getBufferSubData` is an ordered GPU-process wait — set this to `3` (or higher) there. |
 
-WebGL constructor: `new WebglCoverageBuffer(device, maxWidth?, maxHeight?, slotCount?, minReadbackLag?)`.
+WebGL constructor: `new WebglCoverageBuffer(device, maxWidth?, maxHeight?, minReadbackLag?)`.
 
-WebGPU constructor: `new WebgpuCoverageBuffer(device, maxWidth?, maxHeight?)`. Slot count and lag are still settable after construct. WebGPU has no `readbackPeriod`; `acquire` refuses a second submit in the same `frameUpdate` tick.
+WebGPU constructor: `new WebgpuCoverageBuffer(device, maxWidth?, maxHeight?)`. Lag and `readbackSlots` are still settable after construct. WebGPU has no `readbackPeriod`. Both skip the downsample when every slot is busy.
 
-Do not call `gl.flush()` after the PBO fence. Leave pending copies alone — aborting them would rewrite a STREAM_READ buffer (WebGL) or a storage buffer (WebGPU) while a copy may still be in flight.
+Do not call `gl.flush()` or `clientWaitSync` after the PBO fence. Leave a slot's PBO or staging buffer alone until that slot has been read.
 
-Typical latency is **~2+ frames**: pack, lag, harvest, then a worker job.
+Typical readback latency is `minReadbackLag` frames (**2**) plus however long the fence or the map takes, then a worker job.
 
 ## Worker job
 
@@ -167,7 +189,7 @@ Moving occludees: `tester.enqueueAabbUpdate(id, aabb, matrix?)`. Prefer that ove
 
 The 256×128 max-downsample is coarse. Thin occluders, foliage, and objects smaller than a texel tend to stay visible. Objects that write depth **after** `updateGPUDepthBuffer` do not occlude this capture. Near-plane / first-person geometry in the grab can self-occlude; exclude it from the grab or from the test set.
 
-Reprojection is always one capture behind the camera. Fast camera motion leaves holes; those fill to far (conservative: less occlusion).
+Reprojection uses the last harvested capture, a few frames behind the camera. Fast camera motion leaves holes; those fill to far (conservative: less occlusion).
 
 ## Debug overlay
 
@@ -199,9 +221,9 @@ Call `debug.destroy()` with the tester.
 ## Limitations
 
 - Coarser than GPU HZB; not a shadow map or triangle-perfect visibility
-- Always delayed: GPU readback lag plus one worker job
+- Always delayed: about 2–5 frames of GPU readback, then one worker job
 - One in-flight worker job; a slow test stalls new submits (queue is retained)
 - Perspective cameras only for reprojection; ortho fills the map at far
-- You must drive `frameUpdate` and `updateGPUDepthBuffer` yourself
+- You must drive `frameUpdate` and `updateGPUDepthBuffer` (or `updateGPUSceneDepth` with CameraFrame) yourself
 
 For same-frame GPU indirect draws, use [WebGPU HZB](hzb.md). For explicit CPU occluders and no GPU readback, use [software occlusion](software.md).

@@ -1,8 +1,9 @@
 import pc from "../../../engine.js";
 import { ICoverageBuffer } from "../ICoverageBuffer.js";
 import computeCodeCS from "./WebgpuCoverageBuffer.comp.wgsl.js";
-import { getCameraDepthTexture, writeCameraParams } from "../../../Extras/CameraHelpers.js";
-import { CoverageGpuReadbackQueue } from "./CoverageGpuReadbackQueue.js";
+import { CAMERA_DEPTH_DEVICE, applyCameraDepthDefines, getCameraDepthTexture, getCameraSceneDepthMode, writeCameraParams } from "../../../Extras/CameraHelpers.js";
+import { CoverageGpuReadback } from "./CoverageGpuReadback.js";
+import { CoverageGpuReadbackState } from "./CoverageGpuReadbackState.js";
 import { integerLog2 } from "../CoverageMath.js";
 
 const workgroupSize = 8;
@@ -12,7 +13,9 @@ const workgroupSize = 8;
  *
  * Downsamples camera depth with a 4-tap max chain that keeps the
  * 256∶128 aspect at every level. The last level is packed with a compute
- * shader (float view-space Z). GPU→CPU download lives in {@link CoverageGpuReadbackQueue}.
+ * shader (float view-space Z). GPU→CPU download is a ring of
+ * {@link readbackSlots} staging reads ({@link CoverageGpuReadback}).
+ * The next chain starts when a slot is free.
  */
 export class WebgpuCoverageBuffer implements ICoverageBuffer {
 
@@ -23,12 +26,11 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
     private _device: pc.WebgpuGraphicsDevice;
     private _buffers: pc.Texture[];
     private _bufferViews: pc.TextureView[];
-    private _readback: CoverageGpuReadbackQueue;
+    private _readback: CoverageGpuReadback;
 
-    private _downsampleFromScreen: pc.Compute | null;
-    private _downsampleFromColor: pc.Compute | null;
-    private _packFromScreen: pc.Compute | null;
-    private _packFromColor: pc.Compute | null;
+    private _computes = new Map<string, pc.Compute>();
+    private _depthMode = CAMERA_DEPTH_DEVICE;
+    private _sourceSampleType: number = pc.SAMPLETYPE_UNFILTERABLE_FLOAT;
     private _shaders: pc.Shader[] = [];
 
     private _screenWidth: number;
@@ -105,15 +107,17 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
         this.resize();
     }
 
-    public get readbackSlots() { return this._readback.slotCount; }
-    public set readbackSlots(value: number) {
-        this._readback.slotCount = value;
-    }
-
     public get minReadbackLag() { return this._readback.minReadbackLag; }
     public set minReadbackLag(value: number) {
         this._readback.minReadbackLag = value;
     }
+
+    /**
+     * In-flight staging slots. Default `5`, clamped to at least `2`.
+     * Changing it drops downloads that have not landed yet.
+     */
+    public get readbackSlots() { return this._readback.slotCount; }
+    public set readbackSlots(value: number) { this._readback.slotCount = value; }
 
     /**
      * @param device - WebGPU device
@@ -130,21 +134,9 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
         this._maxHeight = Math.max(1, maxHeight | 0);
         this._onDestroy = device.on("destroy", this.destroy, this);
         this._maxDownsampleStages = 4;
-        this._readback = new CoverageGpuReadbackQueue(device, this._maxWidth * this._maxHeight, 4);
+        this._readback = new CoverageGpuReadback(device, this._maxWidth * this._maxHeight);
         this._readback.minReadbackLag = 2;
         this.resize(this.device.width, this.device.height, this._maxWidth, this._maxHeight);
-    }
-
-    public isFloat16() {
-        return false;
-    }
-
-    public isFloat32() {
-        return false;
-    }
-
-    public isColor() {
-        return true;
     }
 
     public resizeWithDelay(delay: number = 300) {
@@ -186,16 +178,22 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
         this._readback.frameUpdate(dt);
     }
 
-    public update(camera: pc.Camera) {
+    public captureDepthGrab(camera: pc.Camera) {
+        this._capture(camera, getCameraDepthTexture(camera), CAMERA_DEPTH_DEVICE);
+    }
 
-        if (!this.enabled) {
+    public captureSceneDepthMap(camera: pc.Camera) {
+        this._capture(camera, camera.sceneDepthMap, getCameraSceneDepthMode(camera));
+    }
+
+    private _capture(camera: pc.Camera, mainDepthTexture: pc.Texture | null, depthMode: number) {
+
+        if (!this.enabled || !mainDepthTexture) {
             return;
         }
 
-        const mainDepthTexture = getCameraDepthTexture(camera);
-        if (!mainDepthTexture) {
-            return;
-        }
+        this._depthMode = depthMode;
+        this._sourceSampleType = sourceSampleType(mainDepthTexture);
 
         if (mainDepthTexture.width !== this.screenWidth ||
             mainDepthTexture.height !== this.screenHeight) {
@@ -204,6 +202,16 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
 
         this._viewProjection.mul2(camera.projectionMatrix, camera.viewMatrix);
         writeCameraParams(_cameraParamsArr, camera);
+
+        // Downsample only when a staging slot is free. `acquire()` is null
+        // while every slot is in flight or this frame already submitted.
+        let slot: CoverageGpuReadbackState | null = null;
+        if (this._cpuReadback) {
+            slot = this._readback.acquire();
+            if (!slot) {
+                return;
+            }
+        }
 
         const passCount = this._passWidths.length;
         const quadCount = Math.max(0, passCount - 1);
@@ -242,8 +250,8 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
             }
         }
 
-        if (this._cpuReadback) {
-            this._pack(srcBuffer, srcWidth, srcHeight, readScreenDepth);
+        if (slot) {
+            this._pack(slot, srcBuffer, srcWidth, srcHeight, readScreenDepth);
         }
     }
 
@@ -277,58 +285,10 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
     protected _coverageDefines() {
 
         const defines = new Map<string, string>();
-        let workaroundFloat = false;
-
-        if (!this.isColor()) {
-            defines.set("READ_DEPTH", "");
-        }
-        else if (this.isFloat16()) {
-            defines.set("DEPTH_IS_FLOAT16", "");
-        }
-        else if (this.isFloat32()) {
-            defines.set("DEPTH_IS_FLOAT", "");
-        }
-        else {
-            workaroundFloat = true;
-        }
-
         if (this.device.textureFloatRenderable) {
             defines.set("SCENE_DEPTHMAP_FLOAT", "");
         }
-        else {
-            workaroundFloat = true;
-        }
-
-        if (workaroundFloat) {
-            defines.set("WORKAROUND_FLOAT", "");
-        }
-
-        defines.set("{DST_DEPTH_FORMAT}", this._dstStorageFormat());
-
         return defines;
-    }
-
-    private _dstStorageFormat() {
-        if (this.isFloat16()) {
-            return "r16float";
-        }
-        if (this.isFloat32()) {
-            return "r32float";
-        }
-        return "rgba8unorm";
-    }
-
-    private _textureFormat() {
-        if (!this.isColor()) {
-            return pc.PIXELFORMAT_DEPTH;
-        }
-        if (this.isFloat16()) {
-            return pc.PIXELFORMAT_R16F;
-        }
-        if (this.isFloat32()) {
-            return pc.PIXELFORMAT_R32F;
-        }
-        return pc.PIXELFORMAT_RGBA8;
     }
 
     private _uniformBufferFormat() {
@@ -345,16 +305,13 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
         };
     }
 
-    private _createCompute(pack: boolean, fromScreen: boolean) {
+    private _createCompute(pack: boolean, fromScreen: boolean, sampleType: number, depthMode: number) {
 
         const defines = this._coverageDefines();
         if (pack) {
             defines.set("PACK_TO_BUFFER", "");
         }
-
-        const sampleType = fromScreen
-            ? pc.SAMPLETYPE_UNFILTERABLE_FLOAT
-            : pc.SAMPLETYPE_FLOAT;
+        applyCameraDepthDefines(defines, depthMode);
 
         const formats: Array<
             pc.BindUniformBufferFormat | pc.BindTextureFormat | pc.BindStorageTextureFormat | pc.BindStorageBufferFormat
@@ -376,7 +333,7 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
         else {
             formats.push(new pc.BindStorageTextureFormat(
                 "dstDepth",
-                this._textureFormat(),
+                pc.PIXELFORMAT_RGBA8,
                 pc.TEXTUREDIMENSION_2D,
                 true,
                 false
@@ -384,9 +341,9 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
         }
 
         const shader = new pc.Shader(this._device, {
-            name: pack
-                ? (fromScreen ? "CoveragePackFromScreen" : "CoveragePackFromColor")
-                : (fromScreen ? "CoverageDownsampleFromScreen" : "CoverageDownsampleFromColor"),
+            name: (pack ? "CoveragePack" : "CoverageDownsample")
+                + (fromScreen ? "FromScreen" : "FromColor")
+                + "_" + sampleType + "_" + depthMode,
             shaderLanguage: pc.SHADERLANGUAGE_WGSL,
             cshader: computeCodeCS,
             cdefines: defines,
@@ -404,12 +361,21 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
         );
     }
 
-    protected _initCompute() {
+    private _cachedCompute(pack: boolean, fromScreen: boolean, sampleType: number, depthMode: number) {
+        const key = `${pack ? 1 : 0}|${fromScreen ? 1 : 0}|${sampleType}|${depthMode}`;
+        let compute = this._computes.get(key);
+        if (!compute) {
+            compute = this._createCompute(pack, fromScreen, sampleType, depthMode);
+            this._computes.set(key, compute);
+        }
+        return compute;
+    }
 
-        this._downsampleFromScreen = this._createCompute(false, true);
-        this._downsampleFromColor = this._createCompute(false, false);
-        this._packFromScreen = this._createCompute(true, true);
-        this._packFromColor = this._createCompute(true, false);
+    protected _initCompute() {
+        this._cachedCompute(false, true, pc.SAMPLETYPE_UNFILTERABLE_FLOAT, CAMERA_DEPTH_DEVICE);
+        this._cachedCompute(false, false, pc.SAMPLETYPE_FLOAT, CAMERA_DEPTH_DEVICE);
+        this._cachedCompute(true, true, pc.SAMPLETYPE_UNFILTERABLE_FLOAT, CAMERA_DEPTH_DEVICE);
+        this._cachedCompute(true, false, pc.SAMPLETYPE_FLOAT, CAMERA_DEPTH_DEVICE);
     }
 
     protected _initRenders() {
@@ -420,15 +386,13 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
         this._bufferViews = new Array(quadCount);
         this._mipLevels = quadCount;
 
-        const format = this._textureFormat();
-
         for (let i = 0; i < quadCount; i++) {
 
             const buffer = new pc.Texture(this._device, {
                 name: "COVERAGE_DS_TX_" + i,
                 width: this._passWidths[i],
                 height: this._passHeights[i],
-                format: format,
+                format: pc.PIXELFORMAT_RGBA8,
                 mipmaps: false,
                 minFilter: pc.FILTER_NEAREST,
                 magFilter: pc.FILTER_NEAREST,
@@ -475,6 +439,14 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
         );
     }
 
+    private _computeFor(pack: boolean, readScreenDepth: number) {
+        const fromScreen = readScreenDepth !== 0;
+        // Mip downsample only maxes values already stored by the first pass.
+        const depthMode = fromScreen || pack ? this._depthMode : CAMERA_DEPTH_DEVICE;
+        const sampleType = fromScreen ? this._sourceSampleType : pc.SAMPLETYPE_FLOAT;
+        return this._cachedCompute(pack, fromScreen, sampleType, depthMode);
+    }
+
     private _dispatchDownsample(
         srcBuffer: pc.Texture | pc.TextureView,
         srcWidth: number,
@@ -485,7 +457,7 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
         dstView: pc.TextureView
     ) {
 
-        const compute = readScreenDepth ? this._downsampleFromScreen : this._downsampleFromColor;
+        const compute = this._computeFor(false, readScreenDepth);
         if (!compute) {
             return;
         }
@@ -499,21 +471,17 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
     }
 
     protected _pack(
+        slot: CoverageGpuReadbackState,
         srcBuffer: pc.Texture | pc.TextureView,
         srcWidth: number,
         srcHeight: number,
         readScreenDepth: number
     ) {
 
-        const slot = this._readback.acquire();
-        const compute = readScreenDepth ? this._packFromScreen : this._packFromColor;
-        if (!slot || !compute) {
-            return;
-        }
-
-        slot.beforeFill();
-        const outputBuffer = slot.outputBuffer;
-        if (!outputBuffer) {
+        const compute = this._computeFor(true, readScreenDepth);
+        const output = this._readback.outputBuffer;
+        if (!compute || !output) {
+            this._readback.release(slot);
             return;
         }
 
@@ -521,7 +489,7 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
         const destH = this._maxHeight;
 
         this._setPassParams(compute, srcBuffer, srcWidth, srcHeight, destW, destH, readScreenDepth);
-        compute.setParameter("outDepth", outputBuffer);
+        compute.setParameter("outDepth", output);
 
         _dispatchList[0] = compute;
 
@@ -537,20 +505,25 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
         }
 
         this._resizePending = false;
-        this._downsampleFromScreen?.destroy();
-        this._downsampleFromColor?.destroy();
-        this._packFromScreen?.destroy();
-        this._packFromColor?.destroy();
-        this._downsampleFromScreen = null;
-        this._downsampleFromColor = null;
-        this._packFromScreen = null;
-        this._packFromColor = null;
+        this._computes.forEach((compute) => compute.destroy());
+        this._computes.clear();
         this._shaders.forEach(x => x?.destroy());
         this._shaders.length = 0;
         this._buffers?.forEach(x => x?.destroy());
         this._bufferViews = [];
         this._buffers = [];
     }
+}
+
+function sourceSampleType(texture: pc.Texture) {
+    const format = texture.format;
+    if (format === pc.PIXELFORMAT_DEPTH ||
+        format === pc.PIXELFORMAT_DEPTH16 ||
+        format === pc.PIXELFORMAT_DEPTHSTENCIL ||
+        format === pc.PIXELFORMAT_R32F) {
+        return pc.SAMPLETYPE_UNFILTERABLE_FLOAT;
+    }
+    return pc.SAMPLETYPE_FLOAT;
 }
 
 const UV_FACTOR: [number, number] = [1, 1];

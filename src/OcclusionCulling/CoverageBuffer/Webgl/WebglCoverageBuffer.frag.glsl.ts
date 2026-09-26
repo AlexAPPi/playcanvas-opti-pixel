@@ -10,29 +10,31 @@ export default `
     uniform vec2 uCoverageSrcUvMax;
     uniform highp sampler2D uCoverageDepth;
 
-    #ifdef WORKAROUND_FLOAT
-    #include "floatAsUintPS"
+    #ifdef COVERAGE_DEPTH_RECIPROCAL
+    uniform vec4 uCoverageCameraParams;
     #endif
+
+    #include "floatAsUintPS"
 
     float convertDepth(vec4 value) {
 
-        #ifdef WORKAROUND_FLOAT
-            float workaroundFloat = uint2float(value);
-        #endif
+        float packed = uint2float(value);
+        float screenDepth;
 
-        #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16 || READ_DEPTH)
-            float mipDepth = value.r;
+        #ifdef COVERAGE_DEPTH_RECIPROCAL
+            float recip = value.r;
+            screenDepth = recip > 0.0 ? 1.0 / recip : uCoverageCameraParams.y;
+        #elif defined(COVERAGE_DEPTH_LINEAR_PACKED)
+            screenDepth = packed;
+        #elif defined(COVERAGE_DEPTH_LINEAR)
+            screenDepth = value.r;
+        #elif defined(SCENE_DEPTHMAP_FLOAT)
+            screenDepth = value.r;
         #else
-            float mipDepth = workaroundFloat;
+            screenDepth = packed;
         #endif
 
-        #ifdef SCENE_DEPTHMAP_FLOAT
-            float screenDepth = value.r;
-        #else
-            float screenDepth = workaroundFloat;
-        #endif
-
-        return uCoverageReadScreenDepth > 0.5 ? screenDepth : mipDepth;
+        return uCoverageReadScreenDepth > 0.5 ? screenDepth : packed;
     }
 
     void main() {
@@ -45,18 +47,6 @@ export default `
         float d2 = convertDepth(textureLod(uCoverageDepth, min(uv + vec2(-o.x,  o.y), uCoverageSrcUvMax), 0.0));
         float d3 = convertDepth(textureLod(uCoverageDepth, min(uv + vec2( o.x,  o.y), uCoverageSrcUvMax), 0.0));
 
-        float maxDepth = max(max(d0, d1), max(d2, d3));
-
-        #ifdef WRITE_DEPTH
-            gl_FragDepth = maxDepth;
-        #else
-
-            #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16)
-                gl_FragColor = vec4(maxDepth, 0.0, 0.0, 1.0);
-            #else
-                gl_FragColor = float2uint(maxDepth);
-            #endif
-
-        #endif
+        gl_FragColor = float2uint(max(max(d0, d1), max(d2, d3)));
     }
 `;

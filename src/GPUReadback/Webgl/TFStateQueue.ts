@@ -18,8 +18,8 @@ export type TTFSlotFactory<TSlot extends TFState> = (
  *  - `frameUpdate()` → `harvest()` every tick: FIFO, one poll, no wait
  *  - if `poll()` is `"ready"` and {@link minReadbackLag} has elapsed → `_commit(slot)`
  *
- * {@link readbackPeriod} is the capture cadence: unread STREAM_READ captures
- * do not pile up in flight.
+ * {@link readbackPeriod} is the capture cadence, {@link slotCount} the ring
+ * depth. A capture is skipped when every slot is still in flight.
  */
 export abstract class TFStateQueue<TSlot extends TFState = TFState> {
 
@@ -40,6 +40,11 @@ export abstract class TFStateQueue<TSlot extends TFState = TFState> {
 
     public get frameId() { return this._frameId; }
 
+    public get readbackPeriod() { return this._readbackPeriod; }
+    public set readbackPeriod(value: number) {
+        this._readbackPeriod = Math.max(1, value | 0);
+    }
+
     public get minReadbackLag() { return this._minReadbackLag; }
     public set minReadbackLag(value: number) {
         this._minReadbackLag = Math.max(0, value | 0);
@@ -52,17 +57,8 @@ export abstract class TFStateQueue<TSlot extends TFState = TFState> {
             return;
         }
         this._slotCount = next;
+        this._submitFrame = -1;
         this._rebuildSlots();
-    }
-
-    /**
-     * Capture every N pack attempts. Harvest still polls every
-     * {@link frameUpdate} so a finished fence is read on a different frame
-     * than the next pack. `1` = every frame.
-     */
-    public get readbackPeriod() { return this._readbackPeriod; }
-    public set readbackPeriod(value: number) {
-        this._readbackPeriod = Math.max(1, value | 0);
     }
 
     protected abstract _createSlot(device: pc.WebglGraphicsDevice, elementCount: number): TSlot;
@@ -103,9 +99,10 @@ export abstract class TFStateQueue<TSlot extends TFState = TFState> {
     }
 
     /**
-     * FIFO: poll the oldest eligible slot only. Never skip a fenced capture —
-     * rewriting its PBO before getBufferSubData is what ANGLE warns about and
-     * on Android turns the next read into a full GPU-process drain.
+     * FIFO: poll the oldest eligible slot only, so captures are published in
+     * submit order and none is skipped. HZB needs that — each slot holds a
+     * different AABB queue, so a dropped snapshot loses those ids. Subclasses
+     * whose slots are interchangeable override this (see `CoverageTFReadback`).
      */
     public harvest() {
 
@@ -156,13 +153,13 @@ export abstract class TFStateQueue<TSlot extends TFState = TFState> {
 
     /**
      * Free slot for a pack this frame. The returned slot is {@link TFState.reserved}
-     * until {@link submit} or the caller clears `reserved`.
+     * until {@link submit} or {@link release}.
      * `null` if this is not a capture tick, a slot was already submitted this
      * frame, or every slot is busy.
      *
      * A non-capture tick still advances {@link readbackPeriod}. A capture tick
      * with no free slot does **not** — so a later attempt can still pack once
-     * harvest frees a PBO.
+     * harvest frees a slot.
      */
     public acquire(): TSlot | null {
         if (this._submitFrame === this._frameId) {
@@ -186,6 +183,15 @@ export abstract class TFStateQueue<TSlot extends TFState = TFState> {
     }
 
     /**
+     * Give back a slot taken by {@link acquire} without packing it. Refunds the
+     * capture tick, so {@link readbackPeriod} does not count this as a capture.
+     */
+    public release(slot: TSlot): void {
+        slot.reserved = false;
+        this._refundCaptureTick();
+    }
+
+    /**
      * Finish the slot: copy into the PBO and insert a fence.
      * Returns `true` if the readback was scheduled.
      */
@@ -195,6 +201,7 @@ export abstract class TFStateQueue<TSlot extends TFState = TFState> {
         slot.beginRead(copyCount);
 
         if (!slot.pending) {
+            this._refundCaptureTick();
             return false;
         }
 
@@ -218,6 +225,12 @@ export abstract class TFStateQueue<TSlot extends TFState = TFState> {
     protected _onSlotsDisposed(): void {
     }
 
+    private _refundCaptureTick() {
+        if (this._captureTick > 0) {
+            this._captureTick--;
+        }
+    }
+
     private _peekFreeSlot(): TSlot | null {
         if (this._submitFrame === this._frameId) {
             return null;
@@ -235,7 +248,8 @@ export abstract class TFStateQueue<TSlot extends TFState = TFState> {
         const slots = this._slots;
         for (let i = 0; i < slots.length; i++) {
             const slot = slots[i];
-            if (!slot.pending && !slot.unread && !slot.reserved) {
+            if (!slot.pending &&
+                !slot.reserved) {
                 return slot;
             }
         }

@@ -21,24 +21,28 @@ export default `
     #ifdef PACK_TO_BUFFER
     @group(0) @binding(3) var<storage, read_write> outDepth: array<f32>;
     #else
-    @group(0) @binding(3) var dstDepth: texture_storage_2d<{DST_DEPTH_FORMAT}, write>;
+    @group(0) @binding(3) var dstDepth: texture_storage_2d<rgba8unorm, write>;
     #endif
 
     fn convertDepth(value: vec4f) -> f32 {
 
         if (uniforms.readScreenDepth == 1) {
-            #ifdef SCENE_DEPTHMAP_FLOAT
+
+            #ifdef COVERAGE_DEPTH_RECIPROCAL
+                let recip = value.r;
+                return select(uniforms.cameraParams.y, 1.0 / recip, recip > 0.0);
+            #elif defined(COVERAGE_DEPTH_LINEAR_PACKED)
+                return uint2float(value);
+            #elif defined(COVERAGE_DEPTH_LINEAR)
+                return value.r;
+            #elif defined(SCENE_DEPTHMAP_FLOAT)
                 return value.r;
             #else
                 return uint2float(value);
             #endif
         }
 
-        #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16)
-            return value.r;
-        #else
-            return uint2float(value);
-        #endif
+        return uint2float(value);
     }
 
     fn sampleMax(uv: vec2f) -> f32 {
@@ -50,6 +54,7 @@ export default `
         return max(max(d0, d1), max(d2, d3));
     }
 
+    #ifndef COVERAGE_DEPTH_VIEW
     fn linearizeDepth(z: f32) -> f32 {
         let n = uniforms.cameraParams.z;
         let f = uniforms.cameraParams.y;
@@ -58,6 +63,7 @@ export default `
         }
         return n + z * (f - n);
     }
+    #endif
 
     @compute @workgroup_size(GROUP_SIZE, GROUP_SIZE, 1)
     fn main(@builtin(global_invocation_id) gid: vec3u) {
@@ -77,17 +83,19 @@ export default `
             uv = vec2f(uv.x, 1.0 - uv.y);
         #endif
 
-        let maxDepth = sampleMax(uv);
+        var maxDepth = sampleMax(uv);
 
         #ifdef PACK_TO_BUFFER
-            outDepth[gid.y * destW + gid.x] = linearizeDepth(maxDepth);
+
+            #ifndef COVERAGE_DEPTH_VIEW
+                maxDepth = linearizeDepth(maxDepth);
+            #endif
+
+            outDepth[gid.y * destW + gid.x] = maxDepth;
+
         #else
 
-            #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16)
-                textureStore(dstDepth, gid.xy, vec4f(maxDepth, 0.0, 0.0, 1.0));
-            #else
-                textureStore(dstDepth, gid.xy, float2uint(maxDepth));
-            #endif
+            textureStore(dstDepth, gid.xy, float2uint(maxDepth));
 
         #endif
     }

@@ -7,7 +7,7 @@ There is no single best tester. Choose by API (CPU bit vs indirect draw), latenc
 | [Software](software.md) | Any (CPU worker) | `getOcclusionStatus` | 1 job (often 1 frame) | Explicit: box, sphere, cone, cylinder, plane, mesh |
 | [HZB WebGL](hzb.md) | WebGL2 | `getOcclusionStatus` (readback / transform feedback) | ~1+ frames | Scene depth → Hi-Z |
 | [HZB WebGPU](hzb.md) | WebGPU | Indirect draw (`instanceCount`) | Same frame on GPU | Scene depth → Hi-Z |
-| [Coverage](coverage.md) | WebGL2 / WebGPU | `getOcclusionStatus` (packed view Z → CPU tests) | ~2+ frames | Scene depth → packed 256×128 |
+| [Coverage](coverage.md) | WebGL2 / WebGPU | `getOcclusionStatus` (packed view Z → CPU tests) | ~2–5 frames | Scene depth → packed 256×128 |
 | [Queries](queries.md) | WebGL2 only | `getOcclusionStatus` | 1–N frames | Hardware occlusion queries on box proxies |
 
 WebGPU does not get the queries tester (`OcclusionCullingSystem` leaves queries `null`). Coverage is never constructed by the system on either device; instantiate it yourself. HZB on WebGPU is still the path if you want same-frame GPU indirect draws instead of a CPU bit.
@@ -57,7 +57,7 @@ HZB quality depends on the depth buffer you feed it. Transparent and first-perso
 - You would rather not maintain an explicit software occluder set
 - WebGL2 or WebGPU (same tester API; pack/download differ)
 
-Coverage downloads a 256×128 max-downsampled **view-space Z** buffer (WebGL: transform-feedback pack + async PBO; WebGPU: compute pack + `StorageBuffer.read`) and tests AABBs on a JS blob worker (one transferable job bus, ping-pong output slots). GPU chain levels stay in device Z; pack linearizes. It is coarser than GPU HZB and always one capture behind the camera. Enable PlayCanvas depth grab (`requestSceneDepthMap`), call `frameUpdate` every frame to harvest, `updateGPUDepthBuffer` after opaque depth, and `execute` to reproject/test — they are not the same call. See [coverage buffer](coverage.md).
+Coverage downloads a 256×128 max-downsampled **view-space Z** buffer (WebGL: transform-feedback pack + a ring of PBO reads; WebGPU: compute pack + a ring of `MAP_READ` staging buffers) and tests AABBs on a JS blob worker (one transferable job bus, ping-pong output slots). GPU chain levels stay in device Z; pack linearizes. It is coarser than GPU HZB, and the harvested capture is a few frames behind the camera. Enable PlayCanvas depth grab (`requestSceneDepthMap`), call `frameUpdate` every frame to harvest, `updateGPUDepthBuffer` after opaque depth, and `execute` to reproject/test — they are not the same call. See [coverage buffer](coverage.md).
 
 ## When to pick queries
 

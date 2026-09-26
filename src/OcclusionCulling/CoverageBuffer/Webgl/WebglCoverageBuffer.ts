@@ -3,11 +3,10 @@ import { ICoverageBuffer } from "../ICoverageBuffer.js";
 import vertexCodeVS from "./WebglCoverageBuffer.vert.glsl.js";
 import fragmentCodePS from "./WebglCoverageBuffer.frag.glsl.js";
 import packCodeVS from "./WebglCoverageBuffer.pack.glsl.js";
-import { getCameraDepthTexture, writeCameraParams } from "../../../Extras/CameraHelpers.js";
+import { CAMERA_DEPTH_DEVICE, applyCameraDepthDefines, getCameraDepthTexture, getCameraSceneDepthMode, writeCameraParams } from "../../../Extras/CameraHelpers.js";
 import { executeTransformFeedbackShader } from "../../../Extras/TransformFeedbackHelpers.js";
-import { CoverageTFStateQueue } from "./CoverageTFStateQueue.js";
+import { CoverageTFReadback } from "./CoverageTFReadback.js";
 import { TFState } from "../../../GPUReadback/Webgl/TFState.js";
-import type { TFStateQueue } from "../../../GPUReadback/Webgl/TFStateQueue.js";
 import { integerLog2 } from "../CoverageMath.js";
 
 /**
@@ -15,9 +14,9 @@ import { integerLog2 } from "../CoverageMath.js";
  *
  * Downsamples camera depth with a 4-tap max chain that keeps the
  * 256∶128 aspect at every level. The last level is packed with transform
- * feedback (float view-space Z). GPU->CPU download lives in {@link CoverageTFStateQueue}
- * ({@link TFStateQueue} + PBO/fence shared with WebGL HZB; coverage harvest
- * takes the newest ready slot, HZB stays FIFO).
+ * feedback (float view-space Z). GPU->CPU download is a ring of
+ * {@link readbackSlots} PBO/fence reads ({@link CoverageTFReadback}).
+ * The next chain starts when a slot is free.
  */
 export class WebglCoverageBuffer implements ICoverageBuffer {
 
@@ -26,15 +25,16 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
     private _resizePending: boolean;
     private _resizeTimeout: number | null;
     private _device: pc.WebglGraphicsDevice;
-    private _shader: pc.Shader;
-    private _packShader: pc.Shader;
+    private _quadShaders: (pc.Shader | null)[] = [null, null, null, null];
+    private _packShaders: (pc.Shader | null)[] = [null, null, null, null];
+    private _boundDepthMode = -1;
     private _renderTargets: pc.RenderTarget[];
     private _quadRenderPasses: pc.RenderPassShaderQuad[];
     private _buffers: pc.Texture[];
     private _pixelBuffer: pc.VertexBuffer;
     private _packTargetBuffer: pc.Texture;
     private _packTarget: pc.RenderTarget;
-    private _readback: CoverageTFStateQueue;
+    private _readback: CoverageTFReadback;
 
     private _screenWidth: number;
     private _screenHeight: number;
@@ -123,20 +123,24 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         this.resize();
     }
 
-    public get readbackSlots() { return this._readback.slotCount; }
-    public set readbackSlots(value: number) {
-        this._readback.slotCount = value;
-    }
-
     public get minReadbackLag() { return this._readback.minReadbackLag; }
     public set minReadbackLag(value: number) {
         this._readback.minReadbackLag = value;
     }
 
     /**
-     * Submit a packed capture every N pack attempts (`update` /
-     * `updateGPUDepthBuffer`). Harvest still polls every {@link frameUpdate}.
-     * The downsample chain is skipped on ticks that will not capture.
+     * In-flight PBO slots. Default `5`, clamped to at least `2`.
+     * Changing it drops downloads that have not landed yet.
+     */
+    public get readbackSlots() { return this._readback.slotCount; }
+    public set readbackSlots(value: number) { this._readback.slotCount = value; }
+
+    /**
+     * Submit a packed capture every N attempts while a readback slot is free
+     * (`captureDepthGrab` / `captureSceneDepthMap`, or the tester wrappers).
+     * Harvest still polls every {@link frameUpdate}. The downsample chain is
+     * skipped when every slot is in flight and on ticks that will not capture.
+     * An attempt with no free slot does not advance this counter.
      * Default `1`. Raise on devices where `getBufferSubData` hitches.
      */
     public get readbackPeriod() { return this._readback.readbackPeriod; }
@@ -148,10 +152,9 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
      * @param device - WebGL2 device
      * @param maxWidth - CPU width, default 256
      * @param maxHeight - CPU height, default 128
-     * @param slotCount - number of readback slots, default 4
-     * @param minReadbackLag - minimum `frameUpdate` ticks before polling a slot, default 2
+     * @param minReadbackLag - minimum `frameUpdate` ticks before copying the download, default 2
      */
-    constructor(device: pc.WebglGraphicsDevice, maxWidth: number = 256, maxHeight: number = 128, slotCount: number = 4, minReadbackLag: number = 2) {
+    constructor(device: pc.WebglGraphicsDevice, maxWidth: number = 256, maxHeight: number = 128, minReadbackLag: number = 2) {
         this._enabled = true;
         this._cpuReadback = true;
         this._resizePending = false;
@@ -170,23 +173,9 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         this._onContextLost = device.on("contextlost", this._onDeviceContextLost, this);
         this._onContextRestored = device.on("devicerestored", this._onDeviceContextRestored, this);
         this._maxDownsampleStages = 4;
-        this._readback = new CoverageTFStateQueue(device, this._maxWidth * this._maxHeight, slotCount);
+        this._readback = new CoverageTFReadback(device, this._maxWidth * this._maxHeight);
         this._readback.minReadbackLag = minReadbackLag;
         this.resize(this.device.width, this.device.height, this._maxWidth, this._maxHeight);
-    }
-
-    public isFloat16() {
-        return false;
-    }
-
-    public isFloat32() {
-        return false;
-    }
-
-    public isColor() {
-        // TODO: Depth recording also works perfectly,
-        // but we need to add a way to record the depth values.
-        return true;
     }
 
     public resizeWithDelay(delay: number = 300) {
@@ -230,14 +219,17 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         this._readback.frameUpdate(dt);
     }
 
-    public update(camera: pc.Camera) {
+    public captureDepthGrab(camera: pc.Camera) {
+        this._capture(camera, getCameraDepthTexture(camera), CAMERA_DEPTH_DEVICE);
+    }
 
-        if (!this.enabled) {
-            return;
-        }
+    public captureSceneDepthMap(camera: pc.Camera) {
+        this._capture(camera, camera.sceneDepthMap, getCameraSceneDepthMode(camera));
+    }
 
-        const mainDepthTexture = getCameraDepthTexture(camera);
-        if (!mainDepthTexture) {
+    private _capture(camera: pc.Camera, mainDepthTexture: pc.Texture | null, depthMode: number) {
+
+        if (!this.enabled || !mainDepthTexture) {
             return;
         }
 
@@ -249,9 +241,9 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         this._viewProjection.mul2(camera.projectionMatrix, camera.viewMatrix);
         writeCameraParams(_cameraParamsArr, camera);
 
-        // Android getBufferSubData waits for the GPU process to drain, so we
-        // only build the chain on ticks that will actually pack a capture.
-        // `acquire()` consumes {@link readbackPeriod} even when it returns null.
+        // Downsample only when a slot is free. `acquire()` is null while every
+        // slot is in flight, this frame already submitted, or {@link readbackPeriod}
+        // skips this attempt.
         let slot: TFState | null = null;
         if (this._cpuReadback) {
             slot = this._readback.acquire();
@@ -265,6 +257,7 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         const oldRenderTarget = device.getRenderTarget();
         const passCount = this._passWidths.length;
         const quadCount = Math.max(0, passCount - 1);
+        this._bindQuadShader(depthMode);
 
         let srcBuffer = mainDepthTexture;
         let srcWidth = mainDepthTexture.width;
@@ -288,6 +281,7 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
             this._destPixelToUvScope.setValue(_destPixelToUvArr);
             this._invSrcSizeScope.setValue(_invSrcSizeArr);
             this._readScreenDepthScope.setValue(readScreenDepth);
+            this._cameraParamsScope.setValue(_cameraParamsArr);
             this._depthScope.setValue(srcBuffer);
 
             this._quadRenderPasses[mip].render();
@@ -304,7 +298,7 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         }
 
         if (slot) {
-            this._pack(slot, srcBuffer, srcWidth, srcHeight, readScreenDepth);
+            this._pack(slot, srcBuffer, srcWidth, srcHeight, readScreenDepth, depthMode);
         }
 
         device.setRenderTarget(oldRenderTarget);
@@ -344,42 +338,39 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
     protected _coverageDefines() {
 
         const defines = new Map<string, string>();
-        let workaroundFloat = false;
-
-        if (!this.isColor()) {
-            defines.set("READ_DEPTH", "");
-            defines.set("WRITE_DEPTH", "");
-        }
-        else if (this.isFloat16()) {
-            defines.set("DEPTH_IS_FLOAT16", "");
-        }
-        else if (this.isFloat32()) {
-            defines.set("DEPTH_IS_FLOAT", "");
-        }
-        else {
-            workaroundFloat = true;
-        }
-
         if (this.device.textureFloatRenderable) {
             defines.set("SCENE_DEPTHMAP_FLOAT", "");
         }
-        else {
-            workaroundFloat = true;
-        }
-
-        if (workaroundFloat) {
-            defines.set("WORKAROUND_FLOAT", "");
-        }
-
         return defines;
     }
 
     protected _initShader() {
+        this._ensureQuadShader(CAMERA_DEPTH_DEVICE);
+        this._ensurePackShader(CAMERA_DEPTH_DEVICE);
+    }
+
+    private _bindQuadShader(depthMode: number) {
+        if (this._boundDepthMode === depthMode) {
+            return;
+        }
+        const shader = this._ensureQuadShader(depthMode);
+        const passes = this._quadRenderPasses;
+        for (let i = 0; i < passes.length; i++) {
+            passes[i].shader = shader;
+        }
+        this._boundDepthMode = depthMode;
+    }
+
+    private _ensureQuadShader(depthMode: number) {
+        const existing = this._quadShaders[depthMode];
+        if (existing) {
+            return existing;
+        }
 
         const defines = this._coverageDefines();
-
-        this._shader = pc.ShaderUtils.createShader(this._device, {
-            uniqueName: "COVERAGE_DEPTH_SHADER",
+        applyCameraDepthDefines(defines, depthMode);
+        const shader = pc.ShaderUtils.createShader(this._device, {
+            uniqueName: "COVERAGE_DEPTH_SHADER_" + depthMode,
             useTransformFeedback: false,
             vertexGLSL: vertexCodeVS,
             fragmentGLSL: fragmentCodePS,
@@ -388,27 +379,38 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
                 aPosition: pc.SEMANTIC_POSITION
             },
         });
+        this._quadShaders[depthMode] = shader;
+        return shader;
+    }
 
-        const packDefines = this._coverageDefines();
-        packDefines.delete("WRITE_DEPTH");
+    private _ensurePackShader(depthMode: number) {
+        const existing = this._packShaders[depthMode];
+        if (existing) {
+            return existing;
+        }
 
-        this._packShader = pc.ShaderUtils.createShader(this._device, {
-            uniqueName: "COVERAGE_PACK_TF_SHADER",
+        const defines = this._coverageDefines();
+        applyCameraDepthDefines(defines, depthMode);
+        const shader = pc.ShaderUtils.createShader(this._device, {
+            uniqueName: "COVERAGE_PACK_TF_SHADER_" + depthMode,
             useTransformFeedback: true,
             vertexGLSL: packCodeVS,
             fragmentGLSL: "void main(void) { gl_FragColor = vec4(1.0); }",
-            vertexDefines: packDefines,
+            vertexDefines: defines,
             attributes: {
                 aCoveragePixel: pc.SEMANTIC_POSITION
             },
         });
 
         const gl = this._device.gl;
-        const glProgram = this._packShader.impl.glProgram;
+        const glProgram = shader.impl.glProgram;
         if (gl && glProgram) {
             gl.transformFeedbackVaryings(glProgram, PACK_TF_VARYINGS, gl.INTERLEAVED_ATTRIBS);
             gl.linkProgram(glProgram);
         }
+
+        this._packShaders[depthMode] = shader;
+        return shader;
     }
 
     protected _initRenders() {
@@ -420,21 +422,13 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         this._quadRenderPasses = new Array(quadCount);
         this._mipLevels = quadCount;
 
-        const depthByColor = this.isColor();
-        const format = (
-            !depthByColor    ? pc.PIXELFORMAT_DEPTH :
-            this.isFloat16() ? pc.PIXELFORMAT_R16F :
-            this.isFloat32() ? pc.PIXELFORMAT_R32F :
-                               pc.PIXELFORMAT_RGBA8
-        );
-
         for (let i = 0; i < quadCount; i++) {
 
             const buffer = new pc.Texture(this._device, {
                 name: "COVERAGE_DS_TX_" + i,
                 width: this._passWidths[i],
                 height: this._passHeights[i],
-                format: format,
+                format: pc.PIXELFORMAT_RGBA8,
                 mipmaps: false,
                 minFilter: pc.FILTER_NEAREST,
                 magFilter: pc.FILTER_NEAREST,
@@ -453,36 +447,21 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
                 samples: 1,
             };
 
-            if (!depthByColor) {
-                optsRt.depth = true;
-                optsRt.colorBuffer = null!;
-                optsRt.depthBuffer = buffer;
-            }
-
             const rt = new pc.RenderTarget(optsRt);
             const rps = new pc.RenderPassShaderQuad(this._device);
-
-            if (depthByColor) {
-                rps.blendState = pc.BlendState.NOBLEND;
-                rps.depthState = pc.DepthState.NODEPTH;
-            }
-            else {
-                rps.blendState = pc.BlendState.NOWRITE;
-                rps.depthState = pc.DepthState.WRITEDEPTH;
-            }
-
-            rps.shader = this._shader;
+            rps.blendState = pc.BlendState.NOBLEND;
+            rps.depthState = pc.DepthState.NODEPTH;
+            rps.shader = this._ensureQuadShader(CAMERA_DEPTH_DEVICE);
             rps.init(rt);
-
-            if (depthByColor) {
-                rps.colorOps.clear = true;
-                rps.colorOps.genMipmaps = false;
-            }
+            rps.colorOps.clear = true;
+            rps.colorOps.genMipmaps = false;
 
             this._buffers[i] = buffer;
             this._renderTargets[i] = rt;
             this._quadRenderPasses[i] = rps;
         }
+
+        this._boundDepthMode = CAMERA_DEPTH_DEVICE;
     }
 
     protected _initPixelBuffer() {
@@ -508,12 +487,14 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         srcBuffer: pc.Texture,
         srcWidth: number,
         srcHeight: number,
-        readScreenDepth: number
+        readScreenDepth: number,
+        depthMode: number
     ) {
 
+        const packShader = this._ensurePackShader(depthMode);
         const pixelBuffer = this._ensurePixelBuffer();
-        if (!pixelBuffer || !this._packShader || !this._packTarget) {
-            slot.reserved = false;
+        if (!pixelBuffer || !packShader || !this._packTarget) {
+            this._readback.release(slot);
             return;
         }
 
@@ -521,7 +502,7 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
 
         const outputBuffer = slot.outputBuffer;
         if (!outputBuffer) {
-            slot.reserved = false;
+            this._readback.release(slot);
             return;
         }
 
@@ -545,7 +526,7 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         this._cameraParamsScope.setValue(_cameraParamsArr);
 
         executeTransformFeedbackShader(
-            this._packShader,
+            packShader,
             pixelCount,
             pixelBuffer,
             outputBuffer,
@@ -592,7 +573,8 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
     }
 
     private _ensurePixelBuffer() {
-        if (!this._pixelBuffer || !this._pixelBuffer.impl?.bufferId) {
+        if (!this._pixelBuffer ||
+            !this._pixelBuffer.impl?.bufferId) {
             this._initPixelBuffer();
         }
         return this._pixelBuffer;
@@ -623,8 +605,18 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         this._packTargetBuffer = null!;
         this._pixelBuffer?.destroy();
         this._pixelBuffer = null!;
-        this._shader?.destroy();
-        this._packShader?.destroy();
+
+        for (let i = 0; i < this._quadShaders.length; i++) {
+            this._quadShaders[i]?.destroy();
+            this._quadShaders[i] = null;
+        }
+
+        for (let i = 0; i < this._packShaders.length; i++) {
+            this._packShaders[i]?.destroy();
+            this._packShaders[i] = null;
+        }
+
+        this._boundDepthMode = -1;
     }
 }
 

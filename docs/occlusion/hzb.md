@@ -11,7 +11,7 @@ PlayCanvas device picks the implementation:
 
 `OcclusionCullingSystem` constructs the matching pair. You can also instantiate the concrete classes yourself if you need a custom frame graph.
 
-`IHierarchicalZBuffer` is a texture/size view. `update(camera)` exists on `WebglHierarchicalZBuffer` and `WebgpuHierarchicalZBuffer`, not on the interface. Coverage buffers implement the same view via `ICoverageBuffer`, which does add `update` and `frameUpdate`.
+`IHierarchicalZBuffer` is a texture/size view. `update(camera)` exists on `WebglHierarchicalZBuffer` and `WebgpuHierarchicalZBuffer`, not on the interface. Coverage buffers implement the same view via `ICoverageBuffer`, which adds `frameUpdate` plus `captureDepthGrab` / `captureSceneDepthMap`.
 
 ## What `autoUpdate` actually does
 
@@ -55,7 +55,7 @@ app.on("update", () => {
 
 When `autoUpdate` is false, call `WebglHierarchicalZBuffer.update(camera)` and `tester.execute(camera)` yourself after opaque depth is available. `OcclusionCullingSystem` still runs `tester.frameUpdate` on `frameupdate`. If you constructed the tester yourself (no system), call `frameUpdate` each frame so readbacks can complete.
 
-WebGL HZB uses the same GPU→CPU download as the coverage buffer: `copyBufferSubData` into a STREAM_READ PBO, `fenceSync`, FIFO harvest of one slot per `frameUpdate`, no `gl.flush()`. Default **4** in-flight slots and **2** frames of `minReadbackLag`. `enqueue` can return `-1` (`SOME_ENQUEUE_PROBLEM`) on a non-capture tick (`readbackPeriod`) or when every slot is busy — treat that like `OCCLUSION_UNKNOWN`.
+WebGL HZB downloads with `copyBufferSubData` into a STREAM_READ PBO and `fenceSync`, then harvests FIFO, one slot per `frameUpdate`, no `gl.flush()`. Default **4** in-flight slots and **2** frames of `minReadbackLag`. Coverage uses the same PBO read, but harvests newest-first: its slots are interchangeable full-frame depth maps, while each HZB slot is a different AABB queue and must not be skipped. Its ring size is `readbackSlots` (default **5**). `enqueue` can return `-1` (`SOME_ENQUEUE_PROBLEM`) on a non-capture tick (`readbackPeriod`) or when every slot is busy — treat that like `OCCLUSION_UNKNOWN`.
 
 Readback is **delayed** by at least one GPU frame. Treat `UNKNOWN` as visible.
 

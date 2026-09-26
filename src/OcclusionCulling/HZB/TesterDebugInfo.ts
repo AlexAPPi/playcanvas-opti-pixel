@@ -1,8 +1,7 @@
 import pc from "../../engine.js";
-import type { IHierarchicalZBuffer } from "./IHierarchicalZBuffer.js";
 import type { IDebugInfo } from "./IHierarchicalZBufferTester.js";
 
-const _hzbSize = new pc.Vec2();
+const _screenSize = new pc.Vec2();
 const _rectMin = new pc.Vec3();
 const _rectMax = new pc.Vec3();
 const _boundsMin = new pc.Vec3();
@@ -42,7 +41,10 @@ export function floor2(vec1: pc.Vec2) {
 }
 
 export function getDebugInfo(
-    hzb: IHierarchicalZBuffer,
+    screen: {
+        readonly width: number;
+        readonly height: number;
+    },
     matrix: pc.Mat4,
     box: pc.BoundingBox
 ): IDebugInfo {
@@ -85,13 +87,13 @@ export function getDebugInfo(
     _rectMax2.x = pc.math.clamp(_rectMax2.x, 0.0, 1.0);
     _rectMax2.y = pc.math.clamp(_rectMax2.y, 0.0, 1.0);
 
-    const hzbSize = _hzbSize.set(
-        hzb.width,
-        hzb.height
+    const screenSize = _screenSize.set(
+        screen.width,
+        screen.height
     );
 
-    const rectPixelsMin = _rectMin2.clone().mul(hzbSize);
-    const rectPixelsMax = _rectMax2.clone().mul(hzbSize);
+    const rectPixelsMin = _rectMin2.clone().mul(screenSize);
+    const rectPixelsMax = _rectMax2.clone().mul(screenSize);
     const rectSize = rectPixelsMax.clone().sub(rectPixelsMin).mulScalar(0.5);
 
     let level = Math.max(Math.ceil(Math.log2(Math.max(rectSize.x, rectSize.y))), minMipLevel);
@@ -108,7 +110,7 @@ export function getDebugInfo(
     }
 
     const extent = new pc.Vec2().sub2(_rectMax2, _rectMin2);
-    const viewSize = new pc.Vec2().mul2(extent, hzbSize);
+    const viewSize = new pc.Vec2().mul2(extent, screenSize);
 
     const inFrustumXY = _rectMax.x >= -1 && _rectMin.x <= 1 &&
                         _rectMax.y >= -1 && _rectMin.y <= 1;

@@ -9,33 +9,45 @@ export default `
     uniform vec2 uCoverageDestPixelToUv;
     uniform vec2 uCoverageDestSize;
     uniform vec2 uCoverageSrcUvMax;
-    uniform vec4 uCoverageCameraParams;
     uniform highp sampler2D uCoverageDepth;
 
-    #ifdef WORKAROUND_FLOAT
-    #include "floatAsUintPS"
+    #if !defined(COVERAGE_DEPTH_VIEW) || defined(COVERAGE_DEPTH_RECIPROCAL)
+    uniform vec4 uCoverageCameraParams; // x: 1/far, y: far, z: near, w: 1 if orthographic
     #endif
+
+    #include "floatAsUintPS"
 
     float convertDepth(vec4 value) {
 
-        #ifdef WORKAROUND_FLOAT
-            float workaroundFloat = uint2float(value);
-        #endif
+        float packed = uint2float(value);
+        float screenDepth;
 
-        #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16 || READ_DEPTH)
-            float mipDepth = value.r;
+        #ifdef COVERAGE_DEPTH_RECIPROCAL
+            float recip = value.r;
+            screenDepth = recip > 0.0 ? 1.0 / recip : uCoverageCameraParams.y;
+        #elif defined(COVERAGE_DEPTH_LINEAR_PACKED)
+            screenDepth = packed;
+        #elif defined(COVERAGE_DEPTH_LINEAR)
+            screenDepth = value.r;
+        #elif defined(SCENE_DEPTHMAP_FLOAT)
+            screenDepth = value.r;
         #else
-            float mipDepth = workaroundFloat;
+            screenDepth = packed;
         #endif
 
-        #ifdef SCENE_DEPTHMAP_FLOAT
-            float screenDepth = value.r;
-        #else
-            float screenDepth = workaroundFloat;
-        #endif
-
-        return uCoverageReadScreenDepth > 0.5 ? screenDepth : mipDepth;
+        return uCoverageReadScreenDepth > 0.5 ? screenDepth : packed;
     }
+
+    #ifndef COVERAGE_DEPTH_VIEW
+    float linearizeDepth(float deviceZ) {
+        float nearClip = uCoverageCameraParams.z;
+        float farClip = uCoverageCameraParams.y;
+        if (uCoverageCameraParams.w == 0.0) {
+            return (nearClip * farClip) / (farClip + deviceZ * (nearClip - farClip));
+        }
+        return nearClip + deviceZ * (farClip - nearClip);
+    }
+    #endif
 
     void main(void) {
 
@@ -53,14 +65,9 @@ export default `
 
         float maxDepth = max(max(d0, d1), max(d2, d3));
 
-        // Pack view-space Z (metres). Device Z is nonlinear; far compares need linear.
-        vec4 p = uCoverageCameraParams;
-        if (p.w == 0.0) {
-            maxDepth = (p.z * p.y) / (p.y + maxDepth * (p.z - p.y));
-        }
-        else {
-            maxDepth = p.z + maxDepth * (p.y - p.z);
-        }
+        #ifndef COVERAGE_DEPTH_VIEW
+            maxDepth = linearizeDepth(maxDepth);
+        #endif
 
         out_depth = maxDepth;
         gl_Position = vec4(0.0);
