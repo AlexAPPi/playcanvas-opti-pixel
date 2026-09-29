@@ -84,17 +84,7 @@ export abstract class AbsAABBStore implements IAABBStore {
 
     public lockMinMaxScalars(data: ArrayLike<number>, offset: number, matrix?: pc.Mat4, extra1?: number, extra2?: number): number {
         const index = this._indexManager.reserve();
-        _aabb2.center.set(
-            (data[offset] + data[offset + 1]) * 0.5,
-            (data[offset + 2] + data[offset + 3]) * 0.5,
-            (data[offset + 4] + data[offset + 5]) * 0.5
-        );
-        _aabb2.halfExtents.set(
-            (data[offset + 1] - data[offset]) * 0.5,
-            (data[offset + 3] - data[offset + 2]) * 0.5,
-            (data[offset + 5] - data[offset + 4]) * 0.5
-        );
-        this.enqueueUpdate(index, _aabb2, matrix, extra1 ?? 0, extra2 ?? 0);
+        this.enqueueUpdateScalars(index, data, offset, matrix, extra1, extra2);
         return index;
     }
 
@@ -116,6 +106,22 @@ export abstract class AbsAABBStore implements IAABBStore {
             this._version++;
         }
         return r1 || r2;
+    }
+
+    public enqueueUpdateScalars(index: number, data: ArrayLike<number>, offset: number, matrix?: pc.Mat4, extra1: number = 0, extra2: number = 0) {
+        extra1 ??= 0;
+        extra2 ??= 0;
+        _aabb2.center.set(
+            (data[offset] + data[offset + 1]) * 0.5,
+            (data[offset + 2] + data[offset + 3]) * 0.5,
+            (data[offset + 4] + data[offset + 5]) * 0.5
+        );
+        _aabb2.halfExtents.set(
+            (data[offset + 1] - data[offset]) * 0.5,
+            (data[offset + 3] - data[offset + 2]) * 0.5,
+            (data[offset + 5] - data[offset + 4]) * 0.5
+        );
+        return this.enqueueUpdate(index, _aabb2, matrix, extra1, extra2);
     }
 
     public get(index: number, boundingBox: pc.BoundingBox) {

@@ -97,6 +97,18 @@ export interface IAABBStore {
     enqueueUpdate(index: number, boundingBox: pc.BoundingBox, matrix?: pc.Mat4, extra1?: number, extra2?: number): void;
 
     /**
+     * Enqueues an update for a bounding box stored as min/max scalars
+     *
+     * @param index - Index of the bounding box to update
+     * @param data - The array containing the bounding box data (min and max points) in local or world coordinates [minX, maxX, minY, maxY, minZ, maxZ]
+     * @param offset - The offset in the array where the bounding box data starts
+     * @param matrix - Optional transformation matrix
+     * @param extra1 - Extra parameter 1
+     * @param extra2 - Extra parameter 2
+     */
+    enqueueUpdateScalars(index: number, data: ArrayLike<number>, offset: number, matrix?: pc.Mat4, extra1?: number, extra2?: number): void;
+
+    /**
      * Gets the bounding box data by its index
      * 
      * @param index - Index of the bounding box
