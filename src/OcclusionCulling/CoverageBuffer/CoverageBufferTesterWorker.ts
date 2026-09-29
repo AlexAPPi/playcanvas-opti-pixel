@@ -56,6 +56,11 @@ export class CoverageBufferTesterWorker implements IGPU2CPUReadbackOcclusionCull
     private _workerUrl: string | null = null;
     private _ready = false;
     private _transfer: Transferable[] = [];
+    private _frameMessage: ICoverageBufferFrameMessage = {
+        t: "frame",
+        bus: null!,
+        out: null!
+    };
 
     /**
      * World AABB inflate as a fraction of camera-to-box distance.
@@ -215,18 +220,15 @@ export class CoverageBufferTesterWorker implements IGPU2CPUReadbackOcclusionCull
         header[4] = Math.max(0, this.rectPadPixels);
         bus.queue.set(this._queue.indexes.subarray(0, queueCount));
 
-        const msg: ICoverageBufferFrameMessage = {
-            t: "frame",
-            bus: bus.buffer,
-            out: out.buffer
-        };
+        this._frameMessage.bus = bus.buffer;
+        this._frameMessage.out = out.buffer;
 
         const transfer = this._transfer;
         transfer.length = 0;
         transfer.push(bus.buffer, out.buffer);
 
         try {
-            worker.postMessage(msg, transfer);
+            worker.postMessage(this._frameMessage, transfer);
             this._bus = null;
             this._writeOut = null;
             this._queue.clear();
