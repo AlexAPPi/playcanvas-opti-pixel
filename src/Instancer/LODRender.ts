@@ -66,7 +66,7 @@ export class LODRender implements ILODRender {
         for (let i = 0; i < numMeshes; i++) {
             const mesh = meshes[i];
             const material = mesh.material;
-            if (material.transparent) {
+            if (material?.transparent) {
                 needSortObjects = true;
                 break;
             }
@@ -93,23 +93,26 @@ export class LODRender implements ILODRender {
         for (let i = 0; i < numMeshes; i++) {
 
             const meshInstance = meshes[i];
-            const aabb = meshInstance.mesh.aabb;
+            const aabb = meshInstance.mesh?.aabb;
 
-            let meshTransformMatrix = meshInstance.node.getWorldTransform();
+            if (aabb) {
 
-            // Bounding box in local space of root (scale kept) for CPU frustum culling
-            if (root) {
-                _tempMat42.mulAffine2(_tempMat41, meshTransformMatrix);
-                meshTransformMatrix = _tempMat42;
-            }
+                let meshTransformMatrix = meshInstance.node.getWorldTransform();
 
-            _tempBoundingBox.setFromTransformedAabb(aabb, meshTransformMatrix, false);
+                // Bounding box in local space of root (scale kept) for CPU frustum culling
+                if (root) {
+                    _tempMat42.mulAffine2(_tempMat41, meshTransformMatrix);
+                    meshTransformMatrix = _tempMat42;
+                }
 
-            if (result) {
-                result.add(_tempBoundingBox);
-            }
-            else {
-                result = _tempBoundingBox.clone();
+                _tempBoundingBox.setFromTransformedAabb(aabb, meshTransformMatrix, false);
+
+                if (result) {
+                    result.add(_tempBoundingBox);
+                }
+                else {
+                    result = _tempBoundingBox.clone();
+                }
             }
         }
 

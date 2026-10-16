@@ -1,7 +1,8 @@
-// Shaders
 import debugShaderGLSL from "./HierarchicalZBufferDebugger.glsl.js";
 import debugShaderWGSL from "./HierarchicalZBufferDebugger.wgsl.js";
 import pc from "../../engine.js";
+import { createDebugMarkerTexture, DebugScreenDrawer } from "../DebugScreenQuad.js";
+import type { DebugScreenShader } from "../DebugScreenQuad.js";
 import { isGPU2CPUReadbackOcclusionCullingTester, OCCLUSION_OCCLUDED, OCCLUSION_UNKNOWN } from "../IOcclusionCullingTester.js";
 import { WebgpuHierarchicalZBuffer } from "./Webgpu/WebgpuHierarchicalZBuffer.js";
 import { WebglHierarchicalZBuffer } from "./Webgl/WebglHierarchicalZBuffer.js";
@@ -9,83 +10,50 @@ import { IHierarchicalZBufferTester } from "./IHierarchicalZBufferTester.js";
 
 export class HierarchicalZBufferDebugger {
 
-    private _app: pc.AppBase;
     private _wireRenderer: pc.WireRenderer;
     private _tester: IHierarchicalZBufferTester | undefined;
     private _hzb: WebglHierarchicalZBuffer | WebgpuHierarchicalZBuffer | undefined;
+    private _screen: DebugScreenDrawer;
     private _debugAABBTexture: pc.Texture;
-    private _debugTextureShaderDesc: any;
+    private _depthShaders = new Map<HzbDepthVariant, DebugScreenShader>();
 
     public get hzb() { return (this._tester?.hzb ?? this._hzb)!; }
     public set hzbOrTester(v: WebglHierarchicalZBuffer | WebgpuHierarchicalZBuffer | IHierarchicalZBufferTester) {
         const initByHZB = (v instanceof WebglHierarchicalZBuffer || v instanceof WebgpuHierarchicalZBuffer);
         this._hzb = initByHZB ? v : undefined;
         this._tester = initByHZB ? undefined : v;
-        this._initDeps();
     }
 
     constructor(app: pc.AppBase, hzbOrTester: WebglHierarchicalZBuffer | WebgpuHierarchicalZBuffer | IHierarchicalZBufferTester) {
-        this._app = app;
         this._wireRenderer = new pc.WireRenderer(app);
         this._wireRenderer.depthTest = false;
-        this._debugAABBTexture = new pc.Texture(this._app.graphicsDevice, {
-            width: 1,
-            height: 1,
-            mipmaps: false,
-            format: pc.PIXELFORMAT_RGBA8,
-            minFilter: pc.FILTER_NEAREST,
-            magFilter: pc.FILTER_NEAREST,
-            addressU: pc.ADDRESS_CLAMP_TO_EDGE,
-            addressV: pc.ADDRESS_CLAMP_TO_EDGE,
-            numLevels: 1,
-            levels: [new Uint8Array([255, 255, 0, 255])]
-        });
+        this._screen = new DebugScreenDrawer(app);
+        this._debugAABBTexture = createDebugMarkerTexture(app.graphicsDevice);
         this.hzbOrTester = hzbOrTester;
-        this._initDeps();
     }
 
     public destroy() {
+        this._screen.destroy();
         this._debugAABBTexture?.destroy();
         this._debugAABBTexture = null!;
     }
 
-    private _initDeps() {
-
-        const defines =
-            !this.hzb.isColor() ?   '#define READ_DEPTH' :
-             this.hzb.isFloat16() ? '#define DEPTH_IS_FLOAT16' :
-             this.hzb.isFloat32() ? '#define DEPTH_IS_FLOAT' :
-                                    '';
-
-        this._debugTextureShaderDesc = this._app.scene.immediate.getShaderDesc('HZB_DEBUG_TEXTURE_SHADER',
-            `
-                ${defines}
-                ${debugShaderGLSL}
-            `,
-            `
-                ${defines}
-                ${debugShaderWGSL}
-            `
-        );
-    }
-
     public debug(count: number = 5, maxElementHeight: number = 0.25, spacing: number = 0.02, x: number = 0.75, w: number = 0.25) {
 
-        if (count <= 0) return;
+        if (count <= 0) {
+            return;
+        }
 
-        const m = this.hzb.mipLevels - 1;
-        const step = m / (count - 1);
-        const autoElementHeight = Math.min(2 / count, maxElementHeight) - spacing;
-        const totalHeight = count * autoElementHeight + (count - 1) * spacing;
-
-        const centerY = 0;
-        const baseY = centerY + totalHeight / 2 - autoElementHeight / 2;
+        const lastMip = this.hzb.mipLevels - 1;
+        const step = count > 1 ? lastMip / (count - 1) : 0;
+        const elementHeight = Math.min(2 / count, maxElementHeight) - spacing;
+        const totalHeight = count * elementHeight + (count - 1) * spacing;
+        const baseY = totalHeight / 2 - elementHeight / 2;
 
         for (let i = 0; i < count; i++) {
             const level = Math.floor(i * step);
-            const y = baseY - i * (autoElementHeight + spacing);
-            const h = autoElementHeight;
-            this.debugBuffer(level, x, y, w, h);
+            const y = baseY - i * (elementHeight + spacing);
+            this.debugBuffer(level, x, y, w, elementHeight);
         }
     }
 
@@ -96,15 +64,11 @@ export class HierarchicalZBufferDebugger {
         }
 
         const buffer = (this.hzb.buffers?.[i] ?? this.hzb.texture)!;
-        const debugMaterial = new pc.ShaderMaterial();
-        const uvFactor = adaptive ? this.hzb.uvFactor : [1, 1];
-        debugMaterial.cull = pc.CULLFACE_NONE;
-        debugMaterial.shaderDesc = this._debugTextureShaderDesc;
-        debugMaterial.setParameter("uHZBFactor", uvFactor);
-        debugMaterial.setParameter("uDepthMip", buffer);
-        debugMaterial.setParameter("uDepthMipLevel", i);
-        debugMaterial.update();
-        this._app.drawTexture(x, y, width, height, buffer, debugMaterial);
+        this._screen.draw(x, y, width, height, this._depthShader(), {
+            uHZBFactor: adaptive ? this.hzb.uvFactor : HZB_FULL_UV,
+            uDepthMip: buffer,
+            uDepthMipLevel: i
+        });
     }
 
     public debugMipLevel(level: number, adaptive: boolean = true) {
@@ -142,11 +106,59 @@ export class HierarchicalZBufferDebugger {
             }
 
             if (rect) {
-                this._app.drawTexture(rectangle.x, rectangle.y, rectangle.width, rectangle.height, this._debugAABBTexture, undefined!);
+                this._screen.drawTexture(rectangle.x, rectangle.y, rectangle.width, rectangle.height, this._debugAABBTexture);
             }
         }
     }
+
+    private _depthShader(): DebugScreenShader {
+
+        const variant = this._depthVariant();
+        const cached = this._depthShaders.get(variant);
+        if (cached) {
+            return cached;
+        }
+
+        const desc = HZB_VARIANT[variant];
+        const header = desc.define ? `${desc.define}\n` : "";
+        const shader: DebugScreenShader = {
+            name: desc.name,
+            glsl: header + debugShaderGLSL,
+            wgsl: header + debugShaderWGSL
+        };
+        this._depthShaders.set(variant, shader);
+        return shader;
+    }
+
+    private _depthVariant(): HzbDepthVariant {
+
+        const hzb = this.hzb;
+        if (!hzb.isColor()) {
+            return "depth";
+        }
+
+        if (hzb.isFloat16()) {
+            return "float16";
+        }
+
+        if (hzb.isFloat32()) {
+            return "float32";
+        }
+
+        return "uint";
+    }
 }
+
+const HZB_VARIANT = {
+    depth: { name: "OPTIPIXEL_HZB_DEBUG_DEPTH", define: "#define READ_DEPTH" },
+    float16: { name: "OPTIPIXEL_HZB_DEBUG_FLOAT16", define: "#define DEPTH_IS_FLOAT16" },
+    float32: { name: "OPTIPIXEL_HZB_DEBUG_FLOAT32", define: "#define DEPTH_IS_FLOAT" },
+    uint: { name: "OPTIPIXEL_HZB_DEBUG_UINT", define: "" }
+} as const;
+
+type HzbDepthVariant = keyof typeof HZB_VARIANT;
+
+const HZB_FULL_UV: [number, number] = [1, 1];
 
 const _minPoint = new pc.Vec3();
 const _maxPoint = new pc.Vec3();

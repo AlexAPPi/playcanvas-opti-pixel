@@ -1,6 +1,8 @@
 import debugShaderGLSL from "./CoverageBufferDebugger.glsl.js";
 import debugShaderWGSL from "./CoverageBufferDebugger.wgsl.js";
 import pc from "../../engine.js";
+import { createDebugMarkerTexture, DebugScreenDrawer } from "../DebugScreenQuad.js";
+import type { DebugScreenShader } from "../DebugScreenQuad.js";
 import { OCCLUSION_OCCLUDED } from "../IOcclusionCullingTester.js";
 import { ICoverageBuffer } from "./ICoverageBuffer.js";
 import { CoverageBufferTesterWorker } from "./CoverageBufferTesterWorker.js";
@@ -10,54 +12,31 @@ export class CoverageBufferDebugger {
 
     private _app: pc.AppBase;
     private _wireRenderer: pc.WireRenderer;
+    private _screen: DebugScreenDrawer;
     private _tester: CoverageBufferTesterWorker | undefined;
     private _debugAABBTexture: pc.Texture;
-    private _linearShaderDesc: any;
-    private _frameMaterials: pc.ShaderMaterial[] = [];
-    private _onFrameEnd: pc.EventHandle | null = null;
     private _packedUpload = createDebugFloatUpload();
     private _reprojectUpload = createDebugFloatUpload();
 
     public set tester(v: CoverageBufferTesterWorker) {
         this._tester = v;
-        this._initDeps();
     }
 
     public constructor(app: pc.AppBase, tester: CoverageBufferTesterWorker) {
         this._app = app;
         this._wireRenderer = new pc.WireRenderer(app);
         this._wireRenderer.depthTest = false;
-        this._debugAABBTexture = new pc.Texture(this._app.graphicsDevice, {
-            width: 1,
-            height: 1,
-            mipmaps: false,
-            format: pc.PIXELFORMAT_RGBA8,
-            minFilter: pc.FILTER_NEAREST,
-            magFilter: pc.FILTER_NEAREST,
-            addressU: pc.ADDRESS_CLAMP_TO_EDGE,
-            addressV: pc.ADDRESS_CLAMP_TO_EDGE,
-            numLevels: 1,
-            levels: [new Uint8Array([255, 255, 0, 255])]
-        });
-        this._onFrameEnd = app.on("frameend", this._recycleMaterials, this);
+        this._screen = new DebugScreenDrawer(app);
+        this._debugAABBTexture = createDebugMarkerTexture(app.graphicsDevice);
         this.tester = tester;
     }
 
     public destroy() {
-        this._onFrameEnd?.off();
-        this._onFrameEnd = null;
-        this._recycleMaterials();
+        this._screen.destroy();
         destroyDebugFloatUpload(this._packedUpload);
         destroyDebugFloatUpload(this._reprojectUpload);
         this._debugAABBTexture?.destroy();
         this._debugAABBTexture = null!;
-    }
-
-    private _initDeps() {
-        this._linearShaderDesc = this._app.scene.immediate.getShaderDesc("COVERAGE_DEBUG_R32F_SHADER",
-            debugShaderGLSL,
-            debugShaderWGSL
-        );
     }
 
     public drawDepth(x: number = 0, y: number = 0, width: number = 2, height: number = 2) {
@@ -104,7 +83,7 @@ export class CoverageBufferDebugger {
             }
 
             if (rect) {
-                this._app.drawTexture(rectangle.x, rectangle.y, rectangle.width, rectangle.height, this._debugAABBTexture, undefined!);
+                this._screen.drawTexture(rectangle.x, rectangle.y, rectangle.width, rectangle.height, this._debugAABBTexture);
             }
         }
     }
@@ -180,38 +159,24 @@ export class CoverageBufferDebugger {
 
     private _drawDepth(buffer: pc.Texture, far: number, x: number, y: number, width: number, height: number) {
 
-        if (!this._linearShaderDesc) {
-            return;
-        }
-
-        const debugMaterial = new pc.ShaderMaterial();
-        debugMaterial.cull = pc.CULLFACE_NONE;
-        debugMaterial.shaderDesc = this._linearShaderDesc;
-        debugMaterial.setParameter("uDepthMip", buffer);
-
-        _debugCamParams[0] = far > 0 ? 1 / far : 1;
-        _debugCamParams[1] = 1;
-        _debugCamParams[2] = 0;
-        _debugCamParams[3] = 1;
-
-        debugMaterial.setParameter("camera_params", _debugCamParams);
-        debugMaterial.update();
-
-        this._frameMaterials.push(debugMaterial);
-        this._app.drawTexture(x, y, width, height, buffer, debugMaterial);
-    }
-
-    private _recycleMaterials() {
-        for (let i = 0; i < this._frameMaterials.length; i++) {
-            this._frameMaterials[i].destroy();
-        }
-        this._frameMaterials.length = 0;
+        // The shader scales stored depth by 1/far.
+        _coverageCameraParams[0] = far > 0 ? 1 / far : 1;
+        this._screen.draw(x, y, width, height, COVERAGE_DEPTH_SHADER, {
+            uDepthMip: buffer,
+            camera_params: _coverageCameraParams
+        });
     }
 }
 
+const COVERAGE_DEPTH_SHADER: DebugScreenShader = {
+    name: "OPTIPIXEL_COVERAGE_DEBUG_R32F_SHADER",
+    glsl: debugShaderGLSL,
+    wgsl: debugShaderWGSL
+};
+
 const _minPoint = new pc.Vec3();
 const _maxPoint = new pc.Vec3();
-const _debugCamParams = new Float32Array(4);
+const _coverageCameraParams = new Float32Array([0, 1, 0, 1]);
 
 interface IDebugFloatUpload {
     texture: pc.Texture | null;

@@ -201,6 +201,11 @@ export class OccluderStore {
     public lockMesh(source: pc.Mesh | pc.MeshInstance, matrix?: pc.Mat4): number {
         const meshInstance = isMeshInstance(source);
         const mesh = meshInstance ? source.mesh : source;
+
+        if (!mesh) {
+            throw new Error("Mesh is null");
+        }
+
         const transform = matrix ?? (meshInstance ? source.node.getWorldTransform() : undefined);
         const id = this._indexManager.reserve();
         try {

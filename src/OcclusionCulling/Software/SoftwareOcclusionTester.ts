@@ -557,7 +557,8 @@ export class SoftwareOcclusionTester implements ICPUSoftwareOcclusionCullingTest
     }
 
     /**
-     * Draws the last worker debug wireframe via Immediate (`app.drawMesh`).
+     * Draws the last worker debug wireframe on the immediate layer.
+     * Call from update, before that layer is rendered.
      * The GPU mesh is rebuilt only when the worker sends new {@link debugLines}.
      */
     public debugDraw(app: pc.AppBase, color: pc.Color = pc.Color.YELLOW, depthTest: boolean = true) {
