@@ -1,6 +1,6 @@
 import pc from "../../../engine.js";
-import { TFState } from "../../../GPUReadback/Webgl/TFState.js";
 import { TFStateQueue } from "../../../GPUReadback/Webgl/TFStateQueue.js";
+import { CoverageTFState } from "./CoverageTFState.js";
 
 /**
  * In-flight coverage TF readbacks. Pack writes a slot's `outputBuffer`, then
@@ -11,7 +11,7 @@ import { TFStateQueue } from "../../../GPUReadback/Webgl/TFStateQueue.js";
  *
  * Do not harvest from `captureDepthGrab` / `captureSceneDepthMap` / postrender.
  */
-export class CoverageTFReadback extends TFStateQueue<TFState> {
+export class CoverageTFReadback extends TFStateQueue<CoverageTFState> {
 
     private _cpuDepth: Float32Array;
     private _cpuVP = new Float32Array(16);
@@ -38,7 +38,7 @@ export class CoverageTFReadback extends TFStateQueue<TFState> {
      * the depth source changes size.
      *
      * Context restore also lands here with an unchanged count and needs no
-     * rebuild — {@link TFState.onContextLost} drops the fence and PBO for
+     * rebuild — {@link CoverageTFState.onContextLost} drops the fence and PBO for
      * `beginRead` to recreate, and the engine restores `outputBuffer` before
      * it fires `devicerestored`.
      */
@@ -52,8 +52,8 @@ export class CoverageTFReadback extends TFStateQueue<TFState> {
         this._cpuVersion++;
     }
 
-    protected override _createSlot(device: pc.WebglGraphicsDevice, elementCount: number): TFState {
-        return new TFState(device, elementCount, "float32");
+    protected override _createSlot(device: pc.WebglGraphicsDevice, elementCount: number): CoverageTFState {
+        return new CoverageTFState(device, elementCount);
     }
 
     /**
@@ -73,7 +73,7 @@ export class CoverageTFReadback extends TFStateQueue<TFState> {
         const frameId = this._frameId;
         const minReadbackLag = this._minReadbackLag;
 
-        let newest: TFState | null = null;
+        let newest: CoverageTFState | null = null;
 
         for (let i = 0; i < slots.length; i++) {
 
@@ -116,7 +116,7 @@ export class CoverageTFReadback extends TFStateQueue<TFState> {
         }
     }
 
-    protected override _commit(slot: TFState): boolean {
+    protected override _commit(slot: CoverageTFState): boolean {
         if (slot.read(this._cpuDepth) <= 0) {
             return false;
         }

@@ -6,7 +6,7 @@ import packCodeVS from "./WebglCoverageBuffer.pack.glsl.js";
 import { CAMERA_DEPTH_DEVICE, applyCameraDepthDefines, getCameraDepthTexture, getCameraSceneDepthMode, writeCameraParams } from "../../../Extras/CameraHelpers.js";
 import { executeTransformFeedbackShader } from "../../../Extras/TransformFeedbackHelpers.js";
 import { CoverageTFReadback } from "./CoverageTFReadback.js";
-import { TFState } from "../../../GPUReadback/Webgl/TFState.js";
+import { CoverageTFState } from "./CoverageTFState.js";
 import { integerLog2 } from "../CoverageMath.js";
 
 /**
@@ -244,7 +244,7 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         // Downsample only when a slot is free. `acquire()` is null while every
         // slot is in flight, this frame already submitted, or {@link readbackPeriod}
         // skips this attempt.
-        let slot: TFState | null = null;
+        let slot: CoverageTFState | null = null;
         if (this._cpuReadback) {
             slot = this._readback.acquire();
             if (!slot) {
@@ -483,7 +483,7 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
     }
 
     protected _pack(
-        slot: TFState,
+        slot: CoverageTFState,
         srcBuffer: pc.Texture,
         srcWidth: number,
         srcHeight: number,

@@ -21,8 +21,6 @@ export type TTFElementType = "float32" | "uint32";
 export class TFState {
 
     public outputBuffer: pc.VertexBuffer;
-    public vp = new Float32Array(16);
-    public cameraParams = new Float32Array(4);
     public submitFrame = 0;
     /** A capture is fenced and not yet read or aborted. */
     public pending = false;
