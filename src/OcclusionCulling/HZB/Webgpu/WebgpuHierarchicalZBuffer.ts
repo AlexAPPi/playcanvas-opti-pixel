@@ -359,7 +359,7 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
 
         let startDestMip = 0;
         let readScreenDepth = 1;
-        let srcTexture = this._mainScreenDepthTexture as (pc.Texture | pc.TextureView);
+        let srcTexture: pc.Texture | pc.TextureView = this._mainScreenDepthTexture;
         do {
             const dstTexture0 = this._textureViews[startDestMip + 0] ?? this._blankTextureView[0];
             const dstTexture1 = this._textureViews[startDestMip + 1] ?? this._blankTextureView[1];
@@ -424,11 +424,11 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         const { vx, vy, vw, vh, sx, sy, sw, sh } = device;
         const oldRenderTarget = device.getRenderTarget();
 
+        let readScreenDepth = 1;
         let srcLevel  = 0;
-        let srcBuffer = this._mainScreenDepthTexture as (pc.Texture | pc.TextureView);
         let srcWidth  = this._mainScreenDepthTexture.width;
         let srcHeight = this._mainScreenDepthTexture.height;
-        let readScreenDepth = 1;
+        let srcBuffer : pc.Texture | pc.TextureView = this._mainScreenDepthTexture;
 
         _viewportMaxBoundArr[0] = (this.screenWidth  - 0.5) / srcWidth;
         _viewportMaxBoundArr[1] = (this.screenHeight - 0.5) / srcHeight;
