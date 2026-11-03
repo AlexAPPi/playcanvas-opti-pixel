@@ -20,6 +20,7 @@ export class OcclusionCullingSystem extends pc.EventHandler {
 
     private _camera: pc.Camera | null = null;
     private _autoUpdate: boolean = false;
+    private _useSceneDepthMap: boolean = false;
     private _drawHZB: boolean = false;
 
     private _hzbQueryLayerName: string = "";
@@ -54,6 +55,12 @@ export class OcclusionCullingSystem extends pc.EventHandler {
             this._queriesTester.freeze = !value;
         }
     }
+
+    /**
+     * When true, {@link autoUpdate} builds the pyramid from `camera.sceneDepthMap` (CameraFrame).
+     */
+    public get useSceneDepthMap() { return this._useSceneDepthMap; }
+    public set useSceneDepthMap(value: boolean) { this._useSceneDepthMap = value; }
 
     public get queriesLayerName() { return this._queriesLayerName; }
     public set queriesLayerName(name: string) { this._queriesLayerName = name; }
@@ -146,8 +153,12 @@ export class OcclusionCullingSystem extends pc.EventHandler {
 
         if (this._autoUpdate && this._camera) {
 
-            // Build HZB for the current frame
-            this._hzb?.update(this._camera);
+            if (this._useSceneDepthMap) {
+                this._hzb?.updateSceneDepth(this._camera);
+            }
+            else {
+                this._hzb?.update(this._camera);
+            }
 
             if (isGPU2CPUReadbackOcclusionCullingTester(this._hzbTester)) {
                 this._hzbTester.execute(this._camera);

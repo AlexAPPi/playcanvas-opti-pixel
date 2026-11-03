@@ -28,12 +28,12 @@ export default `
 
         if (uniforms.readScreenDepth == 1) {
 
-            #ifdef COVERAGE_DEPTH_RECIPROCAL
+            #if defined(CAMERA_DEPTH_RECIPROCAL)
                 let recip = value.r;
                 return select(uniforms.cameraParams.y, 1.0 / recip, recip > 0.0);
-            #elif defined(COVERAGE_DEPTH_LINEAR_PACKED)
+            #elif defined(CAMERA_DEPTH_LINEAR_PACKED)
                 return uint2float(value);
-            #elif defined(COVERAGE_DEPTH_LINEAR)
+            #elif defined(CAMERA_DEPTH_LINEAR)
                 return value.r;
             #elif defined(SCENE_DEPTHMAP_FLOAT)
                 return value.r;
@@ -54,7 +54,7 @@ export default `
         return max(max(d0, d1), max(d2, d3));
     }
 
-    #ifndef COVERAGE_DEPTH_VIEW
+    #ifndef CAMERA_DEPTH_VIEW
     fn linearizeDepth(z: f32) -> f32 {
         let n = uniforms.cameraParams.z;
         let f = uniforms.cameraParams.y;
@@ -87,7 +87,7 @@ export default `
 
         #ifdef PACK_TO_BUFFER
 
-            #ifndef COVERAGE_DEPTH_VIEW
+            #ifndef CAMERA_DEPTH_VIEW
                 maxDepth = linearizeDepth(maxDepth);
             #endif
 

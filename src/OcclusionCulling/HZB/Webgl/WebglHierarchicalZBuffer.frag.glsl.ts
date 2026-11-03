@@ -7,8 +7,37 @@ export default `
     uniform vec4 uDispatchThreadIdToBufferUV;
     uniform highp sampler2D uDepthMip;
 
+    #ifdef CAMERA_DEPTH_VIEW
+    uniform vec4 uCameraParams;
+    #endif
+
     #ifdef WORKAROUND_FLOAT
     #include "floatAsUintPS"
+    #endif
+
+    // CameraFrame stores view-space metres (or 1/viewZ). The pyramid stores device Z.
+    #ifdef CAMERA_DEPTH_VIEW
+    float delinearizeDepth(float linearDepth) {
+        float nearClip = uCameraParams.z;
+        float farClip = uCameraParams.y;
+        float viewZ = clamp(linearDepth, nearClip, farClip);
+        if (uCameraParams.w == 0.0) {
+            return (farClip * (nearClip - viewZ)) / (viewZ * (nearClip - farClip));
+        }
+        return (viewZ - nearClip) / (farClip - nearClip);
+    }
+
+    float sceneDeviceZ(vec4 value) {
+        #if defined(CAMERA_DEPTH_RECIPROCAL)
+            float recip = value.r;
+            float viewZ = recip > 0.0 ? 1.0 / recip : uCameraParams.y;
+            return delinearizeDepth(viewZ);
+        #elif defined(CAMERA_DEPTH_LINEAR_PACKED)
+            return delinearizeDepth(uint2float(value));
+        #else
+            return delinearizeDepth(value.r);
+        #endif
+    }
     #endif
 
     float convertDepth(vec4 value) {
@@ -23,10 +52,13 @@ export default `
             float mipDepth = workaroundFloat;
         #endif
 
-        #ifdef SCENE_DEPTHMAP_FLOAT
-            float screenDepth = value.r;
+        float screenDepth;
+        #if defined(CAMERA_DEPTH_VIEW)
+            screenDepth = sceneDeviceZ(value);
+        #elif defined(SCENE_DEPTHMAP_FLOAT)
+            screenDepth = value.r;
         #else
-            float screenDepth = workaroundFloat;
+            screenDepth = workaroundFloat;
         #endif
 
         return uReadScreenDepth > 0.5 ? screenDepth : mipDepth;

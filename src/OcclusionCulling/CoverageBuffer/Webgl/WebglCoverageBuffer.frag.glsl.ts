@@ -10,7 +10,7 @@ export default `
     uniform vec2 uCoverageSrcUvMax;
     uniform highp sampler2D uCoverageDepth;
 
-    #ifdef COVERAGE_DEPTH_RECIPROCAL
+    #ifdef CAMERA_DEPTH_RECIPROCAL
     uniform vec4 uCoverageCameraParams;
     #endif
 
@@ -21,12 +21,12 @@ export default `
         float packed = uint2float(value);
         float screenDepth;
 
-        #ifdef COVERAGE_DEPTH_RECIPROCAL
+        #if defined(CAMERA_DEPTH_RECIPROCAL)
             float recip = value.r;
             screenDepth = recip > 0.0 ? 1.0 / recip : uCoverageCameraParams.y;
-        #elif defined(COVERAGE_DEPTH_LINEAR_PACKED)
+        #elif defined(CAMERA_DEPTH_LINEAR_PACKED)
             screenDepth = packed;
-        #elif defined(COVERAGE_DEPTH_LINEAR)
+        #elif defined(CAMERA_DEPTH_LINEAR)
             screenDepth = value.r;
         #elif defined(SCENE_DEPTHMAP_FLOAT)
             screenDepth = value.r;

@@ -37,20 +37,21 @@ export function getCameraSceneDepthMode(camera: pc.Camera): number {
 }
 
 /**
- * Compile-time coverage depth variant. Device Z adds no defines.
+ * Compile-time scene-depth variant. Device Z adds no defines.
+ * `CAMERA_DEPTH_VIEW` is set for every CameraFrame encoding (linear, packed, reciprocal).
  */
 export function applyCameraDepthDefines(defines: Map<string, string>, mode: number) {
     if (mode === CAMERA_DEPTH_LINEAR) {
-        defines.set("COVERAGE_DEPTH_LINEAR", "");
+        defines.set("CAMERA_DEPTH_LINEAR", "");
     }
     else if (mode === CAMERA_DEPTH_LINEAR_PACKED) {
-        defines.set("COVERAGE_DEPTH_LINEAR_PACKED", "");
+        defines.set("CAMERA_DEPTH_LINEAR_PACKED", "");
     }
     else if (mode === CAMERA_DEPTH_RECIPROCAL) {
-        defines.set("COVERAGE_DEPTH_RECIPROCAL", "");
+        defines.set("CAMERA_DEPTH_RECIPROCAL", "");
     }
     if (mode !== CAMERA_DEPTH_DEVICE) {
-        defines.set("COVERAGE_DEPTH_VIEW", "");
+        defines.set("CAMERA_DEPTH_VIEW", "");
     }
 }
 

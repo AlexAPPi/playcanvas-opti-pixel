@@ -10,7 +10,10 @@ export default `
         readScreenDepth: i32,
         invSize: vec2<f32>,
         inputViewportMaxBound: vec2<f32>,
-        dispatchThreadIdToBufferUV: vec4<f32>
+        dispatchThreadIdToBufferUV: vec4<f32>,
+        #ifdef CAMERA_DEPTH_VIEW
+        cameraParams: vec4<f32>
+        #endif
     }
 
     @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -47,11 +50,39 @@ export default `
         );
     }
 
+    // CameraFrame stores view-space metres (or 1/viewZ). The pyramid stores device Z.
+    #ifdef CAMERA_DEPTH_VIEW
+    fn delinearizeDepth(linearDepth: f32) -> f32 {
+        let nearClip = uniforms.cameraParams.z;
+        let farClip = uniforms.cameraParams.y;
+        let viewZ = clamp(linearDepth, nearClip, farClip);
+        if (uniforms.cameraParams.w == 0.0) {
+            return (farClip * (nearClip - viewZ)) / (viewZ * (nearClip - farClip));
+        }
+        return (viewZ - nearClip) / (farClip - nearClip);
+    }
+
+    fn sceneDeviceZ(value: vec4f) -> f32 {
+        #if defined(CAMERA_DEPTH_RECIPROCAL)
+            let recip = value.r;
+            let viewZ = select(uniforms.cameraParams.y, 1.0 / recip, recip > 0.0);
+            return delinearizeDepth(viewZ);
+        #elif defined(CAMERA_DEPTH_LINEAR_PACKED)
+            return delinearizeDepth(uint2float(value));
+        #else
+            return delinearizeDepth(value.r);
+        #endif
+    }
+    #endif
+
     fn convertDepth(value: vec4f) -> f32 {
 
-        // TODO: screen depth always f32 ?
         if (uniforms.readScreenDepth == 1) {
-            return value.r;
+            #ifdef CAMERA_DEPTH_VIEW
+                return sceneDeviceZ(value);
+            #else
+                return value.r;
+            #endif
         }
 
         #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16)
@@ -182,7 +213,7 @@ export default `
             #if DIM_CLOSEST
                 // TODO
             #endif
-        }		
+        }
         #endif
     }
 

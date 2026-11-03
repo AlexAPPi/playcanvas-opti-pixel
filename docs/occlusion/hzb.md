@@ -11,13 +11,13 @@ PlayCanvas device picks the implementation:
 
 `OcclusionCullingSystem` constructs the matching pair. You can also instantiate the concrete classes yourself if you need a custom frame graph.
 
-`IHierarchicalZBuffer` is a texture/size view. `update(camera)` exists on `WebglHierarchicalZBuffer` and `WebgpuHierarchicalZBuffer`, not on the interface. Coverage buffers implement the same view via `ICoverageBuffer`, which adds `frameUpdate` plus `captureDepthGrab` / `captureSceneDepthMap`.
+`IHierarchicalZBuffer` is a texture/size view plus `update(camera)` and `updateSceneDepth(camera)`. Coverage buffers implement the same view via `ICoverageBuffer`, which adds `frameUpdate` plus `captureDepthGrab` / `captureSceneDepthMap`.
 
 ## What `autoUpdate` actually does
 
 When `system.autoUpdate` is true and `system.camera` is set, `OcclusionCullingSystem` on `frameend`:
 
-1. Calls `hzb.update(camera)` (builds the pyramid)
+1. Builds the pyramid: `hzb.update(camera)`, or `hzb.updateSceneDepth(camera)` when `system.useSceneDepthMap` is set
 2. Calls `hzbTester.execute(camera)` **only** if the tester is a GPU→CPU readback tester (`isGPU2CPUReadbackOcclusionCullingTester`) — that is WebGL HZB, not WebGPU
 
 You still `lock` / `enqueue` yourself. On WebGPU you must also call `execute` (and wire indirect draws).
@@ -53,7 +53,7 @@ app.on("update", () => {
 });
 ```
 
-When `autoUpdate` is false, call `WebglHierarchicalZBuffer.update(camera)` and `tester.execute(camera)` yourself after opaque depth is available. `OcclusionCullingSystem` still runs `tester.frameUpdate` on `frameupdate`. If you constructed the tester yourself (no system), call `frameUpdate` each frame so readbacks can complete.
+When `autoUpdate` is false, call `update(camera)` or `updateSceneDepth(camera)` and `tester.execute(camera)` yourself after opaque depth is available. `OcclusionCullingSystem` still runs `tester.frameUpdate` on `frameupdate`. If you constructed the tester yourself (no system), call `frameUpdate` each frame so readbacks can complete.
 
 WebGL HZB downloads with `copyBufferSubData` into a STREAM_READ PBO and `fenceSync`, then harvests FIFO, one slot per `frameUpdate`, no `gl.flush()`. Default **4** in-flight slots and **2** frames of `minReadbackLag`. Coverage uses the same PBO read, but harvests newest-first: its slots are interchangeable full-frame depth maps, while each HZB slot is a different AABB queue and must not be skipped. Its ring size is `readbackSlots` (default **5**). `enqueue` can return `-1` (`SOME_ENQUEUE_PROBLEM`) on a non-capture tick (`readbackPeriod`) or when every slot is busy — treat that like `OCCLUSION_UNKNOWN`.
 
@@ -90,7 +90,21 @@ app.on("update", () => {
 
 ## Depth source
 
-HZB is only as good as the depth you copy. Build it after opaque geometry, before you rely on the test. The pyramid samples PlayCanvas **depth grab** (`pc.Camera.renderPassDepthGrab`); enable it with `CameraComponent.requestSceneDepthMap(true)`.
+HZB is only as good as the depth you copy. Build it after opaque geometry, before you rely on the test.
+
+`update(camera)` samples the PlayCanvas **depth grab** (`pc.Camera.renderPassDepthGrab`). Enable it with `CameraComponent.requestSceneDepthMap(true)`.
+
+`updateSceneDepth(camera)` samples `camera.sceneDepthMap`. Use it with CameraFrame (`rendering.sceneDepthMap`, or a post effect that publishes scene depth). `requestSceneDepthMap` is ignored while `framePasses` is set. Linear, packed, and reciprocal encodings are decoded to device Z on the first pass, so later mips and the occlusion test stay in device Z. The call is a no-op until the map is published. Call it from `postrender` or `frameend` — in `update` the map is still the previous frame.
+
+```ts
+cameraFrame.rendering.sceneDepthMap = true;
+cameraFrame.update();
+
+system.useSceneDepthMap = true;
+system.autoUpdate = true;
+```
+
+With `autoUpdate` off, call `hzb.updateSceneDepth(camera)` yourself where you would have called `update`.
 
 On canvas resize, `OcclusionCullingSystem` rebuilds the pyramid automatically (WebGL uses `resizeWithDelay`). Call `system.resize()` after the **AABB store** grows so testers grow their queues — it does not rebuild the HZB.
 
