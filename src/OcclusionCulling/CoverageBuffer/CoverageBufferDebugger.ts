@@ -74,8 +74,8 @@ export class CoverageBufferDebugger {
 
         if (info.inFrustum) {
 
-            _minPoint.copy(boundingBox.center).sub(boundingBox.halfExtents);
-            _maxPoint.copy(boundingBox.center).add(boundingBox.halfExtents);
+            _minPoint.sub2(boundingBox.center, boundingBox.halfExtents);
+            _maxPoint.add2(boundingBox.center, boundingBox.halfExtents);
 
             if (box) {
                 this._wireRenderer.color.copy(occlusionStatus === OCCLUSION_OCCLUDED ? pc.Color.RED : pc.Color.GREEN);
