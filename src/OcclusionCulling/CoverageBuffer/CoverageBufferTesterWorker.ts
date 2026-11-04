@@ -331,8 +331,8 @@ export class CoverageBufferTesterWorker implements IGPU2CPUReadbackOcclusionCull
         const dirty = this._dirtyAabbIds;
 
         if (this._aabbFullNeeded) {
-            CoverageBusApi.copyAabbFromStore(store.centersData, store.halfExtentsData, bus, null);
             this._aabbFullNeeded = false;
+            CoverageBusApi.copyAabbFromStore(store.centersData, store.halfExtentsData, bus, null);
             dirty.clear();
             return true;
         }
