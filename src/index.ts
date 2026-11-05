@@ -45,7 +45,9 @@ import { FRUSTUM_CONTAINED, FRUSTUM_INTERSECTS, FRUSTUM_OUTSIDE, FRUSTUM_UNKNOWN
     IPrimitive,
     isCPUSoftwareOcclusionCullingTester, isGPU2CPUReadbackOcclusionCullingTester, isGPUIndirectDrawOcclusionCullingTester, isGPUOcclusionCullingTester,
     OCCLUSION_OCCLUDED, OCCLUSION_UNKNOWN, OCCLUSION_VISIBLE,
-    IReadbackOcclusionCullingTester
+    IReadbackOcclusionCullingTester,
+    TFrustumResult,
+    TOcclusionResult
 } from "./OcclusionCulling/IOcclusionCullingTester.js";
 import { OcclusionCullingSystem } from "./OcclusionCulling/OcclusionCullingSystem.js";
 import { BoxMesh } from "./OcclusionCulling/Queries/BoxMesh.js";
@@ -191,5 +193,7 @@ export type {
     IBasicHierarchicalInstancerParams,
     IBasicArrayHierarchicalInstancerParams,
     IInstancerShaderChunkMap,
-    IInstancerShaderChunkMapScope
+    IInstancerShaderChunkMapScope,
+    TFrustumResult,
+    TOcclusionResult
 };
