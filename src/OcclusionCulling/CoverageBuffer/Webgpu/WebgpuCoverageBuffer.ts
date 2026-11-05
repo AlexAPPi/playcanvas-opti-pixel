@@ -1,7 +1,7 @@
 import pc from "../../../engine.js";
 import { ICoverageBuffer } from "../ICoverageBuffer.js";
 import computeCodeCS from "./WebgpuCoverageBuffer.comp.wgsl.js";
-import { CAMERA_DEPTH_DEVICE, applyCameraDepthDefines, getCameraDepthTexture, getCameraSceneDepthMode, writeCameraParams } from "../../../Extras/CameraHelpers.js";
+import { CAMERA_DEPTH_DEVICE, applyCameraDepthDefines, getCameraDepthTexture, getCameraSceneDepthMode } from "../../../Extras/CameraHelpers.js";
 import { CoverageGpuReadback } from "./CoverageGpuReadback.js";
 import { CoverageGpuReadbackState } from "./CoverageGpuReadbackState.js";
 import { integerLog2 } from "../CoverageMath.js";
@@ -201,7 +201,7 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
         }
 
         this._viewProjection.mul2(camera.projectionMatrix, camera.viewMatrix);
-        writeCameraParams(_cameraParamsArr, camera);
+        camera.fillShaderParams(_cameraParamsArr);
 
         // Downsample only when a staging slot is free. `acquire()` is null
         // while every slot is in flight or this frame already submitted.

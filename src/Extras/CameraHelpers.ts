@@ -37,10 +37,33 @@ export function getCameraSceneDepthMode(camera: pc.Camera): number {
 }
 
 /**
- * Compile-time scene-depth variant. Device Z adds no defines.
- * `CAMERA_DEPTH_VIEW` is set for every CameraFrame encoding (linear, packed, reciprocal).
+ * Defines `screenDepthPS` already understands. Device Z adds none.
+ * `SCENE_DEPTHMAP_LINEAR` covers metres, packed RGBA8, and `1 / viewZ`.
+ */
+export function applySceneDepthDefines(defines: Map<string, string>, mode: number) {
+
+    if (mode === CAMERA_DEPTH_DEVICE) {
+        return;
+    }
+
+    defines.set("SCENE_DEPTHMAP_LINEAR", "");
+
+    if (mode === CAMERA_DEPTH_LINEAR_PACKED) {
+        defines.set("SCENE_DEPTHMAP_PACKED", "");
+    }
+    else if (mode === CAMERA_DEPTH_RECIPROCAL) {
+        defines.set("SCENE_DEPTHMAP_RECIPROCAL", "");
+    }
+}
+
+/**
+ * Coverage-buffer names plus {@link applySceneDepthDefines}.
+ * `CAMERA_DEPTH_VIEW` means the value is already view-space metres.
  */
 export function applyCameraDepthDefines(defines: Map<string, string>, mode: number) {
+
+    applySceneDepthDefines(defines, mode);
+
     if (mode === CAMERA_DEPTH_LINEAR) {
         defines.set("CAMERA_DEPTH_LINEAR", "");
     }
@@ -53,14 +76,4 @@ export function applyCameraDepthDefines(defines: Map<string, string>, mode: numb
     if (mode !== CAMERA_DEPTH_DEVICE) {
         defines.set("CAMERA_DEPTH_VIEW", "");
     }
-}
-
-/** PlayCanvas `camera_params`: (1/far, far, near, ortho). */
-export function writeCameraParams(out: Float32Array, camera: pc.Camera) {
-    const far = camera.farClip;
-    const near = camera.nearClip;
-    out[0] = far > 0 ? 1 / far : 0;
-    out[1] = far;
-    out[2] = near;
-    out[3] = camera.projection === pc.PROJECTION_ORTHOGRAPHIC ? 1 : 0;
 }

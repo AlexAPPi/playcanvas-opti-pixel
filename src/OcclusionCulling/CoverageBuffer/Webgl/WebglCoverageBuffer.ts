@@ -3,7 +3,7 @@ import { ICoverageBuffer } from "../ICoverageBuffer.js";
 import vertexCodeVS from "./WebglCoverageBuffer.vert.glsl.js";
 import fragmentCodePS from "./WebglCoverageBuffer.frag.glsl.js";
 import packCodeVS from "./WebglCoverageBuffer.pack.glsl.js";
-import { CAMERA_DEPTH_DEVICE, applyCameraDepthDefines, getCameraDepthTexture, getCameraSceneDepthMode, writeCameraParams } from "../../../Extras/CameraHelpers.js";
+import { CAMERA_DEPTH_DEVICE, applyCameraDepthDefines, getCameraDepthTexture, getCameraSceneDepthMode } from "../../../Extras/CameraHelpers.js";
 import { executeTransformFeedbackShader } from "../../../Extras/TransformFeedbackHelpers.js";
 import { CoverageTFReadback } from "./CoverageTFReadback.js";
 import { CoverageTFState } from "./CoverageTFState.js";
@@ -239,7 +239,7 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         }
 
         this._viewProjection.mul2(camera.projectionMatrix, camera.viewMatrix);
-        writeCameraParams(_cameraParamsArr, camera);
+        camera.fillShaderParams(_cameraParamsArr);
 
         // Downsample only when a slot is free. `acquire()` is null while every
         // slot is in flight, this frame already submitted, or {@link readbackPeriod}

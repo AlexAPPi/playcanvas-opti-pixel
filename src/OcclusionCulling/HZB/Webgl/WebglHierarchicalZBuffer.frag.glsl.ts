@@ -1,67 +1,57 @@
 export default `
 
-    uniform float uReadScreenDepth;
-    uniform float uReadLevel;
     uniform vec2 uInvSize;
     uniform vec2 uInputViewportMaxBound;
     uniform vec4 uDispatchThreadIdToBufferUV;
     uniform highp sampler2D uDepthMip;
+    uniform float uReadLevel;
 
-    #ifdef CAMERA_DEPTH_VIEW
+    #ifdef SCENE_DEPTHMAP_LINEAR
     uniform vec4 uCameraParams;
     #endif
 
-    #ifdef WORKAROUND_FLOAT
     #include "floatAsUintPS"
-    #endif
 
-    // CameraFrame stores view-space metres (or 1/viewZ). The pyramid stores device Z.
-    #ifdef CAMERA_DEPTH_VIEW
+    // Same reconstruction as PlayCanvas screenDepthPS / Camera.fillShaderParams.
+    // camera params: (1/far, far, near, isOrtho). Device Z is 0 at the near plane and 1 at the far plane.
+    #ifdef SCENE_DEPTHMAP_LINEAR
     float delinearizeDepth(float linearDepth) {
         float nearClip = uCameraParams.z;
         float farClip = uCameraParams.y;
-        float viewZ = clamp(linearDepth, nearClip, farClip);
         if (uCameraParams.w == 0.0) {
-            return (farClip * (nearClip - viewZ)) / (viewZ * (nearClip - farClip));
+            return (farClip * (nearClip - linearDepth)) / (linearDepth * (nearClip - farClip));
         }
-        return (viewZ - nearClip) / (farClip - nearClip);
+        return (linearDepth - nearClip) / (farClip - nearClip);
     }
 
-    float sceneDeviceZ(vec4 value) {
-        #if defined(CAMERA_DEPTH_RECIPROCAL)
+    float decodeLinearDepthToDeviceZ(vec4 value) {
+        #if defined(SCENE_DEPTHMAP_PACKED)
+            return delinearizeDepth(uint2float(value));
+        #elif defined(SCENE_DEPTHMAP_RECIPROCAL)
             float recip = value.r;
             float viewZ = recip > 0.0 ? 1.0 / recip : uCameraParams.y;
             return delinearizeDepth(viewZ);
-        #elif defined(CAMERA_DEPTH_LINEAR_PACKED)
-            return delinearizeDepth(uint2float(value));
         #else
             return delinearizeDepth(value.r);
         #endif
     }
     #endif
 
-    float convertDepth(vec4 value) {
+    float decodeDeviceZ(vec4 value) {
 
-        #ifdef WORKAROUND_FLOAT
-            float workaroundFloat = uint2float(value);
-        #endif
+        #if defined(READ_SCREEN_DEPTH)
 
-        #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16 || READ_DEPTH)
-            float mipDepth = value.r;
+            #if defined(SCENE_DEPTHMAP_LINEAR)
+                return decodeLinearDepthToDeviceZ(value);
+            #else
+                return value.r;
+            #endif
+
+        #elif defined(DEPTH_IS_FLOAT) || defined(DEPTH_IS_FLOAT16) || defined(READ_DEPTH)
+            return value.r;
         #else
-            float mipDepth = workaroundFloat;
+            return uint2float(value);
         #endif
-
-        float screenDepth;
-        #if defined(CAMERA_DEPTH_VIEW)
-            screenDepth = sceneDeviceZ(value);
-        #elif defined(SCENE_DEPTHMAP_FLOAT)
-            screenDepth = value.r;
-        #else
-            screenDepth = workaroundFloat;
-        #endif
-
-        return uReadScreenDepth > 0.5 ? screenDepth : mipDepth;
     }
 
     vec4 gather4(vec2 bufferUV) {
@@ -74,36 +64,29 @@ export default `
         vec2 uv3 = min(bufferUV + vec2( 0.25,  0.25) * uInvSize, uInputViewportMaxBound);
 
         return vec4(
-            convertDepth(textureLod(uDepthMip, uv0, uReadLevel)),
-            convertDepth(textureLod(uDepthMip, uv1, uReadLevel)),
-            convertDepth(textureLod(uDepthMip, uv2, uReadLevel)),
-            convertDepth(textureLod(uDepthMip, uv3, uReadLevel))
+            decodeDeviceZ(textureLod(uDepthMip, uv0, uReadLevel)),
+            decodeDeviceZ(textureLod(uDepthMip, uv1, uReadLevel)),
+            decodeDeviceZ(textureLod(uDepthMip, uv2, uReadLevel)),
+            decodeDeviceZ(textureLod(uDepthMip, uv3, uReadLevel))
         );
     }
 
     float maxInVec(vec4 v) {
-        return max(
-            max(v.x, v.y),
-            max(v.z, v.w)
-        );
+        return max(max(v.x, v.y), max(v.z, v.w));
     }
 
     void main() {
 
         vec2 bufferUV = gl_FragCoord.xy * uDispatchThreadIdToBufferUV.xy + uDispatchThreadIdToBufferUV.zw;
-        vec4 deviceZ = gather4(bufferUV);
-        float maxDepth = maxInVec(deviceZ);
+        vec4 deviceDepths = gather4(bufferUV);
+        float maxDeviceZ = maxInVec(deviceDepths);
 
         #ifdef WRITE_DEPTH
-            gl_FragDepth = maxDepth;
+            gl_FragDepth = maxDeviceZ;
+        #elif defined(DEPTH_IS_FLOAT) || defined(DEPTH_IS_FLOAT16)
+            gl_FragColor = vec4(maxDeviceZ, 0.0, 0.0, 1.0);
         #else
-
-            #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16)
-                gl_FragColor = vec4(maxDepth, 0.0, 0.0, 1.0);
-            #else
-                gl_FragColor = float2uint(maxDepth);
-            #endif
-
+            gl_FragColor = float2uint(maxDeviceZ);
         #endif
     }
 `;

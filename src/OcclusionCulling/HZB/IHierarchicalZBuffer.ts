@@ -2,7 +2,7 @@ import pc from "../../engine.js";
 
 /**
  * Device-Z pyramid built from the camera depth.
- * Testers compare an AABB's far device Z with the mip that covers its screen rectangle.
+ * Testers compare an AABB's closest device Z with the mip that covers its screen rectangle.
  */
 export interface IHierarchicalZBuffer {
 
@@ -72,8 +72,9 @@ export interface IHierarchicalZBuffer {
 
     /**
      * Same pyramid as {@link update}, from `camera.sceneDepthMap`.
-     * Use with CameraFrame (`rendering.sceneDepthMap`, or a post effect that publishes scene depth).
-     * Linear, packed, and reciprocal encodings are decoded to device Z on the first pass.
+     * The encoding comes from `camera.shaderParams` (`sceneDepthMapLinear`,
+     * `sceneDepthMapPacked`, `sceneDepthMapReciprocal`): view-space metres, packed RGBA8,
+     * or `1 / viewZ`. The first pass point-samples that texture and stores device Z.
      * Later mips and the occlusion test stay in device Z.
      * No-op until the map is published, or when disabled.
      * Call from `postrender` or `frameend`.

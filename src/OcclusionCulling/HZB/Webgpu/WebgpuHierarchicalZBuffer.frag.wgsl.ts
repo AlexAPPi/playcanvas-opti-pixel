@@ -1,68 +1,55 @@
 export default `
     #include "floatAsUintPS"
 
-    uniform uReadScreenDepth: i32;
-    uniform uReadLevel: f32;
     uniform uInvSize: vec2<f32>;
     uniform uInputViewportMaxBound: vec2<f32>;
     uniform uDispatchThreadIdToBufferUV: vec4<f32>;
-    #ifdef CAMERA_DEPTH_VIEW
+    #ifdef SCENE_DEPTHMAP_LINEAR
     uniform uCameraParams: vec4f;
     #endif
 
-    var srcDepth: texture_2d<{SRC_DEPTH_FORMAT}>;
+    var srcDepth: texture_2d<uff>;
     var srcDepthSampler: sampler;
 
-    fn minInVec(vec: vec4<f32>) -> f32 {
-        return min(
-            min(vec.x, vec.y),
-            min(vec.z, vec.w)
-        );
-    }
-
     fn maxInVec(vec: vec4<f32>) -> f32 {
-        return max(
-            max(vec.x, vec.y),
-            max(vec.z, vec.w)
-        );
+        return max(max(vec.x, vec.y), max(vec.z, vec.w));
     }
 
-    // CameraFrame stores view-space metres (or 1/viewZ). The pyramid stores device Z.
-    #ifdef CAMERA_DEPTH_VIEW
+    // Same reconstruction as PlayCanvas screenDepthPS. Device Z is 0 at near and 1 at far.
+    #ifdef SCENE_DEPTHMAP_LINEAR
     fn delinearizeDepth(linearDepth: f32) -> f32 {
         let nearClip = uniform.uCameraParams.z;
         let farClip = uniform.uCameraParams.y;
-        let viewZ = clamp(linearDepth, nearClip, farClip);
         if (uniform.uCameraParams.w == 0.0) {
-            return (farClip * (nearClip - viewZ)) / (viewZ * (nearClip - farClip));
+            return (farClip * (nearClip - linearDepth)) / (linearDepth * (nearClip - farClip));
         }
-        return (viewZ - nearClip) / (farClip - nearClip);
+        return (linearDepth - nearClip) / (farClip - nearClip);
     }
 
-    fn sceneDeviceZ(value: vec4f) -> f32 {
-        #if defined(CAMERA_DEPTH_RECIPROCAL)
+    fn decodeLinearDepthToDeviceZ(value: vec4f) -> f32 {
+        #if defined(SCENE_DEPTHMAP_PACKED)
+            return delinearizeDepth(uint2float(value));
+        #elif defined(SCENE_DEPTHMAP_RECIPROCAL)
             let recip = value.r;
             let viewZ = select(uniform.uCameraParams.y, 1.0 / recip, recip > 0.0);
             return delinearizeDepth(viewZ);
-        #elif defined(CAMERA_DEPTH_LINEAR_PACKED)
-            return delinearizeDepth(uint2float(value));
         #else
             return delinearizeDepth(value.r);
         #endif
     }
     #endif
 
-    fn convertDepth(value: vec4f) -> f32 {
+    fn decodeDeviceZ(value: vec4f) -> f32 {
 
-        if (uniform.uReadScreenDepth == 1) {
-            #ifdef CAMERA_DEPTH_VIEW
-                return sceneDeviceZ(value);
+        #if defined(READ_SCREEN_DEPTH)
+
+            #if defined(SCENE_DEPTHMAP_LINEAR)
+                return decodeLinearDepthToDeviceZ(value);
             #else
                 return value.r;
             #endif
-        }
 
-        #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16)
+        #elif defined(DEPTH_IS_FLOAT) || defined(DEPTH_IS_FLOAT16) || defined(READ_DEPTH)
             return value.r;
         #else
             return uint2float(value);
@@ -71,9 +58,8 @@ export default `
 
     fn gather4(bufferUV: vec2f) -> vec4f {
 
-        // TODO: screen depth always f32 ?
-        // TODO: textureGather availability on the platform ?
-        #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16)
+        // Float reduce already stores device Z in component 0. Every other source goes through decodeDeviceZ.
+        #if !defined(READ_SCREEN_DEPTH) && (defined(DEPTH_IS_FLOAT) || defined(DEPTH_IS_FLOAT16))
 
         let uv = min(bufferUV + vec2(-0.25, -0.25) * uniform.uInvSize, uniform.uInputViewportMaxBound - uniform.uInvSize);
         return textureGather(0, srcDepth, srcDepthSampler, uv);
@@ -87,12 +73,12 @@ export default `
         let uv2 = min(bufferUV + vec2f(-0.25,  0.25) * uniform.uInvSize, uniform.uInputViewportMaxBound);
         let uv3 = min(bufferUV + vec2f( 0.25,  0.25) * uniform.uInvSize, uniform.uInputViewportMaxBound);
 
-        var out: vec4f;
-        out.x = convertDepth(textureSampleLevel(srcDepth, srcDepthSampler, uv0, 0));
-        out.y = convertDepth(textureSampleLevel(srcDepth, srcDepthSampler, uv1, 0));
-        out.z = convertDepth(textureSampleLevel(srcDepth, srcDepthSampler, uv2, 0));
-        out.w = convertDepth(textureSampleLevel(srcDepth, srcDepthSampler, uv3, 0));
-        return out;
+        return vec4f(
+            decodeDeviceZ(textureSampleLevel(srcDepth, srcDepthSampler, uv0, 0.0)),
+            decodeDeviceZ(textureSampleLevel(srcDepth, srcDepthSampler, uv1, 0.0)),
+            decodeDeviceZ(textureSampleLevel(srcDepth, srcDepthSampler, uv2, 0.0)),
+            decodeDeviceZ(textureSampleLevel(srcDepth, srcDepthSampler, uv3, 0.0))
+        );
 
         #endif
     }
@@ -100,16 +86,13 @@ export default `
     @fragment fn fragmentMain(input : FragmentInput) -> FragmentOutput {
         var output: FragmentOutput;
         let bufferUV = input.position.xy * uniform.uDispatchThreadIdToBufferUV.xy + uniform.uDispatchThreadIdToBufferUV.zw;
-        let deviceZ = gather4(bufferUV);
-        let depth = maxInVec(deviceZ);
+        let depth = maxInVec(gather4(bufferUV));
 
-        #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16)
-            let outColor = vec4<f32>(vec3<f32>(depth), 1.0);
+        #if defined(DEPTH_IS_FLOAT) || defined(DEPTH_IS_FLOAT16)
+            output.color = vec4<f32>(vec3<f32>(depth), 1.0);
         #else
-            let outColor = float2uint(depth);
+            output.color = float2uint(depth);
         #endif
-
-        output.color = outColor;
         return output;
     }
 `;

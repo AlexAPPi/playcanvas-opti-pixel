@@ -7,16 +7,18 @@ export default `
     const DIM_MIP_LEVEL_COUNT: u32 = {DIM_MIP_LEVEL_COUNT}u;
 
     struct Uniforms {
-        readScreenDepth: i32,
         invSize: vec2<f32>,
         inputViewportMaxBound: vec2<f32>,
         dispatchThreadIdToBufferUV: vec4<f32>,
-        #ifdef CAMERA_DEPTH_VIEW
+        #ifdef SCENE_DEPTHMAP_LINEAR
         cameraParams: vec4<f32>
         #endif
     }
 
     @group(0) @binding(0) var<uniform> uniforms: Uniforms;
+
+    // Explicit @binding lines are compiled as written. uff is only rewritten
+    // for bare var declarations; the bind group sample type selects unfilterable-float.
     @group(0) @binding(1) var srcDepth: texture_2d<{SRC_DEPTH_FORMAT}>;
     @group(0) @binding(2) var srcDepthSampler: sampler;
 
@@ -37,55 +39,48 @@ export default `
     #endif
 
     fn minInVec(vec: vec4<f32>) -> f32 {
-        return min(
-            min(vec.x, vec.y),
-            min(vec.z, vec.w)
-        );
+        return min(min(vec.x, vec.y), min(vec.z, vec.w));
     }
 
     fn maxInVec(vec: vec4<f32>) -> f32 {
-        return max(
-            max(vec.x, vec.y),
-            max(vec.z, vec.w)
-        );
+        return max(max(vec.x, vec.y), max(vec.z, vec.w));
     }
 
-    // CameraFrame stores view-space metres (or 1/viewZ). The pyramid stores device Z.
-    #ifdef CAMERA_DEPTH_VIEW
+    // Same reconstruction as PlayCanvas screenDepthPS. Device Z is 0 at near and 1 at far.
+    #ifdef SCENE_DEPTHMAP_LINEAR
     fn delinearizeDepth(linearDepth: f32) -> f32 {
         let nearClip = uniforms.cameraParams.z;
         let farClip = uniforms.cameraParams.y;
-        let viewZ = clamp(linearDepth, nearClip, farClip);
         if (uniforms.cameraParams.w == 0.0) {
-            return (farClip * (nearClip - viewZ)) / (viewZ * (nearClip - farClip));
+            return (farClip * (nearClip - linearDepth)) / (linearDepth * (nearClip - farClip));
         }
-        return (viewZ - nearClip) / (farClip - nearClip);
+        return (linearDepth - nearClip) / (farClip - nearClip);
     }
 
-    fn sceneDeviceZ(value: vec4f) -> f32 {
-        #if defined(CAMERA_DEPTH_RECIPROCAL)
+    fn decodeLinearDepthToDeviceZ(value: vec4f) -> f32 {
+        #if defined(SCENE_DEPTHMAP_PACKED)
+            return delinearizeDepth(uint2float(value));
+        #elif defined(SCENE_DEPTHMAP_RECIPROCAL)
             let recip = value.r;
             let viewZ = select(uniforms.cameraParams.y, 1.0 / recip, recip > 0.0);
             return delinearizeDepth(viewZ);
-        #elif defined(CAMERA_DEPTH_LINEAR_PACKED)
-            return delinearizeDepth(uint2float(value));
         #else
             return delinearizeDepth(value.r);
         #endif
     }
     #endif
 
-    fn convertDepth(value: vec4f) -> f32 {
+    fn decodeDeviceZ(value: vec4f) -> f32 {
 
-        if (uniforms.readScreenDepth == 1) {
-            #ifdef CAMERA_DEPTH_VIEW
-                return sceneDeviceZ(value);
+        #if defined(READ_SCREEN_DEPTH)
+
+            #if defined(SCENE_DEPTHMAP_LINEAR)
+                return decodeLinearDepthToDeviceZ(value);
             #else
                 return value.r;
             #endif
-        }
 
-        #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16)
+        #elif defined(DEPTH_IS_FLOAT) || defined(DEPTH_IS_FLOAT16) || defined(READ_DEPTH)
             return value.r;
         #else
             return uint2float(value);
@@ -94,9 +89,8 @@ export default `
 
     fn gather4(bufferUV: vec2f) -> vec4f {
 
-        // TODO: screen depth always f32 ?
-        // TODO: textureGather availability on the platform ?
-        #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16)
+        // Float reduce already stores device Z in component 0. Every other source goes through decodeDeviceZ.
+        #if !defined(READ_SCREEN_DEPTH) && (defined(DEPTH_IS_FLOAT) || defined(DEPTH_IS_FLOAT16))
 
         let uv = min(bufferUV + vec2(-0.25, -0.25) * uniforms.invSize, uniforms.inputViewportMaxBound - uniforms.invSize);
         return textureGather(0, srcDepth, srcDepthSampler, uv);
@@ -110,19 +104,19 @@ export default `
         let uv2 = min(bufferUV + vec2f(-0.25,  0.25) * uniforms.invSize, uniforms.inputViewportMaxBound);
         let uv3 = min(bufferUV + vec2f( 0.25,  0.25) * uniforms.invSize, uniforms.inputViewportMaxBound);
 
-        var out: vec4f;
-        out.x = convertDepth(textureSampleLevel(srcDepth, srcDepthSampler, uv0, 0));
-        out.y = convertDepth(textureSampleLevel(srcDepth, srcDepthSampler, uv1, 0));
-        out.z = convertDepth(textureSampleLevel(srcDepth, srcDepthSampler, uv2, 0));
-        out.w = convertDepth(textureSampleLevel(srcDepth, srcDepthSampler, uv3, 0));
-        return out;
+        return vec4f(
+            decodeDeviceZ(textureSampleLevel(srcDepth, srcDepthSampler, uv0, 0.0)),
+            decodeDeviceZ(textureSampleLevel(srcDepth, srcDepthSampler, uv1, 0.0)),
+            decodeDeviceZ(textureSampleLevel(srcDepth, srcDepthSampler, uv2, 0.0)),
+            decodeDeviceZ(textureSampleLevel(srcDepth, srcDepthSampler, uv3, 0.0))
+        );
 
         #endif
     }
 
     fn output0Level(outputPixelPos: vec2<u32>, furthestDeviceZ: f32, closestDeviceZ: f32) {
 
-        #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16)
+        #if defined(DEPTH_IS_FLOAT) || defined(DEPTH_IS_FLOAT16)
             let resultFurthestDeviceZ = vec4<f32>(furthestDeviceZ, 0.0, 0.0, 1.0);
         #else
             let resultFurthestDeviceZ = float2uint(furthestDeviceZ);
@@ -132,7 +126,7 @@ export default `
             textureStore(dstDepth0, outputPixelPos, resultFurthestDeviceZ);
         #endif
 
-        #ifdef DIM_FURTHEST
+        #ifdef DIM_CLOSEST
             // TODO
         #endif
     }
@@ -176,15 +170,14 @@ export default `
 
     fn outputMipLevel(mipLevel: u32, outputPixelPos: vec2<u32>, furthestDeviceZ: f32, closestDeviceZ: f32) {
 
-        #ifdef (DEPTH_IS_FLOAT || DEPTH_IS_FLOAT16)
+        #if defined(DEPTH_IS_FLOAT) || defined(DEPTH_IS_FLOAT16)
             let resultFurthestDeviceZ: vec4f = vec4f(furthestDeviceZ, 0.0, 0.0, 1.0);
         #else
             let resultFurthestDeviceZ: vec4f = float2uint(furthestDeviceZ);
         #endif
 
         #if DIM_MIP_LEVEL_COUNT >= 2
-        if (mipLevel == 1)
-        {
+        if (mipLevel == 1) {
             #ifdef DIM_FURTHEST
                 textureStore(dstDepth1, outputPixelPos, resultFurthestDeviceZ);
             #endif
@@ -194,8 +187,7 @@ export default `
         }
         #endif
         #if DIM_MIP_LEVEL_COUNT >= 3
-        else if (mipLevel == 2)
-        {
+        else if (mipLevel == 2) {
             #if DIM_FURTHEST
                 textureStore(dstDepth2, outputPixelPos, resultFurthestDeviceZ);
             #endif
@@ -205,8 +197,7 @@ export default `
         }
         #endif
         #if DIM_MIP_LEVEL_COUNT >= 4
-        else if (mipLevel == 3)
-        {
+        else if (mipLevel == 3) {
             #if DIM_FURTHEST
                 textureStore(dstDepth3, outputPixelPos, resultFurthestDeviceZ);
             #endif
@@ -254,7 +245,7 @@ export default `
 
         let deviceZ = gather4(bufferUV);
 
-        // TODO: now not support reversed z (min -> furthest, max -> closest)
+        // Device Z: 0 is near, 1 is far, so the furthest sample in the quad is the max.
         var closestDeviceZ  = minInVec(deviceZ);
         var furthestDeviceZ = maxInVec(deviceZ);
 

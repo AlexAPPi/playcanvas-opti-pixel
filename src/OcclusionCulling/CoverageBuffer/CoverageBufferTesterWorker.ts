@@ -1,5 +1,4 @@
 import pc from "../../engine.js";
-import { writeCameraParams } from "../../Extras/CameraHelpers.js";
 import { IndexQueueEx } from "../../Extras/IndexQueueEx.js";
 import { getDebugInfo } from "../HZB/TesterDebugInfo.js";
 import {
@@ -167,7 +166,7 @@ export class CoverageBufferTesterWorker implements IGPU2CPUReadbackOcclusionCull
         this._viewProjection.mul2(camera.projectionMatrix, camera.viewMatrix);
         this._view.copy(camera.viewMatrix);
 
-        writeCameraParams(this._cameraParams, camera);
+        camera.fillShaderParams(this._cameraParams);
 
         if (!this._coverage.enabled ||
             !this._coverage.cpuReady ||

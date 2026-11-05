@@ -2,7 +2,7 @@ import pc from "../../../engine.js";
 import { IHierarchicalZBuffer } from "../IHierarchicalZBuffer.js";
 import vertexCodeVS from "./WebglHierarchicalZBuffer.vert.glsl.js";
 import fragmentCodePS from "./WebglHierarchicalZBuffer.frag.glsl.js";
-import { CAMERA_DEPTH_DEVICE, applyCameraDepthDefines, getCameraDepthTexture, getCameraSceneDepthMode, writeCameraParams } from "../../../Extras/CameraHelpers.js";
+import { CAMERA_DEPTH_DEVICE, applySceneDepthDefines, getCameraDepthTexture, getCameraSceneDepthMode } from "../../../Extras/CameraHelpers.js";
 
 export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
 
@@ -10,9 +10,8 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
     private _resizePending: boolean;
     private _resizeTimeout: number | null;
     private _device: pc.WebglGraphicsDevice;
-    private _copyShader: pc.Shader;
-    private _shader: pc.Shader;
-    private _shaders = new Map<number, pc.Shader>();
+    private _reduceShader: pc.Shader;
+    private _sourceShader: pc.Shader;
     private _boundDepthMode = -1;
     private _cameraParamsScope: pc.ScopeId;
     private _renderTargets: pc.RenderTarget[];
@@ -47,7 +46,6 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
     private _dispatchThreadIdToBufferUVScope: pc.ScopeId;
     private _inputViewportMaxBoundScope: pc.ScopeId;
     private _invSizeScope: pc.ScopeId;
-    private _readScreenDepthScope: pc.ScopeId;
     private _readLevelScope: pc.ScopeId;
     private _depthMipScope: pc.ScopeId;
 
@@ -91,7 +89,6 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         this._maxSize = maxSize;
         this._dispatchThreadIdToBufferUVScope = this._device.scope.resolve("uDispatchThreadIdToBufferUV");
         this._inputViewportMaxBoundScope = this._device.scope.resolve("uInputViewportMaxBound");
-        this._readScreenDepthScope = this._device.scope.resolve("uReadScreenDepth");
         this._readLevelScope = this._device.scope.resolve("uReadLevel");
         this._invSizeScope = this._device.scope.resolve("uInvSize");
         this._depthMipScope = this._device.scope.resolve("uDepthMip");
@@ -154,14 +151,14 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
     }
 
     protected _initShader() {
-        this._shader = this._ensureShader(CAMERA_DEPTH_DEVICE);
+        this._reduceShader = this._createShader(CAMERA_DEPTH_DEVICE, false);
+        this._sourceShader = this._createShader(CAMERA_DEPTH_DEVICE, true);
         this._boundDepthMode = CAMERA_DEPTH_DEVICE;
     }
 
-    private _shaderDefines(depthMode: number) {
+    private _shaderDefines(depthMode: number, readScreen: boolean) {
 
         const defines = new Map<string, string>();
-        let workaroundFloat = false;
 
         if (!this.isColor()) {
             defines.set("READ_DEPTH", "");
@@ -173,56 +170,44 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         else if (this.isFloat32()) {
             defines.set("DEPTH_IS_FLOAT", "");
         }
-        else {
-            workaroundFloat = true;
+
+        if (readScreen) {
+            defines.set("READ_SCREEN_DEPTH", "");
+            applySceneDepthDefines(defines, depthMode);
         }
 
-        if (this.device.textureFloatRenderable) {
-            defines.set("SCENE_DEPTHMAP_FLOAT", "");
-        }
-        else {
-            workaroundFloat = true;
-        }
-
-        if (workaroundFloat) {
-            defines.set("WORKAROUND_FLOAT", "");
-        }
-
-        applyCameraDepthDefines(defines, depthMode);
         return defines;
     }
 
-    private _ensureShader(depthMode: number) {
-        const existing = this._shaders.get(depthMode);
-        if (existing) {
-            return existing;
-        }
+    private _createShader(depthMode: number, readScreen: boolean) {
 
-        const shader = pc.ShaderUtils.createShader(this._device, {
-            uniqueName: "HZB_SHADER_" + depthMode,
+        return pc.ShaderUtils.createShader(this._device, {
+            uniqueName: readScreen ? "HZB_SHADER_SRC_" + depthMode : "HZB_SHADER_REDUCE",
             useTransformFeedback: false,
             vertexGLSL: vertexCodeVS,
             fragmentGLSL: fragmentCodePS,
-            fragmentDefines: this._shaderDefines(depthMode),
+            fragmentDefines: this._shaderDefines(depthMode, readScreen),
             attributes: {
                 aPosition: pc.SEMANTIC_POSITION
             },
         });
-        this._shaders.set(depthMode, shader);
-        return shader;
     }
 
     private _bindShader(depthMode: number) {
-        if (this._boundDepthMode === depthMode) {
-            return;
+
+        if (this._boundDepthMode !== depthMode) {
+            this._boundDepthMode = depthMode;
+            this._sourceShader?.destroy();
+            this._sourceShader = this._createShader(depthMode, true);
+
+            const source = this._sourceShader;
+            const reduce = this._reduceShader;
+            const passes = this._quadRenderPasses;
+
+            for (let i = 0; i < passes.length; i++) {
+                passes[i].shader = i === 0 ? source : reduce;
+            }
         }
-        const shader = this._ensureShader(depthMode);
-        const passes = this._quadRenderPasses;
-        for (let i = 0; i < passes.length; i++) {
-            passes[i].shader = shader;
-        }
-        this._shader = shader;
-        this._boundDepthMode = depthMode;
     }
 
     protected _initRenders() {
@@ -346,7 +331,7 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
                 rt = new pc.RenderTarget(optsRt);
             }
 
-            const rpsShader = this._shader;
+            const rpsShader = mip === 0 ? this._sourceShader : this._reduceShader;
             const rps = new pc.RenderPassShaderQuad(this._device);
 
             if (depthByColor) {
@@ -384,10 +369,10 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         this._renderTargets?.forEach(x => x?.destroy());
         this._buffers?.forEach(x => x?.destroy());
         this._mipsBuffers?.forEach(x => x?.destroy());
-        this._copyShader?.destroy();
-        this._shaders.forEach((shader) => shader.destroy());
-        this._shaders.clear();
-        this._shader = null!;
+        this._sourceShader?.destroy();
+        this._reduceShader?.destroy();
+        this._sourceShader = null!;
+        this._reduceShader = null!;
         this._boundDepthMode = -1;
         this._texture1?.destroy();
         this._texture2?.destroy();
@@ -421,8 +406,8 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
 
     /**
      * Same pyramid as {@link update}, from `camera.sceneDepthMap`.
-     * Linear, packed, and reciprocal CameraFrame encodings are decoded to device Z
-     * on the first pass. No-op until the map is published.
+     * `camera.shaderParams` selects metres, packed RGBA8, or `1 / viewZ`.
+     * The first pass point-samples that encoding into device Z. No-op until the map is published.
      */
     public updateSceneDepth(camera: pc.Camera) {
         this._updateFrom(camera, camera.sceneDepthMap, getCameraSceneDepthMode(camera));
@@ -444,8 +429,9 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         }
 
         this._bindShader(depthMode);
+
         if (depthMode !== CAMERA_DEPTH_DEVICE) {
-            writeCameraParams(_cameraParamsArr, camera);
+            camera.fillShaderParams(_cameraParamsArr);
             this._cameraParamsScope.setValue(_cameraParamsArr);
         }
 
@@ -458,7 +444,6 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         let srcBuffer = mainDepthTexture;
         let srcWidth  = mainDepthTexture.width;
         let srcHeight = mainDepthTexture.height;
-        let readScreenDepth = 1;
 
         _viewportMaxBoundArr[0] = (this.screenWidth  - 0.5) / srcWidth;
         _viewportMaxBoundArr[1] = (this.screenHeight - 0.5) / srcHeight;
@@ -478,14 +463,12 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
             this._inputViewportMaxBoundScope.setValue(_viewportMaxBoundArr);
             this._dispatchThreadIdToBufferUVScope.setValue(_dispatchThreadIdToBufferUVArr);
             this._invSizeScope.setValue(_invSizeArr);
-            this._readScreenDepthScope.setValue(readScreenDepth);
             this._readLevelScope.setValue(srcLevel);
             this._depthMipScope.setValue(srcBuffer);
 
             // Render to the current mip level
             this._quadRenderPasses[mip].render();
 
-            readScreenDepth = 0;
             srcLevel  = Math.max(0, mip - this._minMipLevel);
             srcWidth  = Math.max(1, this._globalMipWidth >> mip);
             srcHeight = Math.max(1, this._globalMipHeight >> mip);
