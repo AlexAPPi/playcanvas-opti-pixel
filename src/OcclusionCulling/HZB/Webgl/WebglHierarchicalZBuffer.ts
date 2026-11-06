@@ -42,6 +42,7 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
     private _minMipLevel: number;
     private _uvFactorX: number;
     private _uvFactorY: number;
+    private _uvFactor: [number, number];
 
     private _dispatchThreadIdToBufferUVScope: pc.ScopeId;
     private _inputViewportMaxBoundScope: pc.ScopeId;
@@ -71,8 +72,8 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         return this._resizePending;
     }
 
-    public get uvFactor(): [number, number] {
-        return [this._uvFactorX, this._uvFactorY];
+    public get uvFactor() {
+        return this._uvFactor;
     }
 
     /**
@@ -145,6 +146,7 @@ export class WebglHierarchicalZBuffer implements IHierarchicalZBuffer {
         // Calc uv factor
         this._uvFactorX   = this._screenWidth  / ((2 ** (this._minMipLevel + 1)) * this._width);
         this._uvFactorY   = this._screenHeight / ((2 ** (this._minMipLevel + 1)) * this._height);
+        this._uvFactor = [this._uvFactorX, this._uvFactorY];
 
         this._initShader();
         this._initRenders();

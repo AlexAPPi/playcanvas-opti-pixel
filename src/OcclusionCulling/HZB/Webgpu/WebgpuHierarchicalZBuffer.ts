@@ -44,6 +44,10 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
     private _invSizeScope: pc.ScopeId;
     private _srcDepthScope: pc.ScopeId;
 
+    private _uvFactorX: number;
+    private _uvFactorY: number;
+    private _uvFactor: [number, number];
+
     public get enabled() { return this._enabled; }
     public set enabled(value) { this._enabled = value; }
     public get screenWidth() { return this._screenWidth; }
@@ -69,11 +73,8 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         this._init();
     }
 
-    public get uvFactor(): [number, number] {
-        return [
-            this.screenWidth  / (2 * this.width),
-            this.screenHeight / (2 * this.height)
-        ];
+    public get uvFactor() {
+        return this._uvFactor;
     }
 
     public constructor(device: pc.WebgpuGraphicsDevice, useCompute: boolean = true, maxMipBatchSize: number = 4, debugName?: string) {
@@ -157,6 +158,10 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
         this._width  = 1 << numMipsX;
         this._height = 1 << numMipsY;
         this._mipLevels = numMips;
+
+        this._uvFactorX = this._screenWidth / (2 * this._width);
+        this._uvFactorY = this._screenHeight / (2 * this._height);
+        this._uvFactor = [this._uvFactorX, this._uvFactorY];
 
         const textureFormat = this.getTextureFormat();
 

@@ -38,7 +38,7 @@ export interface IHierarchicalZBuffer {
      * Scale from screen UV to the first stored mip.
      * Testers multiply the screen rectangle by this before sampling.
      */
-    uvFactor: [number, number];
+    uvFactor: readonly [number, number];
 
     /**
      * When false, {@link update} and {@link updateSceneDepth} do nothing
