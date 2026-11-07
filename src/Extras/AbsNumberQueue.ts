@@ -30,7 +30,7 @@ export abstract class AbsNumberQueue<TArray extends TypedArrayType> {
 
         if (this._queue === undefined ||
             this._queue.length !== arrLen ||
-            this._arrayConstructor.name !== arrayConstructor.name) {
+            this._arrayConstructor !== arrayConstructor) {
 
             this._arrayConstructor = arrayConstructor;
             this._queue = new arrayConstructor(arrLen);

@@ -9,7 +9,7 @@ import type { ICoverageCpuBuffer } from "./ICoverageCpuBuffer.js";
  * come from a bound bus + ping-pong output slot; this class only keeps scratch
  * (holes) and reprojection state.
  *
- * Bus float offsets must match {@link defineCoverageBufferBus} (HEADER_BYTES = 260).
+ * Bus float offsets must match {@link defineCoverageBufferBus} (HEADER_BYTES = 268).
  */
 export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
 
@@ -18,7 +18,7 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
     const OCCLUSION_UNKNOWN = -1 as const;
     const NEAR_EPS = 1e-5;
 
-    const HEADER_BYTES = 260;
+    const HEADER_BYTES = 268;
     const OUTPUT_HEADER_BYTES = 16;
     const F32_CAM = 5;
     const F32_AABB_EXPAND = 8;
@@ -27,7 +27,8 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
     const F32_SRC_VP = 17;
     const F32_DST_VP = 33;
     const F32_VIEW = 49;
-    const F32_SRC_DEPTH = 65;
+    const F32_GRID_SCALE = 65;
+    const F32_SRC_DEPTH = 67;
 
     const _inv = new Float32Array(16);
     const _reproject = new Float32Array(16);
@@ -48,6 +49,26 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
     let _minEye = 0, _maxEye = 0;
     let _t0 = 0, _t1 = 1;
     let _rangeMin = 1, _rangeMax = 1;
+
+    // Clipped silhouette in NDC, then its convex hull. The screen AABB of an
+    // oblique box covers empty corners; those texels are not the box.
+    const POLY_MAX = 64;
+    const _px = new Float32Array(POLY_MAX);
+    const _py = new Float32Array(POLY_MAX);
+    const _order = new Int32Array(POLY_MAX);
+    const _hx = new Float32Array(POLY_MAX);
+    const _hy = new Float32Array(POLY_MAX);
+    let _pn = 0;
+    let _hn = 0;
+    let _polyOverflow = false;
+    let _useX = 0, _useY = 0, _useZ = 0;
+    let _distX = 0, _distY = 0, _distZ = 0;
+    let _dxx = 0, _dxy = 0, _dxc = 0;
+    let _dyx = 0, _dyy = 0, _dyc = 0;
+    let _dzx = 0, _dzy = 0, _dzc = 0;
+    let _spanAny = false;
+    let _spanX0 = 0, _spanX1 = 0;
+    let _rectX0 = 0, _rectY0 = 0, _rectX1 = 0, _rectY1 = 0;
 
     const _emptyDepth = new Float32Array(0);
     const _emptyU32 = new Uint32Array(0);
@@ -86,6 +107,8 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
         private _rectPad = 0;
         private _w = 0;
         private _h = 0;
+        private _scaleX = 0;
+        private _scaleY = 0;
         private _vp: Float32Array = _dstVP;
         private _view: Float32Array = _viewMat;
         private _depth: Float32Array = _emptyDepth;
@@ -156,6 +179,10 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
             this._centersOff = F32_SRC_DEPTH + n0;
             this._halvesOff = this._centersOff + (cap << 2);
             this._queueOff = (HEADER_BYTES + n0 * 4 + cap * 32) >> 2;
+            const scaleX = this._busF32[F32_GRID_SCALE];
+            const scaleY = this._busF32[F32_GRID_SCALE + 1];
+            this._scaleX = scaleX > 0 ? scaleX : width;
+            this._scaleY = scaleY > 0 ? scaleY : height;
             this._bound = true;
         }
 
@@ -273,7 +300,26 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
                 return OCCLUSION_VISIBLE;
             }
 
-            return this._rectOccluded(_minX, _minY, _maxX, _maxY, minEye)
+            if (_polyOverflow || _hn < 3) {
+                return this._rectMinEye(_minX, _minY, _maxX, _maxY, minEye)
+                    ? OCCLUSION_OCCLUDED
+                    : OCCLUSION_VISIBLE;
+            }
+
+            if (this._busF32[F32_DST_PARAMS + 3] !== 0) {
+                _useX = 0;
+                _useY = 0;
+                _useZ = 0;
+            }
+            else {
+                prepareBoxDepth(
+                    this._view, this._vp,
+                    this._camX, this._camY, this._camZ,
+                    cx, cy, cz, hx, hy, hz
+                );
+            }
+
+            return this._rectOccluded(minEye)
                 ? OCCLUSION_OCCLUDED
                 : OCCLUSION_VISIBLE;
         }
@@ -340,10 +386,12 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
             const r4 = r[4], r5 = r[5], r7 = r[7];
             const r8 = r[8], r9 = r[9], r11 = r[11];
             const r12 = r[12], r13 = r[13], r15 = r[15];
-            const ndcStepX = 2 / w;
-            const ndcStepY = 2 / h;
-            const sxk = w * 0.5;
-            const syk = h * 0.5;
+            const scaleX = this._scaleX > 0 ? this._scaleX : w;
+            const scaleY = this._scaleY > 0 ? this._scaleY : h;
+            const ndcStepX = 2 / scaleX;
+            const ndcStepY = 2 / scaleY;
+            const sxk = scaleX * 0.5;
+            const syk = scaleY * 0.5;
 
             // ndcZ = A / L + B, in the -1..1 clip range the projection matrix was built for.
             const invDiffSrc = 1 / (srcNear - srcFar);
@@ -355,7 +403,9 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
 
             for (let y = 0; y < h; y++) {
 
-                const ndcY = (y + 0.5) * ndcStepY - 1;
+                // A partial edge pixel is centered on or past NDC 1. Clamp it
+                // onto the screen so that column is still reprojected.
+                const ndcY = coverageNdc(y, ndcStepY);
                 const srcRow = y * w;
                 const cwY = r7 * ndcY + r15 + r11 * B;
                 const nxY = r4 * ndcY + r12 + r8 * B;
@@ -368,7 +418,7 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
                         continue;
                     }
 
-                    const ndcX = (x + 0.5) * ndcStepX - 1;
+                    const ndcX = coverageNdc(x, ndcStepX);
                     const eyeZ = (r3 * ndcX + cwY) * L + kW;
                     if (!(eyeZ > dstNear && eyeZ < dstFar)) {
                         continue;
@@ -396,40 +446,21 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
             }
         }
 
-        private _rectOccluded(
+        /**
+         * Whole projected rect against the nearest eye Z.
+         * Fallback when the silhouette does not fit the scratch polygon.
+         */
+        private _rectMinEye(
             ndcMinX: number, ndcMinY: number, ndcMaxX: number, ndcMaxY: number,
             minZ: number
         ) {
-            const w = this._w;
-            const h = this._h;
-            const lastX = w - 1;
-            const lastY = h - 1;
-
-            let x0 = ndcToPixel(ndcMinX, w);
-            let y0 = ndcToPixel(ndcMinY, h);
-            let x1 = ndcToPixelEnd(ndcMaxX, w);
-            let y1 = ndcToPixelEnd(ndcMaxY, h);
-
-            if (x0 > lastX) x0 = lastX;
-            if (y0 > lastY) y0 = lastY;
-            if (x1 > lastX) x1 = lastX;
-            if (y1 > lastY) y1 = lastY;
-            if (x1 < x0) x1 = x0;
-            if (y1 < y0) y1 = y0;
-
-            const pad = this._rectPad;
-            if (pad > 0) {
-                x0 -= pad;
-                y0 -= pad;
-                x1 += pad;
-                y1 += pad;
-                if (x0 < 0) x0 = 0;
-                if (y0 < 0) y0 = 0;
-                if (x1 > lastX) x1 = lastX;
-                if (y1 > lastY) y1 = lastY;
-            }
-
+            this._pixelRect(ndcMinX, ndcMinY, ndcMaxX, ndcMaxY);
+            const x0 = _rectX0;
+            const y0 = _rectY0;
+            const x1 = _rectX1;
+            const y1 = _rectY1;
             const data = this._depth;
+            const w = this._w;
             for (let y = y0; y <= y1; y++) {
                 let index = y * w + x0;
                 const end = index + (x1 - x0);
@@ -439,9 +470,148 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
                     }
                 }
             }
-
             return true;
         }
+
+        /**
+         * Texels the clipped silhouette covers. Empty corners of the screen
+         * AABB are skipped. Each covered texel is compared to a lower bound
+         * of the box front over that texel, not to the nearest corner of the
+         * whole box — that corner is much closer than the rest of an oblique
+         * face, which is what happens toward the edge of the view.
+         */
+        private _rectOccluded(minZ: number) {
+
+            const w = this._w;
+            const h = this._h;
+            const scaleX = this._scaleX > 0 ? this._scaleX : w;
+            const scaleY = this._scaleY > 0 ? this._scaleY : h;
+            const data = this._depth;
+            const pad = this._rectPad | 0;
+            const n = _hn;
+
+            let minPX = 1, minPY = 1, maxPX = -1, maxPY = -1;
+            for (let i = 0; i < n; i++) {
+                const x = _hx[i];
+                const y = _hy[i];
+                if (x < minPX) minPX = x;
+                if (y < minPY) minPY = y;
+                if (x > maxPX) maxPX = x;
+                if (y > maxPY) maxPY = y;
+            }
+
+            this._pixelRect(minPX, minPY, maxPX, maxPY);
+            const baseX0 = _rectX0;
+            const baseY0 = _rectY0;
+            const baseX1 = _rectX1;
+            const baseY1 = _rectY1;
+            let xLo = baseX0;
+            let yLo = baseY0;
+            let xHi = baseX1;
+            let yHi = baseY1;
+            if (pad > 0) {
+                const lastX = w - 1;
+                const lastY = h - 1;
+                xLo -= pad;
+                yLo -= pad;
+                xHi += pad;
+                yHi += pad;
+                if (xLo < 0) xLo = 0;
+                if (yLo < 0) yLo = 0;
+                if (xHi > lastX) xHi = lastX;
+                if (yHi > lastY) yHi = lastY;
+            }
+
+            let covered = false;
+
+            for (let y = yLo; y <= yHi; y++) {
+
+                const inRow = y >= baseY0 && y <= baseY1;
+                let geom0 = 1;
+                let geom1 = 0;
+                if (inRow) {
+                    const slab0 = (y / scaleY) * 2 - 1;
+                    const slab1 = ((y + 1) / scaleY) * 2 - 1;
+                    rowSpan(slab0, slab1);
+                    if (_spanAny) {
+                        this._pixelRect(_spanX0, 0, _spanX1, 0);
+                        geom0 = _rectX0;
+                        geom1 = _rectX1;
+                    }
+                }
+
+                const row = y * w;
+                let ny0 = (y / scaleY) * 2 - 1;
+                let ny1 = ((y + 1) / scaleY) * 2 - 1;
+                if (ny0 < -1) ny0 = -1;
+                if (ny1 > 1) ny1 = 1;
+
+                for (let x = xLo; x <= xHi; x++) {
+
+                    const inGeom = inRow && _spanAny && x >= geom0 && x <= geom1;
+                    const depth = data[row + x];
+
+                    if (!inGeom) {
+                        if (y < baseY0 || y > baseY1 || x < baseX0 || x > baseX1) {
+                            if (depth > minZ) {
+                                return false;
+                            }
+                        }
+                        continue;
+                    }
+
+                    covered = true;
+                    if (depth <= minZ) {
+                        continue;
+                    }
+
+                    let nx0 = (x / scaleX) * 2 - 1;
+                    let nx1 = ((x + 1) / scaleX) * 2 - 1;
+                    if (nx0 < -1) nx0 = -1;
+                    if (nx1 > 1) nx1 = 1;
+                    const zLower = boxDepthLower(nx0, ny0, nx1, ny1, minZ);
+                    if (depth > zLower) {
+                        return false;
+                    }
+                }
+            }
+
+            return covered;
+        }
+
+        private _pixelRect(ndcMinX: number, ndcMinY: number, ndcMaxX: number, ndcMaxY: number) {
+            const w = this._w;
+            const h = this._h;
+            const scaleX = this._scaleX > 0 ? this._scaleX : w;
+            const scaleY = this._scaleY > 0 ? this._scaleY : h;
+            const lastX = w - 1;
+            const lastY = h - 1;
+
+            let x0 = ndcToPixel(ndcMinX, scaleX);
+            let y0 = ndcToPixel(ndcMinY, scaleY);
+            let x1 = ndcToPixelEnd(ndcMaxX, scaleX);
+            let y1 = ndcToPixelEnd(ndcMaxY, scaleY);
+
+            if (x0 > lastX) x0 = lastX;
+            if (y0 > lastY) y0 = lastY;
+            if (x1 > lastX) x1 = lastX;
+            if (y1 > lastY) y1 = lastY;
+            if (x1 < x0) x1 = x0;
+            if (y1 < y0) y1 = y0;
+
+            _rectX0 = x0;
+            _rectY0 = y0;
+            _rectX1 = x1;
+            _rectY1 = y1;
+        }
+    }
+
+    /** Pixel center in NDC, clamped so a partial edge texel stays on the screen. */
+    function coverageNdc(pixel: number, step: number) {
+        let ndc = (pixel + 0.5) * step - 1;
+        if (ndc > 1) ndc = 1;
+        else if (ndc < -1) ndc = -1;
+        return ndc;
     }
 
     function copy16(dst: Float32Array, src: Float32Array, srcOff: number) {
@@ -673,6 +843,7 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
         const invW = 1 / w;
         const nx = x * invW;
         const ny = y * invW;
+        pushPoly(nx, ny);
 
         if (nx < _minX) _minX = nx;
         if (ny < _minY) _minY = ny;
@@ -736,6 +907,10 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
         hx: number, hy: number, hz: number
     ) {
 
+        _pn = 0;
+        _hn = 0;
+        _polyOverflow = false;
+
         const m0 = m[0], m1 = m[1], m2 = m[2], m3 = m[3];
         const m4 = m[4], m5 = m[5], m6 = m[6], m7 = m[7];
         const m8 = m[8], m9 = m[9], m10 = m[10], m11 = m[11];
@@ -783,6 +958,7 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
                 const invW = 1 / w;
                 const nx = x * invW;
                 const ny = y * invW;
+                pushPoly(nx, ny);
                 if (nx < minX) minX = nx;
                 if (ny < minY) minY = ny;
                 if (nx > maxX) maxX = nx;
@@ -799,20 +975,294 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
         _maxX = maxX;
         _maxY = maxY;
 
-        if (insideMask === 255) {
-            return true;
+        if (insideMask !== 255) {
+            for (let e = 0; e < 12; e++) {
+                const a = EDGE0[e];
+                const b = EDGE1[e];
+                if ((insideMask & (1 << a)) && (insideMask & (1 << b))) {
+                    continue;
+                }
+                addEdge(a, b);
+            }
         }
 
-        for (let e = 0; e < 12; e++) {
-            const a = EDGE0[e];
-            const b = EDGE1[e];
-            if ((insideMask & (1 << a)) && (insideMask & (1 << b))) {
+        buildHull();
+        return _hn >= 3 && _minX <= _maxX;
+    }
+
+    function pushPoly(nx: number, ny: number) {
+        if (_pn >= POLY_MAX) {
+            _polyOverflow = true;
+            return;
+        }
+        _px[_pn] = nx;
+        _py[_pn] = ny;
+        _pn++;
+    }
+
+    function cross2(ox: number, oy: number, ax: number, ay: number, bx: number, by: number) {
+        return (ax - ox) * (by - oy) - (ay - oy) * (bx - ox);
+    }
+
+    function buildHull() {
+        const n = _pn;
+        _hn = 0;
+        if (n < 3) {
+            return;
+        }
+
+        const order = _order;
+        for (let i = 0; i < n; i++) {
+            order[i] = i;
+        }
+
+        for (let i = 1; i < n; i++) {
+            const id = order[i];
+            const x = _px[id];
+            const y = _py[id];
+            let j = i;
+            while (j > 0) {
+                const prev = order[j - 1];
+                const px = _px[prev];
+                const py = _py[prev];
+                if (px < x || (px === x && py <= y)) {
+                    break;
+                }
+                order[j] = prev;
+                j--;
+            }
+            order[j] = id;
+        }
+
+        let m = 0;
+        for (let i = 0; i < n; i++) {
+            const id = order[i];
+            if (m > 0) {
+                const prev = order[m - 1];
+                if (_px[prev] === _px[id] && _py[prev] === _py[id]) {
+                    continue;
+                }
+            }
+            order[m++] = id;
+        }
+
+        if (m < 3) {
+            return;
+        }
+
+        const hx = _hx;
+        const hy = _hy;
+        let k = 0;
+
+        for (let i = 0; i < m; i++) {
+            const id = order[i];
+            const x = _px[id];
+            const y = _py[id];
+            while (k >= 2 && cross2(hx[k - 2], hy[k - 2], hx[k - 1], hy[k - 1], x, y) <= 0) {
+                k--;
+            }
+            hx[k] = x;
+            hy[k] = y;
+            k++;
+        }
+
+        const lower = k + 1;
+        for (let i = m - 2; i >= 0; i--) {
+            const id = order[i];
+            const x = _px[id];
+            const y = _py[id];
+            while (k >= lower && cross2(hx[k - 2], hy[k - 2], hx[k - 1], hy[k - 1], x, y) <= 0) {
+                k--;
+            }
+            hx[k] = x;
+            hy[k] = y;
+            k++;
+        }
+
+        _hn = k - 1;
+    }
+
+    function rowSpan(y0: number, y1: number) {
+        const n = _hn;
+        const hx = _hx;
+        const hy = _hy;
+        let xa = 2;
+        let xb = -2;
+        let any = false;
+
+        for (let i = 0; i < n; i++) {
+            const j = i + 1 < n ? i + 1 : 0;
+            let x0 = hx[i];
+            let yy0 = hy[i];
+            let x1 = hx[j];
+            let yy1 = hy[j];
+
+            if (yy0 === yy1) {
+                if (yy0 >= y0 && yy0 <= y1) {
+                    if (x0 < xa) xa = x0;
+                    if (x1 < xa) xa = x1;
+                    if (x0 > xb) xb = x0;
+                    if (x1 > xb) xb = x1;
+                    any = true;
+                }
                 continue;
             }
-            addEdge(a, b);
+
+            if (yy0 > yy1) {
+                const tx = x0;
+                x0 = x1;
+                x1 = tx;
+                const ty = yy0;
+                yy0 = yy1;
+                yy1 = ty;
+            }
+
+            if (yy1 < y0 || yy0 > y1) {
+                continue;
+            }
+
+            if (yy0 < y0) {
+                const t = (y0 - yy0) / (yy1 - yy0);
+                x0 = x0 + (x1 - x0) * t;
+                yy0 = y0;
+            }
+            if (yy1 > y1) {
+                const t = (y1 - yy0) / (yy1 - yy0);
+                x1 = x0 + (x1 - x0) * t;
+            }
+
+            if (x0 < xa) xa = x0;
+            if (x1 < xa) xa = x1;
+            if (x0 > xb) xb = x0;
+            if (x1 > xb) xb = x1;
+            any = true;
         }
 
-        return _minX <= _maxX;
+        _spanAny = any;
+        _spanX0 = xa;
+        _spanX1 = xb;
+    }
+
+    function prepareBoxDepth(
+        view: Float32Array, vp: Float32Array,
+        camX: number, camY: number, camZ: number,
+        cx: number, cy: number, cz: number,
+        hx: number, hy: number, hz: number
+    ) {
+        const rx = view[0], ry = view[4], rz = view[8];
+        const ux = view[1], uy = view[5], uz = view[9];
+        const bx = view[2], by = view[6], bz = view[10];
+        const sx = Math.hypot(vp[0], vp[4], vp[8]);
+        const sy = Math.hypot(vp[1], vp[5], vp[9]);
+        if (!(sx > 1e-8 && sy > 1e-8)) {
+            _useX = 0;
+            _useY = 0;
+            _useZ = 0;
+            return;
+        }
+
+        const invSx = 1 / sx;
+        const invSy = 1 / sy;
+        _dxx = rx * invSx;
+        _dxy = ux * invSy;
+        _dxc = -bx;
+        _dyx = ry * invSx;
+        _dyy = uy * invSy;
+        _dyc = -by;
+        _dzx = rz * invSx;
+        _dzy = uz * invSy;
+        _dzc = -bz;
+
+        const minX = cx - hx;
+        const maxX = cx + hx;
+        if (camX < minX) {
+            _useX = 1;
+            _distX = minX - camX;
+        }
+        else if (camX > maxX) {
+            _useX = 1;
+            _distX = maxX - camX;
+        }
+        else {
+            _useX = 0;
+        }
+
+        const minY = cy - hy;
+        const maxY = cy + hy;
+        if (camY < minY) {
+            _useY = 1;
+            _distY = minY - camY;
+        }
+        else if (camY > maxY) {
+            _useY = 1;
+            _distY = maxY - camY;
+        }
+        else {
+            _useY = 0;
+        }
+
+        const minZ = cz - hz;
+        const maxZ = cz + hz;
+        if (camZ < minZ) {
+            _useZ = 1;
+            _distZ = minZ - camZ;
+        }
+        else if (camZ > maxZ) {
+            _useZ = 1;
+            _distZ = maxZ - camZ;
+        }
+        else {
+            _useZ = 0;
+        }
+    }
+
+    function minPlaneT(
+        dist: number, ax: number, ay: number, ac: number,
+        x0: number, y0: number, x1: number, y1: number
+    ) {
+        const d00 = ax * x0 + ay * y0 + ac;
+        const d10 = ax * x1 + ay * y0 + ac;
+        const d01 = ax * x0 + ay * y1 + ac;
+        const d11 = ax * x1 + ay * y1 + ac;
+        let denom: number;
+        if (dist > 0) {
+            if (d00 <= 1e-8 || d10 <= 1e-8 || d01 <= 1e-8 || d11 <= 1e-8) {
+                return -1;
+            }
+            denom = d00 > d10 ? d00 : d10;
+            if (d01 > denom) denom = d01;
+            if (d11 > denom) denom = d11;
+        }
+        else {
+            if (d00 >= -1e-8 || d10 >= -1e-8 || d01 >= -1e-8 || d11 >= -1e-8) {
+                return -1;
+            }
+            denom = d00 < d10 ? d00 : d10;
+            if (d01 < denom) denom = d01;
+            if (d11 < denom) denom = d11;
+        }
+        const t = dist / denom;
+        return t > 0 ? t : -1;
+    }
+
+    function boxDepthLower(x0: number, y0: number, x1: number, y1: number, minEye: number) {
+        let z = minEye;
+        if (x1 < x0 || y1 < y0) {
+            return z;
+        }
+        if (_useX) {
+            const t = minPlaneT(_distX, _dxx, _dxy, _dxc, x0, y0, x1, y1);
+            if (t > z) z = t;
+        }
+        if (_useY) {
+            const t = minPlaneT(_distY, _dyx, _dyy, _dyc, x0, y0, x1, y1);
+            if (t > z) z = t;
+        }
+        if (_useZ) {
+            const t = minPlaneT(_distZ, _dzx, _dzy, _dzc, x0, y0, x1, y1);
+            if (t > z) z = t;
+        }
+        return z;
     }
 
     return CoverageCpuBuffer;

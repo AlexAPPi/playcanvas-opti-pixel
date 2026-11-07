@@ -68,7 +68,7 @@ Submit work early, consume results from the last **finished** job. Do not wait f
 
 `frameUpdate` is not universal: software has none; coverage, WebGL HZB, and queries harvest in `frameUpdate`. `OcclusionCullingSystem` runs HZB and queries on `frameupdate`, but **not** coverage — call `tester.frameUpdate(dt)` yourself.
 
-A coverage tester harvests in `frameUpdate`. Call that every frame, `execute` after enqueue (often in `update`), and `updateGPUDepthBuffer` after opaque depth (`postrender`) so tests use the last finished capture.
+A coverage tester harvests in `frameUpdate`. Call that every frame, `execute` after enqueue (often in `update`), and `updateGPUDepthBuffer(hzb, camera)` after the HZB is built (`postrender`) so tests use the last finished capture.
 
 For **WebGPU HZB**, `execute` writes `instanceCount` into an indirect draw buffer. There is no `getOcclusionStatus` on that path.
 

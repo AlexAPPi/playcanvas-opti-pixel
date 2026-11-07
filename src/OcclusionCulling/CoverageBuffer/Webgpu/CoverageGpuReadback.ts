@@ -9,7 +9,7 @@ import { CoverageGpuReadbackState } from "./CoverageGpuReadbackState.js";
  * into {@link cpuDepth} once {@link minReadbackLag} has elapsed. The next pack
  * takes any free slot.
  *
- * Do not harvest from `captureDepthGrab` / `captureSceneDepthMap` / postrender.
+ * Do not harvest from `capture` / postrender.
  */
 export class CoverageGpuReadback {
 
@@ -24,6 +24,10 @@ export class CoverageGpuReadback {
     private _cpuDepth: Float32Array;
     private _cpuVP = new Float32Array(16);
     private _cpuParams = new Float32Array(4);
+    private _cpuWidth = 0;
+    private _cpuHeight = 0;
+    private _cpuGridScaleX = 0;
+    private _cpuGridScaleY = 0;
     private _cpuReady = false;
     private _cpuVersion = 0;
 
@@ -58,6 +62,14 @@ export class CoverageGpuReadback {
     public get cpuDepth() { return this._cpuDepth; }
     public get cpuViewProjection() { return this._cpuVP; }
     public get cpuCameraParams() { return this._cpuParams; }
+    /** Width of the harvested map. `0` before the first one and after a resize. */
+    public get cpuWidth() { return this._cpuWidth; }
+    /** Height of the harvested map. `0` before the first one and after a resize. */
+    public get cpuHeight() { return this._cpuHeight; }
+    /** Screen-UV divisor of the harvested map. `0` before the first one and after a resize. */
+    public get cpuGridScaleX() { return this._cpuGridScaleX; }
+    /** Screen-UV divisor of the harvested map. `0` before the first one and after a resize. */
+    public get cpuGridScaleY() { return this._cpuGridScaleY; }
 
     public get minReadbackLag() { return this._minReadbackLag; }
     public set minReadbackLag(value: number) {
@@ -159,11 +171,17 @@ export class CoverageGpuReadback {
             }
         }
 
-        if (newest.read(this._cpuDepth) <= 0) {
+        const count = newest.read(this._cpuDepth);
+        const n = newest.width * newest.height;
+        if (count <= 0 || n <= 0 || count !== n) {
             newest.abortRead();
             return;
         }
 
+        this._cpuWidth = newest.width;
+        this._cpuHeight = newest.height;
+        this._cpuGridScaleX = newest.gridScaleX;
+        this._cpuGridScaleY = newest.gridScaleY;
         this._cpuVP.set(newest.vp);
         this._cpuParams.set(newest.cameraParams);
         this._cpuReady = true;
@@ -197,9 +215,14 @@ export class CoverageGpuReadback {
         slot.reserved = false;
     }
 
-    public submit(slot: CoverageGpuReadbackState, vp: Float32Array, cameraParams: Float32Array): boolean {
+    public submit(
+        slot: CoverageGpuReadbackState,
+        vp: Float32Array,
+        cameraParams: Float32Array,
+        pixelCount?: number
+    ): boolean {
         const output = this._output;
-        if (!output || !slot.beginRead(output)) {
+        if (!output || !slot.beginRead(output, pixelCount)) {
             slot.reserved = false;
             return false;
         }
@@ -214,6 +237,10 @@ export class CoverageGpuReadback {
     private _resetCpu(pixelCount: number) {
         this._cpuDepth = new Float32Array(pixelCount);
         this._cpuDepth.fill(1e10);
+        this._cpuWidth = 0;
+        this._cpuHeight = 0;
+        this._cpuGridScaleX = 0;
+        this._cpuGridScaleY = 0;
         this._cpuReady = false;
     }
 

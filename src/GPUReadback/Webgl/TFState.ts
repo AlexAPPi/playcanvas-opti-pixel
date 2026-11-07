@@ -190,7 +190,8 @@ export class TFState {
     }
 
     private _ensureOutputBuffer() {
-        if (!this.outputBuffer || !this.outputBuffer.impl?.bufferId) {
+        if (!this.outputBuffer ||
+            !this.outputBuffer.impl?.bufferId) {
             this._destroyOutputBuffer();
             this._createOutputBuffer();
         }

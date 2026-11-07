@@ -104,7 +104,7 @@ Rules that apply to every readback tester:
 
 In the snippets, `camera` is a PlayCanvas `CameraComponent` (`camera.camera` is `pc.Camera`).
 
-GPU backends (HZB, coverage, queries) follow the same `lock` / `enqueue` / `execute` contract, but WebGPU HZB culls via **indirect draw** instead of a CPU status. Coverage also needs a PlayCanvas scene depth map (`CameraComponent.requestSceneDepthMap(true)`), `tester.frameUpdate(dt)` every frame to harvest, and `updateGPUDepthBuffer(camera)` after opaque depth — `execute` neither harvests nor builds that chain. WebGL HZB and queries need `frameUpdate` if you constructed the tester yourself; `OcclusionCullingSystem` already runs those on `frameupdate`, but not coverage. See [Choosing a backend](occlusion/choosing-backend.md).
+GPU backends (HZB, coverage, queries) follow the same `lock` / `enqueue` / `execute` contract, but WebGPU HZB culls via **indirect draw** instead of a CPU status. Coverage packs one mip of an HZB and downloads it: `tester.frameUpdate(dt)` every frame harvests, and `updateGPUDepthBuffer(hzb, camera)` after `hzb.update` / `hzb.updateSceneDepth` packs the mip. `execute` does neither. WebGL HZB and queries need `frameUpdate` if you constructed the tester yourself; `OcclusionCullingSystem` already runs those on `frameupdate`, but not coverage. See [Choosing a backend](occlusion/choosing-backend.md).
 
 ## Next
 

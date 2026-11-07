@@ -3,7 +3,8 @@ export default `
     #include "gammaPS"
     varying uv0: vec2f;
 
-    uniform camera_params: vec4f;
+    uniform uCoverageInvFar: f32;
+    uniform uOpacity: f32;
 
     var uDepthMip: texture_2d<f32>;
     var uDepthMipSampler: sampler;
@@ -14,8 +15,8 @@ export default `
         // WebGPU textures are top-left, so invert Y here — not on CPU.
         let uv = input.uv0;
         let flipped = vec2f(uv.x, 1.0 - uv.y);
-        let z = textureSampleLevel(uDepthMip, uDepthMipSampler, flipped, 0.0).r * uniform.camera_params.x;
-        output.color = vec4f(gammaCorrectOutput(vec3f(z)), 1.0);
+        let z = textureSampleLevel(uDepthMip, uDepthMipSampler, flipped, 0.0).r * uniform.uCoverageInvFar;
+        output.color = vec4f(gammaCorrectOutput(vec3f(z)), uniform.uOpacity);
         return output;
     };
 `;

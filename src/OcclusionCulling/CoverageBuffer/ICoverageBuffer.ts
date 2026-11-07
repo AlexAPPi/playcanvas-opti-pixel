@@ -1,33 +1,121 @@
 import pc from "../../engine.js";
+import type { IHierarchicalZBuffer } from "../HZB/IHierarchicalZBuffer.js";
 
 /**
- * GPU coverage downsample + packed CPU **view-space Z** (metres).
- * Shared by WebGL (TF/PBO) and WebGPU (compute / mapAsync) so a coverage worker tester can sit on either.
+ * Packed CPU **view-space Z** (metres) taken from one mip of a hierarchical Z-buffer.
+ * Shared by WebGL (transform feedback / PBO) and WebGPU (compute / mapAsync).
+ *
+ * Build the pyramid first (`update` / `updateSceneDepth`), then {@link capture}.
+ * Each axis picks the stored mip nearest to the buffer's max resolution; the
+ * coarser of the two is packed. If that mip's screen footprint, clamped to the
+ * max, would still cover three or more source texels per packed pixel, the next
+ * coarser mip is used. The CPU map is the chosen mip's screen footprint in
+ * whole texels, clamped to the max. Pixel `i` is HZB texel `i` of that
+ * footprint; its screen UV is `i / cpuGridScale`, so a partial edge texel
+ * stays on the screen edge. Each packed texel is the max device Z of the
+ * texels in that bin, linearized to metres.
  */
 export interface ICoverageBuffer {
 
+    /**
+     * Device that owns the pack and the readback ring.
+     */
     readonly device: pc.GraphicsDevice;
-    readonly screenWidth: number;
-    readonly screenHeight: number;
-    readonly width: number;
-    readonly height: number;
-    readonly resizePending: boolean;
-    readonly cpuReady: boolean;
-    readonly cpuVersion: number;
-    readonly cpuDepth: Float32Array;
-    readonly cpuWidth: number;
-    readonly cpuHeight: number;
-    readonly cpuViewProjection: Float32Array;
-    readonly cpuCameraParams: Float32Array;
-    readonly cpuUvFactor: [number, number];
 
     /**
-     * Whether the coverage buffer is enabled.
+     * Cap on the packed map width, in texels.
+     * The published footprint is {@link cpuWidth}.
+     */
+    readonly width: number;
+
+    /**
+     * Cap on the packed map height, in texels.
+     * The published footprint is {@link cpuHeight}.
+     */
+    readonly height: number;
+
+    /**
+     * True after {@link frameUpdate} has published a capture.
+     * False before the first publish, after {@link resize} changes the packed
+     * pixel count (`maxWidth * maxHeight`), and on WebGL after context loss.
+     * A resize that keeps that count leaves a published map ready.
+     */
+    readonly cpuReady: boolean;
+
+    /**
+     * Bumped when {@link frameUpdate} publishes a capture, and when {@link resize}
+     * changes the packed pixel count. Changing `readbackSlots` does not bump it.
+     * The tester recopies {@link cpuDepth} when this differs from the copy it
+     * last applied and {@link cpuReady} is set.
+     */
+    readonly cpuVersion: number;
+
+    /**
+     * View-space Z of the published capture, in metres.
+     * Length is {@link width} × {@link height}. A publish writes a tightly packed
+     * map of {@link cpuWidth} × {@link cpuHeight} into the front of the array
+     * and leaves texels past that prefix untouched. Row 0 is the bottom of the screen.
+     * Construct and a packed-size rebuild allocate a new array filled with `1e10`.
+     */
+    readonly cpuDepth: Float32Array;
+
+    /**
+     * Width of the published map, in texels. Screen footprint of the mip that
+     * was packed, clamped to {@link width}. Reports {@link width} until the
+     * first publish and after {@link resize} changes the packed pixel count.
+     */
+    readonly cpuWidth: number;
+
+    /**
+     * Height of the published map. See {@link cpuWidth}.
+     */
+    readonly cpuHeight: number;
+
+    /**
+     * Screen-UV divisor of the published map on X.
+     * Packed pixel `i` covers `[i / cpuGridScaleX, (i + 1) / cpuGridScaleX]`.
+     * The real footprint (`mipSize * uvFactor`) when every texel has its own
+     * pixel. Reports {@link cpuWidth} until the first publish, after {@link resize}
+     * changes the packed pixel count, and when that footprint is an integer
+     * texel count.
+     */
+    readonly cpuGridScaleX: number;
+
+    /**
+     * Screen-UV divisor of the published map on Y. See {@link cpuGridScaleX}.
+     */
+    readonly cpuGridScaleY: number;
+
+    /**
+     * View-projection of the camera packed into the published map
+     * (`projection` × `view`, 16 column-major floats).
+     * A packed-size rebuild replaces {@link cpuDepth} and leaves this matrix
+     * unchanged until the next publish. Read it with the map while {@link cpuReady} is set.
+     */
+    readonly cpuViewProjection: Float32Array;
+
+    /**
+     * `Camera.fillShaderParams` of that same camera.
+     * `x` is `1 / far`, `y` is far, `z` is near, `w` is `1` for an orthographic
+     * camera and `0` for perspective. Same lifetime as {@link cpuViewProjection}.
+     */
+    readonly cpuCameraParams: Float32Array;
+
+    /**
+     * Stored HZB level selected by the last {@link capture} that took a readback slot.
+     * Stays `0` until then. Level `0` is also a real mip.
+     */
+    readonly sourceMip: number;
+
+    /**
+     * When false, {@link capture} does nothing. Defaults to true.
      */
     enabled: boolean;
 
     /**
-     * Whether to pack view-space metres and start an async readback.
+     * When false, {@link capture} does not pack or start a readback.
+     * {@link frameUpdate} still publishes a readback already in flight.
+     * Defaults to true.
      */
     cpuReadback: boolean;
 
@@ -41,34 +129,30 @@ export interface ICoverageBuffer {
     frameUpdate(dt: number): void;
 
     /**
-     * Max-downsample the hardware depth grab (`requestSceneDepthMap` / `renderPassDepthGrab`)
-     * and, when {@link cpuReadback} is on, pack view-space metres and start an async readback.
-     * Device Z is linearized in the pack pass. No-op without a grab texture, when disabled,
-     * while every readback slot is busy, or on a tick that will not pack
-     * (`readbackPeriod`, WebGL).
-     * Call from `postrender`, after opaque depth. Resizes if the grab size changed.
+     * Select a mip of an already-built pyramid, pack it into the CPU map, and start
+     * an async readback. The selected level is written to {@link sourceMip}.
+     * Device Z is linearized in the pack.
+     * No-op when this buffer or the pyramid is disabled, when {@link cpuReadback}
+     * is off, or without a pyramid texture. Also no-op when no readback slot is
+     * free, when a readback was already submitted this frame, or on a WebGL tick
+     * that `readbackPeriod` skips.
+     * Call after `hzb.update` / `hzb.updateSceneDepth`, once opaque depth is in the pyramid.
      */
-    captureDepthGrab(camera: pc.Camera): void;
+    capture(hzb: IHierarchicalZBuffer, camera: pc.Camera): void;
 
     /**
-     * Same chain as {@link captureDepthGrab}, from `camera.sceneDepthMap`.
-     * Use with CameraFrame (`rendering.sceneDepthMap`, or a post effect that publishes scene depth).
-     * Linear and reciprocal encodings are decoded to view-space metres before the max chain.
-     * No-op until the map is published, and while every readback slot is busy.
-     * Call from `postrender`.
-     */
-    captureSceneDepthMap(camera: pc.Camera): void;
-
-    /**
-     * Rebuild the downsample chain and clear {@link resizePending}.
-     * Omitted sizes keep the current screen and packed resolution.
+     * Set the packed-map cap.
+     * Omitted sizes keep the current cap.
      *
-     * The readback ring and {@link cpuDepth} only follow the packed resolution,
-     * so a screen-only resize leaves the in-flight captures and the last
-     * published one alone. Changing `maxWidth` / `maxHeight` rebuilds both and
-     * invalidates the previous capture (`cpuReady` becomes false).
+     * The readback ring holds `maxWidth * maxHeight` pixels and is rebuilt only
+     * when that count changes. A same-count change keeps in-flight captures and
+     * the published map. A rebuild drops them: {@link cpuReady} becomes false,
+     * {@link cpuVersion} increments, and {@link cpuDepth} is filled with `1e10`.
+     *
+     * Screen size belongs to the HZB. A window resize does not call this, so
+     * in-flight captures and the published map stay.
      */
-    resize(width?: number, height?: number, maxWidth?: number, maxHeight?: number): void;
+    resize(maxWidth?: number, maxHeight?: number): void;
 
     /**
      * Release GPU resources, readback slots, and device event handlers.

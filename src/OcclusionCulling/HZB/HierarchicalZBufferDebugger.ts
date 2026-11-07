@@ -17,6 +17,9 @@ export class HierarchicalZBufferDebugger {
     private _debugAABBTexture: pc.Texture;
     private _depthShaders = new Map<HzbDepthVariant, DebugScreenShader>();
 
+    /** Screen overlay opacity in [0, 1]. 1 is solid. */
+    public opacity = 1;
+
     public get hzb() { return (this._tester?.hzb ?? this._hzb)!; }
     public set hzbOrTester(v: WebglHierarchicalZBuffer | WebgpuHierarchicalZBuffer | IHierarchicalZBufferTester) {
         const initByHZB = (v instanceof WebglHierarchicalZBuffer || v instanceof WebgpuHierarchicalZBuffer);
@@ -68,7 +71,7 @@ export class HierarchicalZBufferDebugger {
             uHZBFactor: adaptive ? this.hzb.uvFactor : HZB_FULL_UV,
             uDepthMip: buffer,
             uDepthMipLevel: i
-        });
+        }, this.opacity);
     }
 
     public debugMipLevel(level: number, adaptive: boolean = true) {
@@ -106,7 +109,7 @@ export class HierarchicalZBufferDebugger {
             }
 
             if (rect) {
-                this._screen.drawTexture(rectangle.x, rectangle.y, rectangle.width, rectangle.height, this._debugAABBTexture);
+                this._screen.drawTexture(rectangle.x, rectangle.y, rectangle.width, rectangle.height, this._debugAABBTexture, this.opacity);
             }
         }
     }

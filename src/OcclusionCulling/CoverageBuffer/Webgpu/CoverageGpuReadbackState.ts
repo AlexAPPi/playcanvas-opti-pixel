@@ -15,12 +15,24 @@ export class CoverageGpuReadbackState {
     public cameraParams = new Float32Array(4);
     public submitFrame = 0;
     public pending = false;
+    /** Packed map width for this capture. Row stride of the downloaded prefix. */
+    public width = 0;
+    /** Packed map height for this capture. */
+    public height = 0;
+    /**
+     * Screen-UV divisor of this capture. Pixel `i` covers
+     * `[i / gridScaleX, (i + 1) / gridScaleX]`.
+     */
+    public gridScaleX = 0;
+    /** Screen-UV divisor on Y. See {@link gridScaleX}. */
+    public gridScaleY = 0;
     /** Held between `acquire` and `submit`. */
     public reserved = false;
 
     private _device: pc.WebgpuGraphicsDevice;
     private _staging: pc.StorageBuffer | null = null;
     private _pixelCount = 0;
+    private _copyCount = 0;
     private _scratch = new Float32Array(0);
     private _readGen = 0;
     private _submitVersion = -1;
@@ -43,6 +55,11 @@ export class CoverageGpuReadbackState {
         // settling on the old one.
         this._readGen++;
         this._pixelCount = Math.max(0, pixelCount | 0);
+        this._copyCount = 0;
+        this.width = 0;
+        this.height = 0;
+        this.gridScaleX = 0;
+        this.gridScaleY = 0;
         this._scratch = new Float32Array(this._pixelCount);
         this._destroyStaging();
         this.pending = false;
@@ -89,7 +106,7 @@ export class CoverageGpuReadbackState {
      * was not recorded. Mapping is attempted once this stack returns, which in
      * the normal loop is after `frameEnd` has submitted the copy.
      */
-    public beginRead(output: pc.StorageBuffer): boolean {
+    public beginRead(output: pc.StorageBuffer, pixelCount?: number): boolean {
 
         this.reserved = false;
 
@@ -97,7 +114,10 @@ export class CoverageGpuReadbackState {
             return false;
         }
 
-        const bytes = this._pixelCount * 4;
+        const count = pixelCount == null
+            ? this._pixelCount
+            : Math.max(0, Math.min(this._pixelCount, pixelCount | 0));
+        const bytes = count * 4;
         this._aborted = false;
         this._failed = false;
         this._ready = false;
@@ -117,6 +137,7 @@ export class CoverageGpuReadbackState {
         }
 
         staging.copy(output, 0, 0, bytes);
+        this._copyCount = count;
         this._submitVersion = this._device.submitVersion;
         this.pending = true;
 
@@ -157,7 +178,7 @@ export class CoverageGpuReadbackState {
 
         this._mapStarted = true;
         const gen = this._readGen;
-        const bytes = this._pixelCount * 4;
+        const bytes = this._copyCount * 4;
 
         gpu.mapAsync(GPUMapMode.READ).then(
             () => this._onMapOk(gen, gpu, bytes),
@@ -173,7 +194,7 @@ export class CoverageGpuReadbackState {
     }
 
     public read(dest: Float32Array, dstOffset: number = 0): number {
-        const count = this._pixelCount;
+        const count = this._copyCount;
         const offset = dstOffset | 0;
         if (count <= 0 || !this._ready || offset < 0 || dest.length - offset < count) {
             return 0;

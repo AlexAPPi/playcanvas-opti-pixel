@@ -11,7 +11,7 @@ PlayCanvas device picks the implementation:
 
 `OcclusionCullingSystem` constructs the matching pair. You can also instantiate the concrete classes yourself if you need a custom frame graph.
 
-`IHierarchicalZBuffer` is a texture/size view plus `update(camera)` and `updateSceneDepth(camera)`. Coverage buffers implement the same view via `ICoverageBuffer`, which adds `frameUpdate` plus `captureDepthGrab` / `captureSceneDepthMap`.
+`IHierarchicalZBuffer` is a texture/size view plus `update(camera)` and `updateSceneDepth(camera)`. A [coverage buffer](coverage.md) can pack one mip of that pyramid to a CPU view-space Z map after the pyramid is built.
 
 ## What `autoUpdate` actually does
 
@@ -67,7 +67,7 @@ Readback is **delayed** by at least one GPU frame. Treat `UNKNOWN` as visible.
 
 Do not call `gl.flush()` after the PBO fence. `frameUpdate` must run **before** `enqueue` in the same tick (`OcclusionCullingSystem` already does that on `frameupdate`).
 
-`HierarchicalZBufferDebugger` can overlay mips (`system.drawHZB = true`).
+`HierarchicalZBufferDebugger` can overlay mips (`system.drawHZB = true`). `hzbDebugger.opacity` (0–1, default `1`) blends that overlay, including the screen rect from `debugItem`, over the scene.
 
 ## WebGPU: indirect draw
 
@@ -114,4 +114,4 @@ On canvas resize, `OcclusionCullingSystem` rebuilds the pyramid automatically (W
 - Objects that write depth after the HZB capture will not occlude this frame
 - First-person weapons / near-plane geometry can self-occlude; exclude them from the pyramid or from the test set
 
-For CPU tests on a packed 256×128 **view-space Z** downsample **without** an HZB mip chain (WebGL2 or WebGPU), see [coverage buffer](coverage.md).
+For CPU tests on a packed 256×128 **view-space Z** map taken from one HZB mip (WebGL2 or WebGPU), see [coverage buffer](coverage.md).

@@ -1,102 +1,77 @@
 export default `
+
     #include "floatAsUintPS"
 
     const GROUP_SIZE: u32 = 8u;
 
     struct Uniforms {
-        readScreenDepth: i32,
-        _pad0: i32,
-        invSrcSize: vec2<f32>,
-        destPixelToUv: vec2<f32>,
-        srcUvMax: vec2<f32>,
-        destSize: vec2<f32>,
-        padDest: vec2<f32>,
-        cameraParams: vec4<f32>
+        uCoverageMipLevel: i32,
+        uCoverageSize: vec4<i32>, // xy: packed pixels, zw: HZB texels of the screen footprint. zw >= xy, all >= 1.
+        uCoverageCameraParams: vec4<f32> // x: 1/far, y: far, z: near, w: 1 if orthographic
     }
 
     @group(0) @binding(0) var<uniform> uniforms: Uniforms;
-    @group(0) @binding(1) var srcDepth: texture_2d<f32>;
-    @group(0) @binding(2) var srcDepthSampler: sampler;
 
-    #ifdef PACK_TO_BUFFER
-    @group(0) @binding(3) var<storage, read_write> outDepth: array<f32>;
+    #ifdef DEPTH_IS_FLOAT16
+    @group(0) @binding(1) var uCoverageDepth: texture_2d<f16>;
     #else
-    @group(0) @binding(3) var dstDepth: texture_storage_2d<rgba8unorm, write>;
+    @group(0) @binding(1) var uCoverageDepth: texture_2d<f32>;
     #endif
 
-    fn convertDepth(value: vec4f) -> f32 {
+    @group(0) @binding(2) var<storage, read_write> out_depth: array<f32>;
 
-        if (uniforms.readScreenDepth == 1) {
+    // w is 0 for perspective and 1 for ortho. Device Z is 0 at near and 1 at far.
+    fn linearizeDepth(deviceZ: f32) -> f32 {
+        let nearClip = uniforms.uCoverageCameraParams.z;
+        let farClip = uniforms.uCoverageCameraParams.y;
+        let perspective = (nearClip * farClip) / (farClip + deviceZ * (nearClip - farClip));
+        let ortho = nearClip + deviceZ * (farClip - nearClip);
+        return mix(perspective, ortho, uniforms.uCoverageCameraParams.w);
+    }
 
-            #if defined(CAMERA_DEPTH_RECIPROCAL)
-                let recip = value.r;
-                return select(uniforms.cameraParams.y, 1.0 / recip, recip > 0.0);
-            #elif defined(CAMERA_DEPTH_LINEAR_PACKED)
-                return uint2float(value);
-            #elif defined(CAMERA_DEPTH_LINEAR)
-                return value.r;
-            #elif defined(SCENE_DEPTHMAP_FLOAT)
-                return value.r;
-            #else
-                return uint2float(value);
-            #endif
+    // HZB stores device Z. RGBA8 is packed with float2uint; float mips keep it in .r.
+    fn decodeDeviceZ(value: vec4<f32>) -> f32 {
+        #if defined(DEPTH_IS_FLOAT) || defined(DEPTH_IS_FLOAT16)
+            return value.r;
+        #else
+            return uint2float(value);
+        #endif
+    }
+
+    // Inclusive bin. selectCoverageMip keeps it to a few texels.
+    fn sampleMax(minTexel: vec2i, maxTexel: vec2i, level: i32) -> f32 {
+        var maxDeviceZ = 0.0;
+        for (var y = minTexel.y; y <= maxTexel.y; y++) {
+            for (var x = minTexel.x; x <= maxTexel.x; x++) {
+                // f16 loads vec4<f16>. Widen so decodeDeviceZ takes vec4<f32>.
+                let value = vec4<f32>(textureLoad(uCoverageDepth, vec2i(x, y), level));
+                let deviceZ = decodeDeviceZ(value);
+                maxDeviceZ = max(maxDeviceZ, deviceZ);
+            }
         }
-
-        return uint2float(value);
+        return maxDeviceZ;
     }
-
-    fn sampleMax(uv: vec2f) -> f32 {
-        let o = 0.5 * uniforms.invSrcSize;
-        let d0 = convertDepth(textureSampleLevel(srcDepth, srcDepthSampler, min(uv + vec2f(-o.x, -o.y), uniforms.srcUvMax), 0.0));
-        let d1 = convertDepth(textureSampleLevel(srcDepth, srcDepthSampler, min(uv + vec2f( o.x, -o.y), uniforms.srcUvMax), 0.0));
-        let d2 = convertDepth(textureSampleLevel(srcDepth, srcDepthSampler, min(uv + vec2f(-o.x,  o.y), uniforms.srcUvMax), 0.0));
-        let d3 = convertDepth(textureSampleLevel(srcDepth, srcDepthSampler, min(uv + vec2f( o.x,  o.y), uniforms.srcUvMax), 0.0));
-        return max(max(d0, d1), max(d2, d3));
-    }
-
-    #ifndef CAMERA_DEPTH_VIEW
-    fn linearizeDepth(z: f32) -> f32 {
-        let n = uniforms.cameraParams.z;
-        let f = uniforms.cameraParams.y;
-        if (uniforms.cameraParams.w == 0.0) {
-            return (n * f) / (f + z * (n - f));
-        }
-        return n + z * (f - n);
-    }
-    #endif
 
     @compute @workgroup_size(GROUP_SIZE, GROUP_SIZE, 1)
     fn main(@builtin(global_invocation_id) gid: vec3u) {
 
-        let destW = u32(uniforms.destSize.x + 0.5);
-        let destH = u32(uniforms.destSize.y + 0.5);
+        let dest = uniforms.uCoverageSize.xy;
+        let src = uniforms.uCoverageSize.zw;
+        let pixel = vec2i(i32(gid.x), i32(gid.y));
 
-        if (gid.x >= destW || gid.y >= destH) {
+        // Dispatch is rounded up to the workgroup.
+        if (pixel.x >= dest.x || pixel.y >= dest.y) {
             return;
         }
 
-        var uv = (vec2f(gid.xy) + 0.5) * uniforms.destPixelToUv;
+        // WebGPU HZB texel 0 is the top of the screen. CPU row 0 is the bottom.
+        // Pixel i owns source texels [i * src / dest, (i + 1) * src / dest).
+        let minTexel = pixel * src / dest;
+        let maxTexel = (pixel + vec2i(1)) * src / dest - vec2i(1);
+        let y0 = src.y - 1 - maxTexel.y;
+        let y1 = src.y - 1 - minTexel.y;
 
-        #ifdef PACK_TO_BUFFER
-            // CPU / NDC tests use GL convention (row 0 = NDC y = -1 = bottom).
-            // WebGPU textures are stored top-left, so invert Y like WebGPU HZB getDepth.
-            uv = vec2f(uv.x, 1.0 - uv.y);
-        #endif
-
-        var maxDepth = sampleMax(uv);
-
-        #ifdef PACK_TO_BUFFER
-
-            #ifndef CAMERA_DEPTH_VIEW
-                maxDepth = linearizeDepth(maxDepth);
-            #endif
-
-            outDepth[gid.y * destW + gid.x] = maxDepth;
-
-        #else
-
-            textureStore(dstDepth, gid.xy, float2uint(maxDepth));
-
-        #endif
+        let id = gid.y * u32(dest.x) + gid.x;
+        out_depth[id] = linearizeDepth(sampleMax(vec2i(minTexel.x, y0), vec2i(maxTexel.x, y1), uniforms.uCoverageMipLevel));
     }
 `;

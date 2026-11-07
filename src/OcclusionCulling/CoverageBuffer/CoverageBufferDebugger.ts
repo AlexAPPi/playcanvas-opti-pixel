@@ -22,6 +22,9 @@ export class CoverageBufferDebugger {
         this._tester = v;
     }
 
+    /** Screen overlay opacity in [0, 1]. 1 is solid. */
+    public opacity = 1;
+
     public constructor(app: pc.AppBase, tester: CoverageBufferTesterWorker) {
         this._app = app;
         this._wireRenderer = new pc.WireRenderer(app);
@@ -83,7 +86,7 @@ export class CoverageBufferDebugger {
             }
 
             if (rect) {
-                this._screen.drawTexture(rectangle.x, rectangle.y, rectangle.width, rectangle.height, this._debugAABBTexture);
+                this._screen.drawTexture(rectangle.x, rectangle.y, rectangle.width, rectangle.height, this._debugAABBTexture, this.opacity);
             }
         }
     }
@@ -159,12 +162,11 @@ export class CoverageBufferDebugger {
 
     private _drawDepth(buffer: pc.Texture, far: number, x: number, y: number, width: number, height: number) {
 
-        // The shader scales stored depth by 1/far.
-        _coverageCameraParams[0] = far > 0 ? 1 / far : 1;
+        // Stored depth is view-space metres. Scale by the capture far, not the pass camera.
         this._screen.draw(x, y, width, height, COVERAGE_DEPTH_SHADER, {
             uDepthMip: buffer,
-            camera_params: _coverageCameraParams
-        });
+            uCoverageInvFar: far > 0 ? 1 / far : 1
+        }, this.opacity);
     }
 }
 
@@ -176,7 +178,6 @@ const COVERAGE_DEPTH_SHADER: DebugScreenShader = {
 
 const _minPoint = new pc.Vec3();
 const _maxPoint = new pc.Vec3();
-const _coverageCameraParams = new Float32Array([0, 1, 0, 1]);
 
 interface IDebugFloatUpload {
     texture: pc.Texture | null;

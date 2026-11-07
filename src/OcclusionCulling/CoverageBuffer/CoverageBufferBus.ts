@@ -19,7 +19,9 @@
  * 68:  float32 srcVP[16]
  * 132: float32 dstVP[16]
  * 196: float32 view[16]
- * 260: float32 srcDepth[width * height]
+ * 260: float32 gridScaleX   // screen UV of pixel i is i / gridScale
+ * 264: float32 gridScaleY
+ * 268: float32 srcDepth[width * height]
  * then float32 aabbCenters[capacity * 4]
  * then float32 aabbHalves[capacity * 4]
  * then uint32  queue[capacity]
@@ -54,6 +56,7 @@ export interface ICoverageBusViews {
     srcVP: Float32Array;
     dstVP: Float32Array;
     view: Float32Array;
+    gridScale: Float32Array;
     srcDepth: Float32Array;
     centers: Float32Array;
     halves: Float32Array;
@@ -95,7 +98,7 @@ export interface ICoverageBusApi {
 
 export function defineCoverageBufferBus(): ICoverageBusApi {
 
-    const HEADER_BYTES = 260;
+    const HEADER_BYTES = 268;
     const OUTPUT_HEADER_BYTES = 16;
     const OCCLUSION_UNKNOWN = -1;
 
@@ -132,6 +135,7 @@ export function defineCoverageBufferBus(): ICoverageBusApi {
             srcVP: new Float32Array(buffer, 68, 16),
             dstVP: new Float32Array(buffer, 132, 16),
             view: new Float32Array(buffer, 196, 16),
+            gridScale: new Float32Array(buffer, 260, 2),
             srcDepth: new Float32Array(buffer, srcOff, n0),
             centers: new Float32Array(buffer, aabbOff, capacity * 4),
             halves: new Float32Array(buffer, aabbOff + capacity * 16, capacity * 4),

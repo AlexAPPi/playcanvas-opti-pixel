@@ -9,13 +9,17 @@ import { CoverageTFState } from "./CoverageTFState.js";
  * slot into {@link cpuDepth} once {@link TFStateQueue.minReadbackLag} has
  * elapsed — one `getBufferSubData` per tick. The next pack takes any free slot.
  *
- * Do not harvest from `captureDepthGrab` / `captureSceneDepthMap` / postrender.
+ * Do not harvest from `capture` / postrender.
  */
 export class CoverageTFReadback extends TFStateQueue<CoverageTFState> {
 
     private _cpuDepth: Float32Array;
     private _cpuVP = new Float32Array(16);
     private _cpuParams = new Float32Array(4);
+    private _cpuWidth = 0;
+    private _cpuHeight = 0;
+    private _cpuGridScaleX = 0;
+    private _cpuGridScaleY = 0;
     private _cpuReady = false;
     private _cpuVersion = 0;
 
@@ -29,6 +33,14 @@ export class CoverageTFReadback extends TFStateQueue<CoverageTFState> {
     public get cpuDepth() { return this._cpuDepth; }
     public get cpuViewProjection() { return this._cpuVP; }
     public get cpuCameraParams() { return this._cpuParams; }
+    /** Width of the harvested map. `0` before the first one and after a resize. */
+    public get cpuWidth() { return this._cpuWidth; }
+    /** Height of the harvested map. `0` before the first one and after a resize. */
+    public get cpuHeight() { return this._cpuHeight; }
+    /** Screen-UV divisor of the harvested map. `0` before the first one and after a resize. */
+    public get cpuGridScaleX() { return this._cpuGridScaleX; }
+    /** Screen-UV divisor of the harvested map. `0` before the first one and after a resize. */
+    public get cpuGridScaleY() { return this._cpuGridScaleY; }
 
     /**
      * Rebuild the ring for a new packed size. A call that leaves the pixel
@@ -117,10 +129,16 @@ export class CoverageTFReadback extends TFStateQueue<CoverageTFState> {
     }
 
     protected override _commit(slot: CoverageTFState): boolean {
-        if (slot.read(this._cpuDepth) <= 0) {
+        const count = slot.read(this._cpuDepth);
+        const n = slot.width * slot.height;
+        if (count <= 0 || n <= 0 || count !== n) {
             return false;
         }
 
+        this._cpuWidth = slot.width;
+        this._cpuHeight = slot.height;
+        this._cpuGridScaleX = slot.gridScaleX;
+        this._cpuGridScaleY = slot.gridScaleY;
         this._cpuVP.set(slot.vp);
         this._cpuParams.set(slot.cameraParams);
         this._cpuReady = true;
@@ -143,6 +161,10 @@ export class CoverageTFReadback extends TFStateQueue<CoverageTFState> {
     private _resetCpu(pixelCount: number) {
         this._cpuDepth = new Float32Array(pixelCount);
         this._cpuDepth.fill(1e10);
+        this._cpuWidth = 0;
+        this._cpuHeight = 0;
+        this._cpuGridScaleX = 0;
+        this._cpuGridScaleY = 0;
         this._cpuReady = false;
     }
 }

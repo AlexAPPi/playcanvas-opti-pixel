@@ -14,6 +14,7 @@ import {
 import { CoverageAABBStore } from "./CoverageAABBStore.js";
 import { CoverageBusApi, type ICoverageBusViews, type ICoverageOutputViews } from "./CoverageBufferBus.js";
 import { CoverageCpuBufferViewer } from "./CoverageCpuBufferViewer.js";
+import type { IHierarchicalZBuffer } from "../HZB/IHierarchicalZBuffer.js";
 import type { ICoverageBuffer } from "./ICoverageBuffer.js";
 import { spawnCoverageBufferWorker } from "./CoverageBufferWorker.js";
 import type {
@@ -139,15 +140,13 @@ export class CoverageBufferTesterWorker implements IGPU2CPUReadbackOcclusionCull
         this._growIfNeeded();
     }
 
-    public updateGPUDepthBuffer(camera: pc.Camera): void {
-        if (this._coverage.enabled && !this._coverage.resizePending) {
-            this._coverage.captureDepthGrab(camera);
-        }
-    }
-
-    public updateGPUSceneDepth(camera: pc.Camera): void {
-        if (this._coverage.enabled && !this._coverage.resizePending) {
-            this._coverage.captureSceneDepthMap(camera);
+    /**
+     * Pack the chosen HZB mip and start a readback.
+     * Call after `hzb.update` or `hzb.updateSceneDepth` — the pyramid is the depth source.
+     */
+    public updateGPUDepthBuffer(hzb: IHierarchicalZBuffer, camera: pc.Camera): void {
+        if (this._coverage.enabled) {
+            this._coverage.capture(hzb, camera);
         }
     }
 
@@ -169,8 +168,7 @@ export class CoverageBufferTesterWorker implements IGPU2CPUReadbackOcclusionCull
         camera.fillShaderParams(this._cameraParams);
 
         if (!this._coverage.enabled ||
-            !this._coverage.cpuReady ||
-            this._coverage.resizePending) {
+            !this._coverage.cpuReady) {
             this._fillUnknown();
             this._queue.clear();
             return;
@@ -198,6 +196,8 @@ export class CoverageBufferTesterWorker implements IGPU2CPUReadbackOcclusionCull
             bus.srcDepth.set(src.subarray(0, n0));
             bus.srcVP.set(this._coverage.cpuViewProjection);
             bus.srcParams.set(this._coverage.cpuCameraParams);
+            bus.gridScale[0] = this._coverage.cpuGridScaleX;
+            bus.gridScale[1] = this._coverage.cpuGridScaleY;
             this._appliedVersion = this._coverage.cpuVersion;
         }
 
@@ -256,9 +256,8 @@ export class CoverageBufferTesterWorker implements IGPU2CPUReadbackOcclusionCull
         const height = Math.max(1, this._coverage.cpuHeight | 0);
         const capacity = Math.max(1, this._aabbStore.capacity | 0);
 
-        if (this._queue.capacity !== capacity) {
-            this._queue.resizeIndexes();
-        }
+        // Update the queue indexes to match the new capacity.
+        this._queue.resizeIndexes();
 
         if (this._writeOut) {
             this._writeOut = this._ensureOutput(this._writeOut, width, height, capacity);

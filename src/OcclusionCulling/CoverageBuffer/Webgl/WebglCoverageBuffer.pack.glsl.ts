@@ -4,72 +4,58 @@ export default `
 
     flat out float out_depth;
 
-    uniform float uCoverageReadScreenDepth;
-    uniform vec2 uCoverageInvSrcSize;
-    uniform vec2 uCoverageDestPixelToUv;
-    uniform vec2 uCoverageDestSize;
-    uniform vec2 uCoverageSrcUvMax;
-    uniform highp sampler2D uCoverageDepth;
-
-    #if !defined(CAMERA_DEPTH_VIEW) || defined(CAMERA_DEPTH_RECIPROCAL)
+    uniform int uCoverageMipLevel;
+    uniform ivec4 uCoverageSize; // xy: packed pixels, zw: HZB texels of the screen footprint. zw >= xy, all >= 1.
     uniform vec4 uCoverageCameraParams; // x: 1/far, y: far, z: near, w: 1 if orthographic
-    #endif
+    uniform highp sampler2D uCoverageDepth;
 
     #include "floatAsUintPS"
 
-    float convertDepth(vec4 value) {
-
-        float packed = uint2float(value);
-        float screenDepth;
-
-        #if defined(CAMERA_DEPTH_RECIPROCAL)
-            float recip = value.r;
-            screenDepth = recip > 0.0 ? 1.0 / recip : uCoverageCameraParams.y;
-        #elif defined(CAMERA_DEPTH_LINEAR_PACKED)
-            screenDepth = packed;
-        #elif defined(CAMERA_DEPTH_LINEAR)
-            screenDepth = value.r;
-        #elif defined(SCENE_DEPTHMAP_FLOAT)
-            screenDepth = value.r;
-        #else
-            screenDepth = packed;
-        #endif
-
-        return uCoverageReadScreenDepth > 0.5 ? screenDepth : packed;
-    }
-
-    #ifndef CAMERA_DEPTH_VIEW
+    // w is 0 for perspective and 1 for ortho. Device Z is 0 at near and 1 at far.
     float linearizeDepth(float deviceZ) {
         float nearClip = uCoverageCameraParams.z;
         float farClip = uCoverageCameraParams.y;
-        if (uCoverageCameraParams.w == 0.0) {
-            return (nearClip * farClip) / (farClip + deviceZ * (nearClip - farClip));
-        }
-        return nearClip + deviceZ * (farClip - nearClip);
+        float perspective = (nearClip * farClip) / (farClip + deviceZ * (nearClip - farClip));
+        float ortho = nearClip + deviceZ * (farClip - nearClip);
+        return mix(perspective, ortho, uCoverageCameraParams.w);
     }
-    #endif
+
+    // HZB stores device Z. RGBA8 is packed with float2uint; float mips keep it in .r.
+    float decodeDeviceZ(vec4 value) {
+        #if defined(DEPTH_IS_FLOAT) || defined(DEPTH_IS_FLOAT16)
+            return value.r;
+        #else
+            return uint2float(value);
+        #endif
+    }
+
+    // Inclusive bin. selectCoverageMip keeps it to a few texels.
+    float sampleMax(ivec2 minTexel, ivec2 maxTexel, int level) {
+        float maxDeviceZ = 0.0;
+        for (int y = minTexel.y; y <= maxTexel.y; y++) {
+            for (int x = minTexel.x; x <= maxTexel.x; x++) {
+                vec4 value = texelFetch(uCoverageDepth, ivec2(x, y), level);
+                float deviceZ = decodeDeviceZ(value);
+                maxDeviceZ = max(maxDeviceZ, deviceZ);
+            }
+        }
+        return maxDeviceZ;
+    }
 
     void main(void) {
 
+        ivec2 dest = uCoverageSize.xy;
+        ivec2 src = uCoverageSize.zw;
+
         int id = gl_VertexID;
-        int destW = int(uCoverageDestSize.x + 0.5);
-        int px = id - destW * (id / destW);
-        int py = id / destW;
-        vec2 uv = (vec2(float(px), float(py)) + 0.5) * uCoverageDestPixelToUv;
-        vec2 o = 0.5 * uCoverageInvSrcSize;
+        ivec2 pixel = ivec2(id % dest.x, id / dest.x);
 
-        float d0 = convertDepth(textureLod(uCoverageDepth, min(uv + vec2(-o.x, -o.y), uCoverageSrcUvMax), 0.0));
-        float d1 = convertDepth(textureLod(uCoverageDepth, min(uv + vec2( o.x, -o.y), uCoverageSrcUvMax), 0.0));
-        float d2 = convertDepth(textureLod(uCoverageDepth, min(uv + vec2(-o.x,  o.y), uCoverageSrcUvMax), 0.0));
-        float d3 = convertDepth(textureLod(uCoverageDepth, min(uv + vec2( o.x,  o.y), uCoverageSrcUvMax), 0.0));
+        // WebGL HZB texel 0 is the bottom of the screen, same as CPU row 0.
+        // Pixel i owns source texels [i * src / dest, (i + 1) * src / dest).
+        ivec2 minTexel = pixel * src / dest;
+        ivec2 maxTexel = (pixel + ivec2(1)) * src / dest - ivec2(1);
 
-        float maxDepth = max(max(d0, d1), max(d2, d3));
-
-        #ifndef CAMERA_DEPTH_VIEW
-            maxDepth = linearizeDepth(maxDepth);
-        #endif
-
-        out_depth = maxDepth;
+        out_depth = linearizeDepth(sampleMax(minTexel, maxTexel, uCoverageMipLevel));
         gl_Position = vec4(0.0);
         gl_PointSize = 1.0;
     }

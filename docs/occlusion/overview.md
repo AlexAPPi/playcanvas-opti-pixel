@@ -15,7 +15,7 @@ Readback testers (`IReadbackOcclusionCullingTester`) add:
 
 CPU software also has `occluders: OccluderStore`. It has **no** `frameUpdate` (jobs complete on the worker callback). Coverage harvests in `tester.frameUpdate` (you must call it; the system does not). WebGL HZB and queries need `frameUpdate` too (`OcclusionCullingSystem` runs those on `frameupdate`).
 
-The [coverage buffer](coverage.md) tester adds `updateGPUDepthBuffer(camera)` after opaque depth. That call builds the 256×128 max-downsample and packs **view-space Z**. `frameUpdate` harvests the download; `execute` only reprojects and tests. The camera needs a PlayCanvas depth grab (`requestSceneDepthMap`).
+The [coverage buffer](coverage.md) tester adds `updateGPUDepthBuffer(hzb, camera)` after the pyramid is built. That call packs one HZB mip to 256×128 **view-space Z** and starts the download. `frameUpdate` harvests it; `execute` only reprojects and tests. Build the HZB from a PlayCanvas depth grab (`requestSceneDepthMap`) or from CameraFrame scene depth.
 
 WebGPU HZB implements `IGPUIndirectDrawOcclusionCullingTester`: `enqueue` takes an indirect draw slot and primitive; the GPU writes the draw args. There is no CPU visibility bit.
 
@@ -54,6 +54,6 @@ Helper that, given `app` + `AABBStore`:
 
 Software occlusion and the [coverage buffer](coverage.md) are **not** created by this system. Instantiate `SoftwareOcclusionTester` or `WebglCoverageBuffer` / `WebgpuCoverageBuffer` + `CoverageBufferTesterWorker` yourself.
 
-Debuggers: `system.drawHZB` uses `HierarchicalZBufferDebugger`. Query AABBs: `system.queriesDebugger?.debugItem(id)` (`QueriesDebugger` is not exported from the package). Coverage: construct `CoverageBufferDebugger` yourself (package export). `drawDepth` / `drawReprojectedDepth` overlay the packed and reprojected maps; `debugItem(id)` draws the AABB and screen rect. See [coverage buffer](coverage.md#debug-overlay).
+Debuggers: `system.drawHZB` uses `HierarchicalZBufferDebugger`. Query AABBs: `system.queriesDebugger?.debugItem(id)` (`QueriesDebugger` is not exported from the package). Coverage: construct `CoverageBufferDebugger` yourself (package export). `drawDepth` / `drawReprojectedDepth` overlay the packed and reprojected maps; `debugItem(id)` draws the AABB and screen rect. `hzbDebugger.opacity` and `CoverageBufferDebugger.opacity` (0–1, default 1) blend those overlays. See [coverage buffer](coverage.md#debug-overlay).
 
 Pick a backend in [Choosing a backend](choosing-backend.md).

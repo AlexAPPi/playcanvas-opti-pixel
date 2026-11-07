@@ -6,6 +6,7 @@ export default `
 
     uniform uHZBFactor: vec2f;
     uniform uDepthMipLevel: f32;
+    uniform uOpacity: f32;
     uniform camera_params: vec4f;
 
 #ifdef DEPTH_IS_FLOAT16
@@ -41,7 +42,7 @@ export default `
         var output: FragmentOutput;
         let adaptiveUv: vec2f = uniform.uHZBFactor * input.uv0;
         let depth: f32 = getLinearScreenDepth(adaptiveUv, uniform.uDepthMipLevel, uniform.camera_params) * uniform.camera_params.x;
-        output.color = vec4f(gammaCorrectOutput(vec3f(depth)), 1.0);
+        output.color = vec4f(gammaCorrectOutput(vec3f(depth)), uniform.uOpacity);
         return output;
     };
 `;

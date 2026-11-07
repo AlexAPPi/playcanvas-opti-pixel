@@ -31,29 +31,32 @@ const colorGLSL = /* glsl */ `
     #include "gammaPS"
     varying vec2 uv0;
     uniform sampler2D colorMap;
+    uniform float uOpacity;
     void main(void) {
-        gl_FragColor = vec4(gammaCorrectOutput(texture2D(colorMap, uv0).rgb), 1.0);
+        vec4 texel = texture2D(colorMap, uv0);
+        gl_FragColor = vec4(gammaCorrectOutput(texel.rgb), texel.a * uOpacity);
     }
 `;
 
 const colorWGSL = /* wgsl */ `
     #include "gammaPS"
     varying uv0: vec2f;
+    uniform uOpacity: f32;
     var colorMap: texture_2d<f32>;
     var colorMapSampler: sampler;
     @fragment fn fragmentMain(input: FragmentInput) -> FragmentOutput {
         var output: FragmentOutput;
         let sampled = textureSample(colorMap, colorMapSampler, input.uv0);
-        output.color = vec4f(gammaCorrectOutput(sampled.rgb), 1.0);
+        output.color = vec4f(gammaCorrectOutput(sampled.rgb), sampled.a * uniform.uOpacity);
         return output;
     }
 `;
 
 const QUAD_POSITIONS = [
     -0.5, -0.5, 0,
-    0.5, -0.5, 0,
-    -0.5, 0.5, 0,
-    0.5, 0.5, 0
+     0.5, -0.5, 0,
+    -0.5,  0.5, 0,
+     0.5,  0.5, 0
 ];
 
 const QUAD_ATTRIBUTES = {
@@ -85,6 +88,8 @@ interface IScreenQuad {
     meshInstance: pc.MeshInstance;
     vectors: Map<string, Float32Array>;
     names: string[];
+    /** Submission index for this frame. Later quads sort in front. */
+    order: number;
 }
 
 /**
@@ -134,9 +139,9 @@ export class DebugScreenDrawer {
         this._app = null;
     }
 
-    /** Solid RGBA preview. Linear texels are gamma-corrected. */
-    public drawTexture(x: number, y: number, width: number, height: number, texture: pc.Texture) {
-        this.draw(x, y, width, height, COLOR_SHADER, { colorMap: texture });
+    /** RGBA preview. Linear texels are gamma-corrected. `opacity` is the fragment alpha, 0–1. */
+    public drawTexture(x: number, y: number, width: number, height: number, texture: pc.Texture, opacity = 1) {
+        this.draw(x, y, width, height, COLOR_SHADER, { colorMap: texture }, opacity);
     }
 
     public draw(
@@ -145,7 +150,8 @@ export class DebugScreenDrawer {
         width: number,
         height: number,
         shader: DebugScreenShader,
-        parameters?: DebugScreenParams
+        parameters?: DebugScreenParams,
+        opacity = 1
     ) {
 
         const app = this._app;
@@ -171,7 +177,10 @@ export class DebugScreenDrawer {
         // Orphan node: the renderer reads worldTransform and does not sync it.
         node.getWorldTransform();
         meshInstance.visible = true;
+        // Later submits in this frame sort closer, so they stay on top.
+        quad.order = this._used;
         this._applyParameters(quad, parameters);
+        meshInstance.setParameter("uOpacity", clampOpacity(opacity));
     }
 
     private _quad(app: pc.AppBase, layer: pc.Layer, material: pc.ShaderMaterial): IScreenQuad {
@@ -189,9 +198,19 @@ export class DebugScreenDrawer {
         meshInstance.pick = false;
         meshInstance.shaderPassMask = FORWARD_PASS_MASK;
         meshInstance.visible = false;
+        // Bucket 0 sorts after the scene default (127) in back-to-front.
+        meshInstance.drawBucket = 0;
+
         layer.addMeshInstances([meshInstance], true);
 
-        const quad = { meshInstance, vectors: new Map<string, Float32Array>(), names: [] };
+        const quad = {
+            meshInstance,
+            vectors: new Map<string, Float32Array>(),
+            names: [],
+            order: 0
+        };
+        meshInstance.calculateSortDistance = () => -quad.order;
+
         this._quads.push(quad);
         return quad;
     }
@@ -222,6 +241,7 @@ export class DebugScreenDrawer {
         material.cull = pc.CULLFACE_NONE;
         material.depthTest = false;
         material.depthWrite = false;
+        material.blendState = pc.BlendState.ALPHABLEND;
         material.update();
         this._materials.set(shader.name, material);
         return material;
@@ -255,15 +275,11 @@ export class DebugScreenDrawer {
     private _setParameter(quad: IScreenQuad, name: string, value: DebugScreenParam) {
 
         const meshInstance = quad.meshInstance;
-        if (typeof value === "number") {
-            meshInstance.setParameter(name, value);
-            return;
-        }
-        if (value instanceof pc.Texture) {
-            meshInstance.setParameter(name, value);
-            return;
-        }
-        meshInstance.setParameter(name, copyUniform(quad, name, value));
+        const normalizeValue = (typeof value === "number" || value instanceof pc.Texture)
+            ? value
+            : copyUniform(quad, name, value);
+
+        meshInstance.setParameter(name, normalizeValue);
     }
 
     private _hideAll() {
@@ -298,6 +314,19 @@ function releaseMeshInstance(meshInstance: pc.MeshInstance) {
     const node = meshInstance.node;
     meshInstance.destroy();
     node.destroy();
+}
+
+function clampOpacity(value: number): number {
+    if (!Number.isFinite(value)) {
+        return 1;
+    }
+    if (value <= 0) {
+        return 0;
+    }
+    if (value >= 1) {
+        return 1;
+    }
+    return value;
 }
 
 function isFiniteRect(x: number, y: number, width: number, height: number): boolean {

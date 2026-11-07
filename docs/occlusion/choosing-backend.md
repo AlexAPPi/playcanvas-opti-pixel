@@ -57,7 +57,7 @@ HZB quality depends on the depth buffer you feed it. Transparent and first-perso
 - You would rather not maintain an explicit software occluder set
 - WebGL2 or WebGPU (same tester API; pack/download differ)
 
-Coverage downloads a 256×128 max-downsampled **view-space Z** buffer (WebGL: transform-feedback pack + a ring of PBO reads; WebGPU: compute pack + a ring of `MAP_READ` staging buffers) and tests AABBs on a JS blob worker (one transferable job bus, ping-pong output slots). GPU chain levels stay in device Z; pack linearizes. It is coarser than GPU HZB, and the harvested capture is a few frames behind the camera. Enable PlayCanvas depth grab (`requestSceneDepthMap`), call `frameUpdate` every frame to harvest, `updateGPUDepthBuffer` after opaque depth, and `execute` to reproject/test — they are not the same call. See [coverage buffer](coverage.md).
+Coverage packs one mip of an HZB into a 256×128 **view-space Z** buffer (WebGL: transform-feedback pack + a ring of PBO reads; WebGPU: compute pack + a ring of `MAP_READ` staging buffers) and tests AABBs on a JS blob worker (one transferable job bus, ping-pong output slots). The pyramid stays in device Z; the pack linearizes. It is coarser than a GPU HZB test, and the harvested capture is a few frames behind the camera. Build the HZB after opaque depth (`hzb.update` or `hzb.updateSceneDepth`), call `frameUpdate` every frame to harvest, `updateGPUDepthBuffer(hzb, camera)` to pack and download, and `execute` to reproject/test — they are not the same call. See [coverage buffer](coverage.md).
 
 ## When to pick queries
 

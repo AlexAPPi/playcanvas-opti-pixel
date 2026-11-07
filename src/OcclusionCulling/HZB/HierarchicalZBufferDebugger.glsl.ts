@@ -7,6 +7,7 @@ export default `
     uniform vec4 camera_params;
     uniform vec2 uHZBFactor;
     uniform float uDepthMipLevel;
+    uniform float uOpacity;
     uniform highp sampler2D uDepthMip;
 
     float linearizeDepth(float z) {
@@ -38,6 +39,6 @@ export default `
         vec2 adaptedUv = vec2(factoredUv.x, uHZBFactor.y - factoredUv.y);
 
         float depth = getLinearScreenDepth(adaptedUv) * camera_params.x;
-        gl_FragColor = vec4(gammaCorrectOutput(vec3(depth)), 1.0);
+        gl_FragColor = vec4(gammaCorrectOutput(vec3(depth)), uOpacity);
     }
 `;
