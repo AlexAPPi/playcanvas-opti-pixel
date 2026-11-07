@@ -4,7 +4,8 @@ import type { IHierarchicalZBuffer } from "../../HZB/IHierarchicalZBuffer.js";
 import packCodeVS from "./WebglCoverageBuffer.pack.glsl.js";
 import { executeTransformFeedbackShader } from "../../../Extras/TransformFeedbackHelpers.js";
 import { CoverageTFReadback } from "./CoverageTFReadback.js";
-import { hzbShaderKind, selectCoverageMip, THzbShaderKind } from "../CoverageMath.js";
+import { CoverageMipCache } from "../CoverageMipCache.js";
+import { hzbShaderKind, THzbShaderKind } from "../CoverageMath.js";
 
 const PACK_TF_VARYINGS = ["out_depth"];
 
@@ -13,7 +14,8 @@ const PACK_TF_VARYINGS = ["out_depth"];
  *
  * Reads the HZB mip nearest to {@link maxWidth} × {@link maxHeight} and packs
  * its screen footprint with transform feedback to float view-space Z.
- * Pixel `i` is HZB texel `i` of that footprint. GPU→CPU download is a
+ * Pixel `i` covers screen UV `[i / width, (i + 1) / width]` and reads the
+ * HZB texels under that slice. GPU→CPU download is a
  * ring of {@link readbackSlots} PBO/fence reads ({@link CoverageTFReadback}).
  * The next pack starts when a slot is free.
  */
@@ -32,14 +34,17 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
     private _maxWidth: number;
     private _maxHeight: number;
     private _sourceMip = 0;
+    private _mipCache = new CoverageMipCache();
 
     private _mipLevelScope: pc.ScopeId;
     private _sizeScope: pc.ScopeId;
+    private _spanScope: pc.ScopeId;
     private _depthScope: pc.ScopeId;
     private _cameraParamsScope: pc.ScopeId;
 
     private _viewProjection = new pc.Mat4();
     private _sizeArr = [0, 0, 0, 0];
+    private _spanArr = new Float32Array(2);
     private _cameraParamsArr = new Float32Array(4);
     private _onDestroy: pc.EventHandle;
     private _onContextLost: pc.EventHandle;
@@ -76,16 +81,6 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
     public get cpuHeight() {
         const height = this._readback.cpuHeight;
         return height > 0 ? height : this._maxHeight;
-    }
-
-    public get cpuGridScaleX() {
-        const scale = this._readback.cpuGridScaleX;
-        return scale > 0 ? scale : this.cpuWidth;
-    }
-
-    public get cpuGridScaleY() {
-        const scale = this._readback.cpuGridScaleY;
-        return scale > 0 ? scale : this.cpuHeight;
     }
 
     public get cpuViewProjection() { return this._readback.cpuViewProjection; }
@@ -130,6 +125,7 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         this._maxHeight = Math.max(1, maxHeight | 0);
         this._mipLevelScope = this._device.scope.resolve("uCoverageMipLevel");
         this._sizeScope = this._device.scope.resolve("uCoverageSize");
+        this._spanScope = this._device.scope.resolve("uCoverageSpan");
         this._depthScope = this._device.scope.resolve("uCoverageDepth");
         this._cameraParamsScope = this._device.scope.resolve("uCoverageCameraParams");
         this._onDestroy = device.on("destroy", this.destroy, this);
@@ -159,16 +155,7 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
             return;
         }
 
-        const uv = hzb.uvFactor;
-        const mip = selectCoverageMip(
-            hzb.width,
-            hzb.height,
-            hzb.mipLevels,
-            this._maxWidth,
-            this._maxHeight,
-            uv[0],
-            uv[1]
-        );
+        const mip = this._mipCache.select(hzb, this._maxWidth, this._maxHeight);
         // `buffers[level]` is the ping-pong texture that was rendered at that
         // mip. The texels live at lod `level`, same as the HZB debugger.
         const src = hzb.buffers?.[mip.level] ?? texture;
@@ -202,9 +189,12 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         this._sizeArr[1] = mip.packHeight;
         this._sizeArr[2] = mip.texelCountX;
         this._sizeArr[3] = mip.texelCountY;
+        this._spanArr[0] = mip.spanX;
+        this._spanArr[1] = mip.spanY;
 
         this._mipLevelScope.setValue(mip.level);
         this._sizeScope.setValue(this._sizeArr);
+        this._spanScope.setValue(this._spanArr);
         this._depthScope.setValue(src);
         this._cameraParamsScope.setValue(this._cameraParamsArr);
 
@@ -218,8 +208,6 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
 
         slot.width = mip.packWidth;
         slot.height = mip.packHeight;
-        slot.gridScaleX = mip.gridScaleX;
-        slot.gridScaleY = mip.gridScaleY;
         slot.vp.set(this._viewProjection.data);
         slot.cameraParams.set(this._cameraParamsArr);
         this._readback.submit(slot, mip.packWidth * mip.packHeight);

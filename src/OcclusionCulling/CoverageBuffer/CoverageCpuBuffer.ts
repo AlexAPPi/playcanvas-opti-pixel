@@ -6,73 +6,105 @@ import type { ICoverageCpuBuffer } from "./ICoverageCpuBuffer.js";
  * worker blob — keep this function free of module-scope values.
  *
  * Lives only inside {@link coverageBufferWorkerMain}. Depth maps and dimensions
- * come from a bound bus + ping-pong output slot; this class only keeps scratch
- * (holes) and reprojection state.
+ * come from a bound bus + ping-pong output slot.
  *
- * Bus float offsets must match {@link defineCoverageBufferBus} (HEADER_BYTES = 268).
+ * Reprojection scatters every sample of the last capture into the current
+ * camera and the nearest one wins. A pixel no sample landed on takes the
+ * farthest sample of its 3×3 neighbours, then the depth bias moves every
+ * occluder back.
+ *
+ * The AABB test rasterizes only the faces that look at the camera. A texel
+ * occludes when it is nearer than the nearest eye Z of that triangle. After
+ * reprojection a max-depth pyramid answers "is this rect fully nearer than Z"
+ * so a hidden box (or a large hidden triangle) does not walk every texel.
+ *
+ * Bus float offsets must match {@link defineCoverageBufferBus} (HEADER_BYTES = 264,
+ * `depthBias` immediately after `aabbExpand`).
  */
 export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
 
     const OCCLUSION_OCCLUDED = 1 as const;
     const OCCLUSION_VISIBLE = 0 as const;
     const OCCLUSION_UNKNOWN = -1 as const;
-    const NEAR_EPS = 1e-5;
 
-    const HEADER_BYTES = 268;
+    const HEADER_BYTES = 264;
     const OUTPUT_HEADER_BYTES = 16;
     const F32_CAM = 5;
     const F32_AABB_EXPAND = 8;
-    const F32_SRC_PARAMS = 9;
-    const F32_DST_PARAMS = 13;
-    const F32_SRC_VP = 17;
-    const F32_DST_VP = 33;
-    const F32_VIEW = 49;
-    const F32_GRID_SCALE = 65;
-    const F32_SRC_DEPTH = 67;
+    const F32_DEPTH_BIAS = 9;
+    const F32_SRC_PARAMS = 10;
+    const F32_DST_PARAMS = 14;
+    const F32_SRC_VP = 18;
+    const F32_DST_VP = 34;
+    const F32_VIEW = 50;
+    const F32_SRC_DEPTH = 66;
 
-    const _inv = new Float32Array(16);
-    const _reproject = new Float32Array(16);
-    const _srcVP = new Float32Array(16);
-    const _dstVP = new Float32Array(16);
-    const _viewMat = new Float32Array(16);
+    // A capture sample this close to its far is the sky (device Z 1).
+    // The float32 linearize in the pack does not land exactly on far.
+    const SKY = 0.98;
 
-    const _cx = new Float32Array(8);
-    const _cy = new Float32Array(8);
-    const _cz = new Float32Array(8);
-    const _cw = new Float32Array(8);
+    const _inv = new Float64Array(16);
+    const _reproject = new Float64Array(16);
+    const _srcVP = new Float64Array(16);
+    const _dstVP = new Float64Array(16);
+    const _viewMat = new Float64Array(16);
 
-    const EDGE0 = new Uint8Array([0, 2, 4, 6, 0, 1, 4, 5, 0, 1, 2, 3]);
-    const EDGE1 = new Uint8Array([1, 3, 5, 7, 2, 3, 6, 7, 4, 5, 6, 7]);
+    // Box corners in clip space (z is not needed), eye Z, and coverage pixels.
+    // Index bit0 = +X, bit1 = +Y, bit2 = +Z.
+    const _cx = new Float64Array(8);
+    const _cy = new Float64Array(8);
+    const _cw = new Float64Array(8);
+    const _ce = new Float64Array(8);
+    const _px = new Float64Array(8);
+    const _py = new Float64Array(8);
 
-    let _minX = 0, _minY = 0;
-    let _maxX = 0, _maxY = 0;
+    // Two triangles per face: +X, -X, +Y, -Y, +Z, -Z.
+    const FACE_TRIS = new Uint8Array([
+        3, 1, 7, 7, 1, 5,
+        0, 2, 4, 4, 2, 6,
+        2, 3, 6, 6, 3, 7,
+        1, 0, 5, 5, 0, 4,
+        4, 6, 5, 5, 6, 7,
+        2, 0, 3, 3, 0, 1
+    ]);
+    const _faces = new Int32Array(3);
+
+    // One triangle clipped to the near plane. Four verts is the maximum.
+    const CLIP_MAX = 4;
+    const _qx = new Float64Array(CLIP_MAX);
+    const _qy = new Float64Array(CLIP_MAX);
+    const _qw = new Float64Array(CLIP_MAX);
+    const _qe = new Float64Array(CLIP_MAX);
+    const _sx = new Float64Array(CLIP_MAX);
+    const _sy = new Float64Array(CLIP_MAX);
+    const _se = new Float64Array(CLIP_MAX);
+
     let _minEye = 0, _maxEye = 0;
-    let _t0 = 0, _t1 = 1;
     let _rangeMin = 1, _rangeMax = 1;
+    let _frontCount = 0;
+    let _faceOverlapped = 0;
+    let _cornerMinEye = 0;
+    let _boxMinX = 0, _boxMaxX = 0, _boxMinY = 0, _boxMaxY = 0;
+    let _s0 = 0, _s1 = 0;
 
-    // Clipped silhouette in NDC, then its convex hull. The screen AABB of an
-    // oblique box covers empty corners; those texels are not the box.
-    const POLY_MAX = 64;
-    const _px = new Float32Array(POLY_MAX);
-    const _py = new Float32Array(POLY_MAX);
-    const _order = new Int32Array(POLY_MAX);
-    const _hx = new Float32Array(POLY_MAX);
-    const _hy = new Float32Array(POLY_MAX);
-    let _pn = 0;
-    let _hn = 0;
-    let _polyOverflow = false;
-    let _useX = 0, _useY = 0, _useZ = 0;
-    let _distX = 0, _distY = 0, _distZ = 0;
-    let _dxx = 0, _dxy = 0, _dxc = 0;
-    let _dyx = 0, _dyy = 0, _dyc = 0;
-    let _dzx = 0, _dzy = 0, _dzc = 0;
-    let _spanAny = false;
-    let _spanX0 = 0, _spanX1 = 0;
-    let _rectX0 = 0, _rectY0 = 0, _rectX1 = 0, _rectY1 = 0;
-
-    const _emptyDepth = new Float32Array(0);
+    const _emptyF32 = new Float32Array(0);
     const _emptyU32 = new Uint32Array(0);
     const _emptyI8 = new Int8Array(0);
+
+    // Scatter target. 0 = no sample landed. Grown to the packed pixel count.
+    let _scatter = _emptyF32;
+
+    // Max-depth mips of the reprojected map. Level 0 is the map itself;
+    // levels 1+ are packed into `_mips` at `_mipOff`.
+    const MIP_LEVELS_MAX = 16;
+    const _mipOff = new Int32Array(MIP_LEVELS_MAX);
+    const _mipW = new Int32Array(MIP_LEVELS_MAX);
+    const _mipH = new Int32Array(MIP_LEVELS_MAX);
+    let _mipCount = 0;
+    let _mips = _emptyF32;
+
+    // A triangle whose bounds hold more texels than this asks the mips first.
+    const MIP_TEST_TEXELS = 64;
 
     /**
      * CPU occlusion over a **view-space Z** buffer (metres) owned by the output slot.
@@ -80,23 +112,21 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
     class CoverageCpuBuffer {
 
         private _busU32: Uint32Array = _emptyU32;
-        private _busF32: Float32Array = _emptyDepth;
-        private _reprojected: Float32Array = _emptyDepth;
+        private _busF32: Float32Array = _emptyF32;
+        private _reprojected: Float32Array = _emptyF32;
         private _flags: Int8Array = _emptyI8;
         private _bound = false;
+        private _built = false;
         private _width = 0;
         private _height = 0;
         private _n0 = 0;
-        private _outN0 = 0;
         private _queueCount = 0;
         private _centersOff = 0;
         private _halvesOff = 0;
         private _queueOff = 0;
-        private _holeMask: Uint8Array = new Uint8Array(0);
-        private _holes: Int32Array = new Int32Array(0);
+        private _depthBias = 0;
         private _globalMin = 1;
         private _globalMax = 1;
-        private _built = false;
 
         private _camX = 0;
         private _camY = 0;
@@ -105,24 +135,17 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
         private _dstFar = 0;
         private _aabbExpand = 0;
         private _rectPad = 0;
-        private _w = 0;
-        private _h = 0;
-        private _scaleX = 0;
-        private _scaleY = 0;
-        private _vp: Float32Array = _dstVP;
-        private _view: Float32Array = _viewMat;
-        private _depth: Float32Array = _emptyDepth;
 
         public get width() { return this._width; }
         public get height() { return this._height; }
         public get depth() { return this._reprojected; }
 
         public get valid() {
-            return !!(
+            return (
                 this._built &&
                 this._bound &&
-                this._outN0 > 0 &&
-                this._reprojected.byteLength >= (this._outN0 << 2)
+                this._n0 > 0 &&
+                this._reprojected.length >= this._n0
             );
         }
 
@@ -132,9 +155,8 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
         }
 
         /**
-         * Bind the transferred bus + output slot. Four views replace the old
-         * wrap() object graph; they must be rebuilt because a transferred
-         * ArrayBuffer is a new object each frame.
+         * Bind the transferred bus + output slot. The views must be rebuilt
+         * because a transferred ArrayBuffer is a new object each frame.
          */
         public bind(bus: ArrayBuffer, out: ArrayBuffer) {
 
@@ -142,7 +164,7 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
             const outN = out.byteLength | 0;
             this._bound = false;
 
-            if (busN < HEADER_BYTES + 4 || (busN & 3) !== 0) {
+            if (busN < HEADER_BYTES || (busN & 3) !== 0) {
                 return;
             }
 
@@ -151,21 +173,21 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
             const width = u32[1] | 0;
             const height = u32[2] | 0;
             const n0 = width * height;
+            const tail = HEADER_BYTES + n0 * 4 + cap * 36;
             const flagsOff = OUTPUT_HEADER_BYTES + n0 * 4;
 
             if (n0 <= 0 ||
                 cap <= 0 ||
-                busN < HEADER_BYTES + n0 * 4 + cap * 36 ||
+                busN < tail ||
                 outN < flagsOff + cap) {
                 return;
             }
 
-            const sameDims = this._n0 === n0 && this._holeMask.length === n0;
-            if (!sameDims) {
-                this._holeMask = new Uint8Array(n0);
-                this._holes = new Int32Array(n0);
+            if (this._n0 !== n0) {
                 this._built = false;
             }
+
+            const queueCount = u32[3] | 0;
 
             this._busU32 = u32;
             this._busF32 = new Float32Array(bus);
@@ -174,25 +196,22 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
             this._width = width;
             this._height = height;
             this._n0 = n0;
-            this._outN0 = n0;
-            this._queueCount = u32[3] | 0;
+            this._queueCount = queueCount < cap ? queueCount : cap;
             this._centersOff = F32_SRC_DEPTH + n0;
             this._halvesOff = this._centersOff + (cap << 2);
             this._queueOff = (HEADER_BYTES + n0 * 4 + cap * 32) >> 2;
-            const scaleX = this._busF32[F32_GRID_SCALE];
-            const scaleY = this._busF32[F32_GRID_SCALE + 1];
-            this._scaleX = scaleX > 0 ? scaleX : width;
-            this._scaleY = scaleY > 0 ? scaleY : height;
+            this._depthBias = this._busF32[F32_DEPTH_BIAS];
             this._bound = true;
         }
 
         public update() {
 
-            if (!this._bound || this._n0 <= 0 || this._outN0 < this._n0) {
+            if (!this._bound) {
                 return;
             }
 
             this._reprojectDepth();
+            buildMaxMips(this._reprojected, this._width, this._height);
             this._globalMin = _rangeMin;
             this._globalMax = _rangeMax;
             this._built = true;
@@ -220,13 +239,9 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
             this._dstFar = f32[F32_DST_PARAMS + 1];
             this._aabbExpand = f32[F32_AABB_EXPAND];
             this._rectPad = u32[4] | 0;
-            this._w = this._width;
-            this._h = this._height;
 
             copy16(_dstVP, f32, F32_DST_VP);
             copy16(_viewMat, f32, F32_VIEW);
-
-            this._depth = this._reprojected;
 
             const queueCount = this._queueCount;
             const queueOff = this._queueOff;
@@ -243,6 +258,193 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
                     f32[hp], f32[hp + 1], f32[hp + 2]
                 );
             }
+        }
+
+        private _reprojectDepth() {
+
+            const f32 = this._busF32;
+            const dest = this._reprojected;
+            const n = this._n0;
+            const dstFar = f32[F32_DST_PARAMS + 1];
+
+            copy16(_srcVP, f32, F32_SRC_VP);
+            copy16(_dstVP, f32, F32_DST_VP);
+
+            if (!invert16(_inv, _srcVP)) {
+                copyWithRange(dest, f32, F32_SRC_DEPTH, n);
+                return;
+            }
+
+            // Ortho src/dst is not reprojected. The map stays at far.
+            if (f32[F32_SRC_PARAMS + 3] !== 0 ||
+                f32[F32_DST_PARAMS + 3] !== 0) {
+                dest.fill(dstFar);
+                _rangeMin = dstFar;
+                _rangeMax = dstFar;
+                return;
+            }
+
+            mul16(_reproject, _dstVP, _inv);
+
+            if (_scatter.length < n) {
+                _scatter = new Float32Array(n);
+            }
+            const s = _scatter;
+            s.fill(0, 0, n);
+
+            this._scatterPerspective(s);
+            this._resolve(s, dest);
+        }
+
+        /**
+         * Perspective reprojection. NDC depth is affine in `1/L`, so scaling every
+         * component by `L` removes that divide; the denominator that falls out is
+         * the destination view-space Z.
+         * The nearest sample wins. The sky and samples past the destination far land
+         * as far, so a hole next to them is not filled with a surface.
+         */
+        private _scatterPerspective(s: Float32Array) {
+
+            const f32 = this._busF32;
+            const w = this._width;
+            const h = this._height;
+            const lastX = w - 1;
+            const lastY = h - 1;
+            const srcFar = f32[F32_SRC_PARAMS + 1];
+            const srcNear = f32[F32_SRC_PARAMS + 2];
+            const dstNear = f32[F32_DST_PARAMS + 2];
+            const dstFar = f32[F32_DST_PARAMS + 1];
+            const skyL = srcFar * SKY;
+            const srcBase = F32_SRC_DEPTH;
+
+            const r = _reproject;
+            const r0 = r[0], r1 = r[1], r3 = r[3];
+            const r4 = r[4], r5 = r[5], r7 = r[7];
+            const r8 = r[8], r9 = r[9], r11 = r[11];
+            const r12 = r[12], r13 = r[13], r15 = r[15];
+            const ndcStepX = 2 / w;
+            const ndcStepY = 2 / h;
+            const sxk = w * 0.5;
+            const syk = h * 0.5;
+
+            // ndcZ = A / L + B, in the -1..1 clip range the projection matrix was built for.
+            const invDiffSrc = 1 / (srcNear - srcFar);
+            const A = 2 * srcNear * srcFar * invDiffSrc;
+            const B = -2 * srcFar * invDiffSrc - 1;
+            const kW = r11 * A;
+            const kX = r8 * A;
+            const kY = r9 * A;
+
+            for (let y = 0; y < h; y++) {
+
+                const ndcY = (y + 0.5) * ndcStepY - 1;
+                const srcRow = srcBase + y * w;
+                const cwY = r7 * ndcY + r15 + r11 * B;
+                const nxY = r4 * ndcY + r12 + r8 * B;
+                const nyY = r5 * ndcY + r13 + r9 * B;
+                let ndcX = 0.5 * ndcStepX - 1;
+
+                for (let x = 0; x < w; x++, ndcX += ndcStepX) {
+
+                    const sample = f32[srcRow + x];
+                    if (!(sample > 0)) {
+                        continue;
+                    }
+
+                    // The sky is reprojected along its ray but never occludes.
+                    const sky = sample >= skyL;
+                    const L = sky ? srcFar : sample;
+
+                    const eyeZ = (r3 * ndcX + cwY) * L + kW;
+                    if (!(eyeZ > dstNear)) {
+                        continue;
+                    }
+
+                    const invEyeZ = 1 / eyeZ;
+                    const nx = ((r0 * ndcX + nxY) * L + kX) * invEyeZ;
+                    const ny = ((r1 * ndcX + nyY) * L + kY) * invEyeZ;
+                    if (!(nx >= -1 && nx <= 1 && ny >= -1 && ny <= 1)) {
+                        continue;
+                    }
+
+                    let px = (sxk * nx + sxk) | 0;
+                    let py = (syk * ny + syk) | 0;
+                    if (px > lastX) px = lastX;
+                    if (py > lastY) py = lastY;
+
+                    const di = py * w + px;
+                    const z = sky || eyeZ >= dstFar ? dstFar : eyeZ;
+                    const cur = s[di];
+                    if (cur === 0 || z < cur) {
+                        s[di] = z;
+                    }
+                }
+            }
+        }
+
+        /**
+         * A pixel with a sample keeps it. A hole takes the farthest sample of its
+         * 3×3 neighbours, or far when none
+         * landed there. Then the depth bias moves every occluder back, and the
+         * map range is taken for the early-outs.
+         */
+        private _resolve(s: Float32Array, dest: Float32Array) {
+
+            const w = this._width;
+            const h = this._height;
+            const lastX = w - 1;
+            const lastY = h - 1;
+            const far = this._busF32[F32_DST_PARAMS + 1];
+
+            // b > 0: z * (1 + b) + b. b < 0: z + |b|.
+            const bias = this._depthBias;
+            const biasAdd = bias < 0 ? -bias : 0;
+            const biasMul = bias > 0 ? 1 + bias : 1;
+            const biasMulAdd = bias > 0 ? bias : 0;
+            const applyBias = bias !== 0;
+
+            let min = 1e30;
+            let max = 0;
+
+            for (let y = 0; y < h; y++) {
+
+                const row = y * w;
+                const y0 = y > 0 ? y - 1 : 0;
+                const y1 = y < lastY ? y + 1 : lastY;
+
+                for (let x = 0; x < w; x++) {
+
+                    const i = row + x;
+                    let d = s[i];
+
+                    if (d === 0) {
+                        const x0 = x > 0 ? x - 1 : 0;
+                        const x1 = x < lastX ? x + 1 : lastX;
+                        for (let yy = y0; yy <= y1; yy++) {
+                            const r = yy * w;
+                            for (let xx = x0; xx <= x1; xx++) {
+                                const z = s[r + xx];
+                                if (z > d) d = z;
+                            }
+                        }
+                        if (d === 0) {
+                            d = far;
+                        }
+                    }
+
+                    if (applyBias && d < far) {
+                        d = (d + biasAdd) * biasMul + biasMulAdd;
+                        if (d > far) d = far;
+                    }
+
+                    dest[i] = d;
+                    if (d < min) min = d;
+                    if (d > max) max = d;
+                }
+            }
+
+            _rangeMin = min;
+            _rangeMax = max;
         }
 
         private _testAabb(
@@ -272,14 +474,17 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
                 return OCCLUSION_VISIBLE;
             }
 
-            aabbEyeRange(this._view, cx, cy, cz, hx, hy, hz);
+            const near = this._dstNear;
+            const far = this._dstFar;
+
+            aabbEyeRange(_viewMat, cx, cy, cz, hx, hy, hz);
 
             let minEye = _minEye;
             const maxEye = _maxEye;
-            if (minEye < this._dstNear) {
-                minEye = this._dstNear;
+            if (minEye < near) {
+                minEye = near;
             }
-            if (minEye >= this._dstFar) {
+            if (minEye >= far) {
                 return OCCLUSION_VISIBLE;
             }
 
@@ -291,330 +496,148 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
                 return OCCLUSION_VISIBLE;
             }
 
-            if (!projectAabb(this._vp, cx, cy, cz, hx, hy, hz)) {
+            loadCorners(_dstVP, _viewMat, cx, cy, cz, hx, hy, hz, near);
+            if (_frontCount === 0) {
                 return OCCLUSION_VISIBLE;
             }
 
-            if (_maxX < -1 || _minX > 1 ||
-                _maxY < -1 || _minY > 1) {
-                return OCCLUSION_VISIBLE;
+            // With every corner past near the corners are
+            // projected once, otherwise each triangle is clipped to near.
+            const clip = _frontCount < 8;
+            if (!clip) {
+                projectCorners(this._width, this._height);
             }
 
-            if (_polyOverflow || _hn < 3) {
-                return this._rectMinEye(_minX, _minY, _maxX, _maxY, minEye)
-                    ? OCCLUSION_OCCLUDED
-                    : OCCLUSION_VISIBLE;
+            let nf = 0;
+            if (this._camX > cx + hx) {
+                _faces[nf++] = 0;
+            }
+            else if (this._camX < cx - hx) {
+                _faces[nf++] = 1;
+            }
+            if (this._camY > cy + hy) {
+                _faces[nf++] = 2;
+            }
+            else if (this._camY < cy - hy) {
+                _faces[nf++] = 3;
+            }
+            if (this._camZ > cz + hz) {
+                _faces[nf++] = 4;
+            }
+            else if (this._camZ < cz - hz) {
+                _faces[nf++] = 5;
             }
 
-            if (this._busF32[F32_DST_PARAMS + 3] !== 0) {
-                _useX = 0;
-                _useY = 0;
-                _useZ = 0;
-            }
-            else {
-                prepareBoxDepth(
-                    this._view, this._vp,
-                    this._camX, this._camY, this._camZ,
-                    cx, cy, cz, hx, hy, hz
-                );
-            }
-
-            return this._rectOccluded(minEye)
-                ? OCCLUSION_OCCLUDED
-                : OCCLUSION_VISIBLE;
-        }
-
-        private _reprojectDepth() {
-
-            const f32 = this._busF32;
-            const dest = this._reprojected;
-
-            copy16(_srcVP, f32, F32_SRC_VP);
-            copy16(_dstVP, f32, F32_DST_VP);
-
-            if (!invert16(_inv, _srcVP)) {
-                copyWithRange(dest, f32, F32_SRC_DEPTH, this._n0);
-                return;
-            }
-
-            mul16(_reproject, _dstVP, _inv);
-
-            const dstFar = f32[F32_DST_PARAMS + 1];
-            dest.fill(dstFar);
-
-            // Ortho src/dst: leave the buffer at far instead of branching in scatter.
-            if (f32[F32_SRC_PARAMS + 3] !== 0 ||
-                f32[F32_DST_PARAMS + 3] !== 0) {
-                _rangeMin = dstFar;
-                _rangeMax = dstFar;
-                return;
-            }
-
-            this._scatterPerspective(dest);
-
-            fillHolesFar3x3(
-                dest,
-                this._holeMask,
-                this._holes,
-                this._width,
-                this._height,
-                dstFar
-            );
-        }
-
-        /**
-         * Perspective source and destination. NDC depth is affine in `1/L`, so scaling every
-         * component by `L` removes that divide; the denominator that falls out **is** the
-         * destination view-space Z, which also removes the final linearize.
-         * One divide per pixel instead of three.
-         */
-        private _scatterPerspective(dest: Float32Array) {
-
-            const f32 = this._busF32;
-            const w = this._width;
-            const h = this._height;
-            const lastX = w - 1;
-            const lastY = h - 1;
-            const srcFar = f32[F32_SRC_PARAMS + 1];
-            const srcNear = f32[F32_SRC_PARAMS + 2];
-            const dstNear = f32[F32_DST_PARAMS + 2];
-            const dstFar = f32[F32_DST_PARAMS + 1];
-            const srcBase = F32_SRC_DEPTH;
-
-            const r = _reproject;
-            const r0 = r[0], r1 = r[1], r3 = r[3];
-            const r4 = r[4], r5 = r[5], r7 = r[7];
-            const r8 = r[8], r9 = r[9], r11 = r[11];
-            const r12 = r[12], r13 = r[13], r15 = r[15];
-            const scaleX = this._scaleX > 0 ? this._scaleX : w;
-            const scaleY = this._scaleY > 0 ? this._scaleY : h;
-            const ndcStepX = 2 / scaleX;
-            const ndcStepY = 2 / scaleY;
-            const sxk = scaleX * 0.5;
-            const syk = scaleY * 0.5;
-
-            // ndcZ = A / L + B, in the -1..1 clip range the projection matrix was built for.
-            const invDiffSrc = 1 / (srcNear - srcFar);
-            const A = 2 * srcNear * srcFar * invDiffSrc;
-            const B = -2 * srcFar * invDiffSrc - 1;
-            const kW = r11 * A;
-            const kX = r8 * A;
-            const kY = r9 * A;
-
-            for (let y = 0; y < h; y++) {
-
-                // A partial edge pixel is centered on or past NDC 1. Clamp it
-                // onto the screen so that column is still reprojected.
-                const ndcY = coverageNdc(y, ndcStepY);
-                const srcRow = y * w;
-                const cwY = r7 * ndcY + r15 + r11 * B;
-                const nxY = r4 * ndcY + r12 + r8 * B;
-                const nyY = r5 * ndcY + r13 + r9 * B;
-
-                for (let x = 0; x < w; x++) {
-
-                    const L = f32[srcBase + srcRow + x];
-                    if (!(L > 0 && L < srcFar)) {
-                        continue;
-                    }
-
-                    const ndcX = coverageNdc(x, ndcStepX);
-                    const eyeZ = (r3 * ndcX + cwY) * L + kW;
-                    if (!(eyeZ > dstNear && eyeZ < dstFar)) {
-                        continue;
-                    }
-
-                    const invEyeZ = 1 / eyeZ;
-                    const nx = ((r0 * ndcX + nxY) * L + kX) * invEyeZ;
-                    const ny = ((r1 * ndcX + nyY) * L + kY) * invEyeZ;
-                    if (nx < -1 || nx > 1 || ny < -1 || ny > 1) {
-                        continue;
-                    }
-
-                    let x0 = (sxk * nx + sxk) | 0;
-                    let y0 = (syk * ny + syk) | 0;
-                    if (x0 > lastX) x0 = lastX;
-                    else if (x0 < 0) x0 = 0;
-                    if (y0 > lastY) y0 = lastY;
-                    else if (y0 < 0) y0 = 0;
-
-                    const di = y0 * w + x0;
-                    if (eyeZ < dest[di]) {
-                        dest[di] = eyeZ;
-                    }
-                }
-            }
-        }
-
-        /**
-         * Whole projected rect against the nearest eye Z.
-         * Fallback when the silhouette does not fit the scratch polygon.
-         */
-        private _rectMinEye(
-            ndcMinX: number, ndcMinY: number, ndcMaxX: number, ndcMaxY: number,
-            minZ: number
-        ) {
-            this._pixelRect(ndcMinX, ndcMinY, ndcMaxX, ndcMaxY);
-            const x0 = _rectX0;
-            const y0 = _rectY0;
-            const x1 = _rectX1;
-            const y1 = _rectY1;
-            const data = this._depth;
-            const w = this._w;
-            for (let y = y0; y <= y1; y++) {
-                let index = y * w + x0;
-                const end = index + (x1 - x0);
-                for (; index <= end; index++) {
-                    if (data[index] > minZ) {
-                        return false;
-                    }
-                }
-            }
-            return true;
-        }
-
-        /**
-         * Texels the clipped silhouette covers. Empty corners of the screen
-         * AABB are skipped. Each covered texel is compared to a lower bound
-         * of the box front over that texel, not to the nearest corner of the
-         * whole box — that corner is much closer than the rest of an oblique
-         * face, which is what happens toward the edge of the view.
-         */
-        private _rectOccluded(minZ: number) {
-
-            const w = this._w;
-            const h = this._h;
-            const scaleX = this._scaleX > 0 ? this._scaleX : w;
-            const scaleY = this._scaleY > 0 ? this._scaleY : h;
-            const data = this._depth;
-            const pad = this._rectPad | 0;
-            const n = _hn;
-
-            let minPX = 1, minPY = 1, maxPX = -1, maxPY = -1;
-            for (let i = 0; i < n; i++) {
-                const x = _hx[i];
-                const y = _hy[i];
-                if (x < minPX) minPX = x;
-                if (y < minPY) minPY = y;
-                if (x > maxPX) maxPX = x;
-                if (y > maxPY) maxPY = y;
-            }
-
-            this._pixelRect(minPX, minPY, maxPX, maxPY);
-            const baseX0 = _rectX0;
-            const baseY0 = _rectY0;
-            const baseX1 = _rectX1;
-            const baseY1 = _rectY1;
-            let xLo = baseX0;
-            let yLo = baseY0;
-            let xHi = baseX1;
-            let yHi = baseY1;
-            if (pad > 0) {
-                const lastX = w - 1;
-                const lastY = h - 1;
-                xLo -= pad;
-                yLo -= pad;
-                xHi += pad;
-                yHi += pad;
+            // Whole projected rect nearer than the nearest corner: every texel
+            // a front face can cover is occluding. One covering texel is enough.
+            let coverOnly = 0;
+            if (!clip) {
+                const pad = this._rectPad | 0;
+                const lastX = this._width - 1;
+                const lastY = this._height - 1;
+                let xLo = Math.floor(_boxMinX) - pad;
+                let yLo = Math.floor(_boxMinY) - pad;
+                let xHi = Math.ceil(_boxMaxX) - 1 + pad;
+                let yHi = Math.ceil(_boxMaxY) - 1 + pad;
                 if (xLo < 0) xLo = 0;
                 if (yLo < 0) yLo = 0;
                 if (xHi > lastX) xHi = lastX;
                 if (yHi > lastY) yHi = lastY;
-            }
-
-            let covered = false;
-
-            for (let y = yLo; y <= yHi; y++) {
-
-                const inRow = y >= baseY0 && y <= baseY1;
-                let geom0 = 1;
-                let geom1 = 0;
-                if (inRow) {
-                    const slab0 = (y / scaleY) * 2 - 1;
-                    const slab1 = ((y + 1) / scaleY) * 2 - 1;
-                    rowSpan(slab0, slab1);
-                    if (_spanAny) {
-                        this._pixelRect(_spanX0, 0, _spanX1, 0);
-                        geom0 = _rectX0;
-                        geom1 = _rectX1;
-                    }
+                if (xLo > xHi || yLo > yHi) {
+                    return OCCLUSION_VISIBLE;
                 }
-
-                const row = y * w;
-                let ny0 = (y / scaleY) * 2 - 1;
-                let ny1 = ((y + 1) / scaleY) * 2 - 1;
-                if (ny0 < -1) ny0 = -1;
-                if (ny1 > 1) ny1 = 1;
-
-                for (let x = xLo; x <= xHi; x++) {
-
-                    const inGeom = inRow && _spanAny && x >= geom0 && x <= geom1;
-                    const depth = data[row + x];
-
-                    if (!inGeom) {
-                        if (y < baseY0 || y > baseY1 || x < baseX0 || x > baseX1) {
-                            if (depth > minZ) {
-                                return false;
-                            }
-                        }
-                        continue;
-                    }
-
-                    covered = true;
-                    if (depth <= minZ) {
-                        continue;
-                    }
-
-                    let nx0 = (x / scaleX) * 2 - 1;
-                    let nx1 = ((x + 1) / scaleX) * 2 - 1;
-                    if (nx0 < -1) nx0 = -1;
-                    if (nx1 > 1) nx1 = 1;
-                    const zLower = boxDepthLower(nx0, ny0, nx1, ny1, minZ);
-                    if (depth > zLower) {
-                        return false;
-                    }
+                if (mipRectOccluded(
+                    xLo, yLo, xHi, yHi, _cornerMinEye,
+                    this._reprojected, this._width, this._height
+                )) {
+                    coverOnly = 1;
                 }
             }
 
-            return covered;
+            _faceOverlapped = 0;
+
+            for (let f = 0; f < nf; f++) {
+                const o = _faces[f] * 6;
+                if (this._triangleSees(FACE_TRIS[o], FACE_TRIS[o + 1], FACE_TRIS[o + 2], clip, coverOnly)) {
+                    return OCCLUSION_VISIBLE;
+                }
+                if (coverOnly && _faceOverlapped) {
+                    return OCCLUSION_OCCLUDED;
+                }
+                if (this._triangleSees(FACE_TRIS[o + 3], FACE_TRIS[o + 4], FACE_TRIS[o + 5], clip, coverOnly)) {
+                    return OCCLUSION_VISIBLE;
+                }
+                if (coverOnly && _faceOverlapped) {
+                    return OCCLUSION_OCCLUDED;
+                }
+            }
+
+            return _faceOverlapped ? OCCLUSION_OCCLUDED : OCCLUSION_VISIBLE;
         }
 
-        private _pixelRect(ndcMinX: number, ndcMinY: number, ndcMaxX: number, ndcMaxY: number) {
-            const w = this._w;
-            const h = this._h;
-            const scaleX = this._scaleX > 0 ? this._scaleX : w;
-            const scaleY = this._scaleY > 0 ? this._scaleY : h;
-            const lastX = w - 1;
-            const lastY = h - 1;
+        /**
+         * @returns true when this triangle has a texel the box can be seen through.
+         * A triangle that misses the map does not prove occlusion.
+         */
+        private _triangleSees(
+            i0: number, i1: number, i2: number,
+            clip: boolean, coverOnly: number
+        ) {
 
-            let x0 = ndcToPixel(ndcMinX, scaleX);
-            let y0 = ndcToPixel(ndcMinY, scaleY);
-            let x1 = ndcToPixelEnd(ndcMaxX, scaleX);
-            let y1 = ndcToPixelEnd(ndcMaxY, scaleY);
+            if (!clip) {
+                return this._rasterSees(
+                    _px[i0], _py[i0], _ce[i0],
+                    _px[i1], _py[i1], _ce[i1],
+                    _px[i2], _py[i2], _ce[i2],
+                    coverOnly
+                );
+            }
 
-            if (x0 > lastX) x0 = lastX;
-            if (y0 > lastY) y0 = lastY;
-            if (x1 > lastX) x1 = lastX;
-            if (y1 > lastY) y1 = lastY;
-            if (x1 < x0) x1 = x0;
-            if (y1 < y0) y1 = y0;
+            const n = clipNear(i0, i1, i2, this._dstNear, this._width, this._height);
+            if (n < 3) {
+                return false;
+            }
 
-            _rectX0 = x0;
-            _rectY0 = y0;
-            _rectX1 = x1;
-            _rectY1 = y1;
+            const x0 = _sx[0], y0 = _sy[0], z0 = _se[0];
+            for (let i = 1; i < n - 1; i++) {
+                if (this._rasterSees(
+                    x0, y0, z0,
+                    _sx[i], _sy[i], _se[i],
+                    _sx[i + 1], _sy[i + 1], _se[i + 1],
+                    coverOnly
+                )) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        private _rasterSees(
+            x0: number, y0: number, z0: number,
+            x1: number, y1: number, z1: number,
+            x2: number, y2: number, z2: number,
+            coverOnly: number
+        ) {
+            const hit = rasterTri(
+                x0, y0, z0,
+                x1, y1, z1,
+                x2, y2, z2,
+                this._reprojected,
+                this._width, this._height,
+                this._rectPad, this._dstFar,
+                coverOnly
+            );
+            if (hit > 0) {
+                return true;
+            }
+            if (hit === 0) {
+                _faceOverlapped = 1;
+            }
+            return false;
         }
     }
 
-    /** Pixel center in NDC, clamped so a partial edge texel stays on the screen. */
-    function coverageNdc(pixel: number, step: number) {
-        let ndc = (pixel + 0.5) * step - 1;
-        if (ndc > 1) ndc = 1;
-        else if (ndc < -1) ndc = -1;
-        return ndc;
-    }
-
-    function copy16(dst: Float32Array, src: Float32Array, srcOff: number) {
+    function copy16(dst: Float64Array, src: Float32Array, srcOff: number) {
         for (let i = 0; i < 16; i++) {
             dst[i] = src[srcOff + i];
         }
@@ -636,114 +659,8 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
         _rangeMax = max;
     }
 
-    /**
-     * Fills scatter holes with the farthest real neighbour in 3×3 and tracks the range.
-     * `mask` marks the holes of this pass so a filled one is never read as a neighbour;
-     * that is what a full copy of `data` used to be for.
-     */
-    function fillHolesFar3x3(data: Float32Array, mask: Uint8Array, holes: Int32Array, w: number, h: number, emptyZ: number) {
-
-        let min = 1e30;
-        let max = 0;
-        const n = w * h;
-
-        if (w < 2 || h < 2) {
-            for (let i = 0; i < n; i++) {
-                const d = data[i];
-                if (d < min) min = d;
-                if (d > max) max = d;
-            }
-            _rangeMin = min;
-            _rangeMax = max;
-            return;
-        }
-
-        let holeCount = 0;
-        for (let i = 0; i < n; i++) {
-            const d = data[i];
-            if (d < emptyZ) {
-                mask[i] = 0;
-                if (d < min) min = d;
-                if (d > max) max = d;
-            }
-            else {
-                mask[i] = 1;
-                holes[holeCount++] = i;
-            }
-        }
-
-        if (holeCount === 0) {
-            _rangeMin = min;
-            _rangeMax = max;
-            return;
-        }
-
-        const lastX = w - 1;
-        const lastY = h - 1;
-
-        for (let k = 0; k < holeCount; k++) {
-
-            const i = holes[k];
-            const y = (i / w) | 0;
-            const x = i - y * w;
-            const y0 = y > 0 ? y - 1 : 0;
-            const y1 = y < lastY ? y + 1 : lastY;
-            const x0 = x > 0 ? x - 1 : 0;
-            const x1 = x < lastX ? x + 1 : lastX;
-            let m = 0;
-            let found = false;
-
-            for (let yy = y0; yy <= y1; yy++) {
-                const row = yy * w;
-                for (let xx = x0; xx <= x1; xx++) {
-                    const j = row + xx;
-                    if (mask[j] !== 0) {
-                        continue;
-                    }
-                    const z = data[j];
-                    if (z < emptyZ) {
-                        found = true;
-                        if (z > m) {
-                            m = z;
-                        }
-                    }
-                }
-            }
-
-            const d = found ? m : emptyZ;
-            data[i] = d;
-            if (d < min) min = d;
-            if (d > max) max = d;
-        }
-
-        _rangeMin = min;
-        _rangeMax = max;
-    }
-
-    function unitToPixel(u: number, size: number) {
-        if (u < 0) u = 0;
-        else if (u > 1) u = 1;
-        return (u * size) | 0;
-    }
-
-    function unitToPixelEnd(u: number, size: number) {
-        if (u < 0) u = 0;
-        else if (u > 1) u = 1;
-        const r = u * size;
-        const i = r | 0;
-        return (i === r ? i : i + 1) - 1;
-    }
-
-    function ndcToPixel(ndc: number, size: number) {
-        return unitToPixel(ndc * 0.5 + 0.5, size);
-    }
-
-    function ndcToPixelEnd(ndc: number, size: number) {
-        return unitToPixelEnd(ndc * 0.5 + 0.5, size);
-    }
-
     function aabbEyeRange(
-        view: Float32Array,
+        view: Float64Array,
         cx: number, cy: number, cz: number,
         hx: number, hy: number, hz: number
     ) {
@@ -758,7 +675,7 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
         return v < 0 ? -v : v;
     }
 
-    function mul16(out: Float32Array, a: Float32Array, b: Float32Array) {
+    function mul16(out: Float64Array, a: Float64Array, b: Float64Array) {
 
         const a0 = a[0], a1 = a[1], a2 = a[2], a3 = a[3];
         const a4 = a[4], a5 = a[5], a6 = a[6], a7 = a[7];
@@ -788,7 +705,7 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
         out[15] = a3 * b12 + a7 * b13 + a11 * b14 + a15 * b15;
     }
 
-    function invert16(out: Float32Array, m: Float32Array) {
+    function invert16(out: Float64Array, m: Float64Array) {
 
         const m00 = m[0], m01 = m[1], m02 = m[2], m03 = m[3];
         const m10 = m[4], m11 = m[5], m12 = m[6], m13 = m[7];
@@ -834,435 +751,516 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
         return true;
     }
 
-    function addPoint(x: number, y: number, w: number) {
-
-        if (w <= NEAR_EPS) {
-            return;
-        }
-
-        const invW = 1 / w;
-        const nx = x * invW;
-        const ny = y * invW;
-        pushPoly(nx, ny);
-
-        if (nx < _minX) _minX = nx;
-        if (ny < _minY) _minY = ny;
-        if (nx > _maxX) _maxX = nx;
-        if (ny > _maxY) _maxY = ny;
-    }
-
-    function clipPlane(d0: number, d1: number) {
-
-        if (d0 < 0) {
-
-            if (d1 < 0) {
-                return false;
-            }
-
-            const t = d0 / (d0 - d1);
-            if (t > _t0) {
-                _t0 = t;
-            }
-
-            return _t0 <= _t1;
-        }
-
-        if (d1 >= 0) {
-            return true;
-        }
-
-        const t = d0 / (d0 - d1);
-        if (t < _t1) {
-            _t1 = t;
-        }
-
-        return _t0 <= _t1;
-    }
-
-    function addEdge(i0: number, i1: number) {
-
-        const x0 = _cx[i0], y0 = _cy[i0], z0 = _cz[i0], w0 = _cw[i0];
-        const x1 = _cx[i1], y1 = _cy[i1], z1 = _cz[i1], w1 = _cw[i1];
-
-        _t0 = 0;
-        _t1 = 1;
-
-        if (!clipPlane(w0 - NEAR_EPS, w1 - NEAR_EPS)) return;
-        if (!clipPlane(x0 + w0, x1 + w1)) return;
-        if (!clipPlane(w0 - x0, w1 - x1)) return;
-        if (!clipPlane(y0 + w0, y1 + w1)) return;
-        if (!clipPlane(w0 - y0, w1 - y1)) return;
-        if (!clipPlane(z0 + w0, z1 + w1)) return;
-        if (!clipPlane(w0 - z0, w1 - z1)) return;
-
-        const t0 = _t0;
-        const t1 = _t1;
-        addPoint(x0 + (x1 - x0) * t0, y0 + (y1 - y0) * t0, w0 + (w1 - w0) * t0);
-        addPoint(x0 + (x1 - x0) * t1, y0 + (y1 - y0) * t1, w0 + (w1 - w0) * t1);
-    }
-
-    function projectAabb(
-        m: Float32Array,
+    function loadCorners(
+        vp: Float64Array, view: Float64Array,
         cx: number, cy: number, cz: number,
-        hx: number, hy: number, hz: number
+        hx: number, hy: number, hz: number,
+        near: number
+    ) {
+        const m0 = vp[0], m1 = vp[1], m3 = vp[3];
+        const m4 = vp[4], m5 = vp[5], m7 = vp[7];
+        const m8 = vp[8], m9 = vp[9], m11 = vp[11];
+        const m12 = vp[12], m13 = vp[13], m15 = vp[15];
+        const v2 = view[2], v6 = view[6], v10 = view[10], v14 = view[14];
+
+        let front = 0;
+        let minE = 1e30;
+        for (let i = 0; i < 8; i++) {
+            const wx = cx + ((i & 1) ? hx : -hx);
+            const wy = cy + ((i & 2) ? hy : -hy);
+            const wz = cz + ((i & 4) ? hz : -hz);
+            const w = m3 * wx + m7 * wy + m11 * wz + m15;
+            const eye = -(v2 * wx + v6 * wy + v10 * wz + v14);
+            _cx[i] = m0 * wx + m4 * wy + m8 * wz + m12;
+            _cy[i] = m1 * wx + m5 * wy + m9 * wz + m13;
+            _cw[i] = w;
+            _ce[i] = eye;
+            if (eye < minE) {
+                minE = eye;
+            }
+            if (eye > near && w > 0) {
+                front++;
+            }
+        }
+        _frontCount = front;
+        _cornerMinEye = minE;
+    }
+
+    /** All eight corners in front of near, to coverage pixels. */
+    function projectCorners(width: number, height: number) {
+        const halfX = width * 0.5;
+        const halfY = height * 0.5;
+        let minX = 1e30, maxX = -1e30, minY = 1e30, maxY = -1e30;
+        for (let i = 0; i < 8; i++) {
+            const inv = 1 / _cw[i];
+            const px = (_cx[i] * inv + 1) * halfX;
+            const py = (_cy[i] * inv + 1) * halfY;
+            _px[i] = px;
+            _py[i] = py;
+            if (px < minX) minX = px;
+            if (px > maxX) maxX = px;
+            if (py < minY) minY = py;
+            if (py > maxY) maxY = py;
+        }
+        _boxMinX = minX;
+        _boxMaxX = maxX;
+        _boxMinY = minY;
+        _boxMaxY = maxY;
+    }
+
+    function pushClip(n: number, x: number, y: number, w: number, eye: number) {
+        if (n >= CLIP_MAX) {
+            return n;
+        }
+        _qx[n] = x;
+        _qy[n] = y;
+        _qw[n] = w;
+        _qe[n] = eye;
+        return n + 1;
+    }
+
+    function pushCorner(n: number, i: number) {
+        return pushClip(n, _cx[i], _cy[i], _cw[i], _ce[i]);
+    }
+
+    /** Point on edge a-b where eye Z is `near`. Clip coords are affine along it. */
+    function pushLerp(n: number, ia: number, ib: number, near: number) {
+        const ea = _ce[ia];
+        const t = (near - ea) / (_ce[ib] - ea);
+        return pushClip(
+            n,
+            _cx[ia] + (_cx[ib] - _cx[ia]) * t,
+            _cy[ia] + (_cy[ib] - _cy[ia]) * t,
+            _cw[ia] + (_cw[ib] - _cw[ia]) * t,
+            near
+        );
+    }
+
+    function clipEdge(n: number, ia: number, ib: number, near: number) {
+        const inA = _ce[ia] >= near;
+        const inB = _ce[ib] >= near;
+        if (inA) {
+            if (inB) {
+                return pushCorner(n, ib);
+            }
+            return pushLerp(n, ia, ib, near);
+        }
+        if (inB) {
+            n = pushLerp(n, ia, ib, near);
+            return pushCorner(n, ib);
+        }
+        return n;
+    }
+
+    /** Clip one triangle to the near plane and project it to coverage pixels. */
+    function clipNear(i0: number, i1: number, i2: number, near: number, width: number, height: number) {
+        let n = 0;
+        n = clipEdge(n, i0, i1, near);
+        n = clipEdge(n, i1, i2, near);
+        n = clipEdge(n, i2, i0, near);
+
+        let m = 0;
+        const halfX = width * 0.5;
+        const halfY = height * 0.5;
+        for (let i = 0; i < n; i++) {
+            const w = _qw[i];
+            if (!(w > 0)) {
+                continue;
+            }
+            const inv = 1 / w;
+            const sx = (_qx[i] * inv + 1) * halfX;
+            const sy = (_qy[i] * inv + 1) * halfY;
+            if (sx !== sx || sy !== sy) {
+                continue;
+            }
+            _sx[m] = sx;
+            _sy[m] = sy;
+            _se[m] = _qe[i];
+            m++;
+        }
+        return m;
+    }
+
+    /**
+     * Max-depth pyramid of `src`. Level 0 is `src` itself. Each texel at
+     * level L is the max of a 2×2 (clamped at the edge) on level L-1, so a
+     * coarse sample never underestimates the finest max over its footprint.
+     */
+    function buildMaxMips(src: Float32Array, w: number, h: number) {
+
+        _mipW[0] = w;
+        _mipH[0] = h;
+        _mipCount = 1;
+
+        let pw = w;
+        let ph = h;
+        let need = 0;
+        while ((pw > 1 || ph > 1) && _mipCount < MIP_LEVELS_MAX) {
+            const nw = (pw + 1) >> 1;
+            const nh = (ph + 1) >> 1;
+            _mipOff[_mipCount] = need;
+            _mipW[_mipCount] = nw;
+            _mipH[_mipCount] = nh;
+            need += nw * nh;
+            _mipCount++;
+            pw = nw;
+            ph = nh;
+        }
+
+        if (_mips.length < need) {
+            _mips = new Float32Array(need);
+        }
+
+        let prev: Float32Array = src;
+        let prevW = w;
+        let prevH = h;
+        let prevOff = 0;
+
+        for (let L = 1; L < _mipCount; L++) {
+
+            const nw = _mipW[L];
+            const nh = _mipH[L];
+            const off = _mipOff[L];
+            const lastX = prevW - 1;
+            const lastY = prevH - 1;
+
+            for (let y = 0; y < nh; y++) {
+
+                const sy0 = y << 1;
+                const sy1 = sy0 < lastY ? sy0 + 1 : lastY;
+                const row0 = prevOff + sy0 * prevW;
+                const row1 = prevOff + sy1 * prevW;
+                const destRow = off + y * nw;
+
+                for (let x = 0; x < nw; x++) {
+
+                    const sx0 = x << 1;
+                    const sx1 = sx0 < lastX ? sx0 + 1 : lastX;
+                    let m = prev[row0 + sx0];
+                    const a = prev[row0 + sx1];
+                    const b = prev[row1 + sx0];
+                    const c = prev[row1 + sx1];
+                    if (a > m) m = a;
+                    if (b > m) m = b;
+                    if (c > m) m = c;
+                    _mips[destRow + x] = m;
+                }
+            }
+
+            prev = _mips;
+            prevW = nw;
+            prevH = nh;
+            prevOff = off;
+        }
+    }
+
+    /**
+     * True when every finest texel in the inclusive rect is at most `z`.
+     * The mip max is an over-estimate, so a `true` is exact and a `false`
+     * only means "not proven".
+     */
+    function mipRectOccluded(
+        x0: number, y0: number, x1: number, y1: number,
+        z: number, src: Float32Array, bw: number, bh: number
     ) {
 
-        _pn = 0;
-        _hn = 0;
-        _polyOverflow = false;
-
-        const m0 = m[0], m1 = m[1], m2 = m[2], m3 = m[3];
-        const m4 = m[4], m5 = m[5], m6 = m[6], m7 = m[7];
-        const m8 = m[8], m9 = m[9], m10 = m[10], m11 = m[11];
-        const m12 = m[12], m13 = m[13], m14 = m[14], m15 = m[15];
-
-        const ecx = m0 * cx + m4 * cy + m8 * cz + m12;
-        const ecy = m1 * cx + m5 * cy + m9 * cz + m13;
-        const ecz = m2 * cx + m6 * cy + m10 * cz + m14;
-        const ecw = m3 * cx + m7 * cy + m11 * cz + m15;
-        const ax = m0 * hx, ay = m1 * hx, az = m2 * hx, aw = m3 * hx;
-        const bx = m4 * hy, by = m5 * hy, bz = m6 * hy, bw = m7 * hy;
-        const dx = m8 * hz, dy = m9 * hz, dz = m10 * hz, dw = m11 * hz;
-
-        let insideMask = 0;
-        let andOut = 127;
-        let minX = 1, minY = 1, maxX = -1, maxY = -1;
-
-        for (let i = 0; i < 8; i++) {
-
-            const sx = (i & 1) * 2 - 1;
-            const sy = ((i >> 1) & 1) * 2 - 1;
-            const sz = ((i >> 2) & 1) * 2 - 1;
-            const x = ecx + sx * ax + sy * bx + sz * dx;
-            const y = ecy + sx * ay + sy * by + sz * dy;
-            const z = ecz + sx * az + sy * bz + sz * dz;
-            const w = ecw + sx * aw + sy * bw + sz * dw;
-
-            _cx[i] = x;
-            _cy[i] = y;
-            _cz[i] = z;
-            _cw[i] = w;
-
-            let out = 0;
-            if (w <= NEAR_EPS) out = 1;
-            if (x + w < 0) out |= 2;
-            if (w - x < 0) out |= 4;
-            if (y + w < 0) out |= 8;
-            if (w - y < 0) out |= 16;
-            if (z + w < 0) out |= 32;
-            if (w - z < 0) out |= 64;
-            andOut &= out;
-
-            if (out === 0) {
-                insideMask |= 1 << i;
-                const invW = 1 / w;
-                const nx = x * invW;
-                const ny = y * invW;
-                pushPoly(nx, ny);
-                if (nx < minX) minX = nx;
-                if (ny < minY) minY = ny;
-                if (nx > maxX) maxX = nx;
-                if (ny > maxY) maxY = ny;
+        let L = 0;
+        while (L + 1 < _mipCount) {
+            const s = L + 1;
+            if ((x1 >> s) - (x0 >> s) > 3 || (y1 >> s) - (y0 >> s) > 3) {
+                L = s;
+                continue;
             }
+            break;
         }
 
-        if (andOut !== 0) {
+        const data = L === 0 ? src : _mips;
+        const off = L === 0 ? 0 : _mipOff[L];
+        const mw = L === 0 ? bw : _mipW[L];
+        let mx0 = x0 >> L;
+        let my0 = y0 >> L;
+        let mx1 = x1 >> L;
+        let my1 = y1 >> L;
+        const lastX = (L === 0 ? bw : _mipW[L]) - 1;
+        const lastY = (L === 0 ? bh : _mipH[L]) - 1;
+        if (mx0 < 0) mx0 = 0;
+        if (my0 < 0) my0 = 0;
+        if (mx1 > lastX) mx1 = lastX;
+        if (my1 > lastY) my1 = lastY;
+        if (mx0 > mx1 || my0 > my1) {
             return false;
         }
 
-        _minX = minX;
-        _minY = minY;
-        _maxX = maxX;
-        _maxY = maxY;
+        for (let y = my0; y <= my1; y++) {
+            const row = off + y * mw;
+            for (let x = mx0; x <= mx1; x++) {
+                if (data[row + x] > z) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
 
-        if (insideMask !== 255) {
-            for (let e = 0; e < 12; e++) {
-                const a = EDGE0[e];
-                const b = EDGE1[e];
-                if ((insideMask & (1 << a)) && (insideMask & (1 << b))) {
+    /** Inclusive [s0, s1] where a*(x+0.5)+t >= 0 for all three edges. */
+    function clipSpan(
+        s0: number, s1: number,
+        a0: number, t0: number,
+        a1: number, t1: number,
+        a2: number, t2: number
+    ) {
+
+        const origLo = s0;
+        const origHi = s1;
+
+        if (a0 > 1e-12) {
+            const x = Math.ceil((-t0 / a0) - 0.5);
+            if (x > s0) s0 = x;
+        }
+        else if (a0 < -1e-12) {
+            const x = Math.floor((-t0 / a0) - 0.5);
+            if (x < s1) s1 = x;
+        }
+        else if (t0 < 0) {
+            _s0 = 1;
+            _s1 = 0;
+            return;
+        }
+
+        if (a1 > 1e-12) {
+            const x = Math.ceil((-t1 / a1) - 0.5);
+            if (x > s0) s0 = x;
+        }
+        else if (a1 < -1e-12) {
+            const x = Math.floor((-t1 / a1) - 0.5);
+            if (x < s1) s1 = x;
+        }
+        else if (t1 < 0) {
+            _s0 = 1;
+            _s1 = 0;
+            return;
+        }
+
+        if (a2 > 1e-12) {
+            const x = Math.ceil((-t2 / a2) - 0.5);
+            if (x > s0) s0 = x;
+        }
+        else if (a2 < -1e-12) {
+            const x = Math.floor((-t2 / a2) - 0.5);
+            if (x < s1) s1 = x;
+        }
+        else if (t2 < 0) {
+            _s0 = 1;
+            _s1 = 0;
+            return;
+        }
+
+        if (s0 > s1) {
+            _s0 = s0;
+            _s1 = s1;
+            return;
+        }
+
+        const inside = (x: number) => {
+            const px = x + 0.5;
+            return a0 * px + t0 >= 0 && a1 * px + t1 >= 0 && a2 * px + t2 >= 0;
+        };
+
+        if (!inside(s0)) {
+            do {
+                s0++;
+            } while (s0 <= s1 && !inside(s0));
+        }
+        else {
+            while (s0 > origLo && inside(s0 - 1)) {
+                s0--;
+            }
+        }
+        if (s0 > s1) {
+            _s0 = s0;
+            _s1 = s1;
+            return;
+        }
+        if (!inside(s1)) {
+            do {
+                s1--;
+            } while (s1 >= s0 && !inside(s1));
+        }
+        else {
+            while (s1 < origHi && inside(s1 + 1)) {
+                s1++;
+            }
+        }
+
+        _s0 = s0;
+        _s1 = s1;
+    }
+
+    /**
+     * 1 = a covered texel is farther than the triangle's nearest eye Z.
+     * 0 = every covered texel is nearer (this triangle is occluded).
+     * -1 = the triangle misses the map.
+     * A texel centre within half a texel of an edge is covered, so a triangle
+     * that only clips a texel still tests it. Texels in the `pad` ring around
+     * the bounds are tested whether or not the triangle covers them.
+     *
+     * `coverOnly` skips the depth load: the caller already knows every texel
+     * in the scan rect is occluding, so the first covered texel is enough.
+     */
+    function rasterTri(
+        x0: number, y0: number, z0: number,
+        x1: number, y1: number, z1: number,
+        x2: number, y2: number, z2: number,
+        data: Float32Array,
+        bw: number, bh: number,
+        pad: number, far: number,
+        coverOnly: number
+    ) {
+        const dx01 = x1 - x0;
+        const dy01 = y1 - y0;
+        const dx12 = x2 - x1;
+        const dy12 = y2 - y1;
+        const dx20 = x0 - x2;
+        const dy20 = y0 - y2;
+
+        const area = dx01 * (y2 - y0) - dy01 * (x2 - x0);
+        if (!(area > 1e-4 || area < -1e-4)) {
+            return -1;
+        }
+
+        let minX = x0;
+        let maxX = x0;
+        let minY = y0;
+        let maxY = y0;
+        if (x1 < minX) minX = x1;
+        if (x2 < minX) minX = x2;
+        if (x1 > maxX) maxX = x1;
+        if (x2 > maxX) maxX = x2;
+        if (y1 < minY) minY = y1;
+        if (y2 < minY) minY = y2;
+        if (y1 > maxY) maxY = y1;
+        if (y2 > maxY) maxY = y2;
+
+        const rawX0 = Math.floor(minX);
+        const rawY0 = Math.floor(minY);
+        const rawX1 = Math.ceil(maxX) - 1;
+        const rawY1 = Math.ceil(maxY) - 1;
+        const lastX = bw - 1;
+        const lastY = bh - 1;
+        let xLo = rawX0 - pad;
+        let yLo = rawY0 - pad;
+        let xHi = rawX1 + pad;
+        let yHi = rawY1 + pad;
+        if (xLo < 0) xLo = 0;
+        if (yLo < 0) yLo = 0;
+        if (xHi > lastX) xHi = lastX;
+        if (yHi > lastY) yHi = lastY;
+        if (xLo > xHi || yLo > yHi) {
+            return -1;
+        }
+
+        let minZ = z0;
+        if (z1 < minZ) minZ = z1;
+        if (z2 < minZ) minZ = z2;
+        // Past the far clear this triangle cannot be occluded, and it is not
+        // a reason to draw: the box early-out already kept a fully-past-far box.
+        if (!(minZ < far)) {
+            return -1;
+        }
+
+        if (!coverOnly) {
+            const texels = (xHi - xLo + 1) * (yHi - yLo + 1);
+            if (texels > MIP_TEST_TEXELS &&
+                mipRectOccluded(xLo, yLo, xHi, yHi, minZ, data, bw, bh)) {
+                coverOnly = 1;
+            }
+        }
+
+        if (coverOnly && pad > 0 &&
+            (xLo < rawX0 || xHi > rawX1 || yLo < rawY0 || yHi > rawY1)) {
+            return 0;
+        }
+
+        // Edge functions with the winding folded in: a centre is inside an
+        // edge when a * px + b * py + c >= 0.
+        const s = area > 0 ? 1 : -1;
+        const a0 = -dy01 * s, b0 = dx01 * s;
+        const a1 = -dy12 * s, b1 = dx12 * s;
+        const a2 = -dy20 * s, b2 = dx20 * s;
+        const c0 = (dy01 * x0 - dx01 * y0) * s + 0.5 * Math.sqrt(dx01 * dx01 + dy01 * dy01);
+        const c1 = (dy12 * x1 - dx12 * y1) * s + 0.5 * Math.sqrt(dx12 * dx12 + dy12 * dy12);
+        const c2 = (dy20 * x2 - dx20 * y2) * s + 0.5 * Math.sqrt(dx20 * dx20 + dy20 * dy20);
+
+        const innerLo = rawX0 > xLo ? rawX0 : xLo;
+        const innerHi = rawX1 < xHi ? rawX1 : xHi;
+
+        if (coverOnly) {
+
+            for (let y = yLo; y <= yHi; y++) {
+                const py = y + 0.5;
+                clipSpan(
+                    innerLo, innerHi,
+                    a0, b0 * py + c0,
+                    a1, b1 * py + c1,
+                    a2, b2 * py + c2
+                );
+                if (_s0 <= _s1) {
+                    return 0;
+                }
+            }
+            return -1;
+        }
+
+        let covered = false;
+
+        for (let y = yLo; y <= yHi; y++) {
+
+            const py = y + 0.5;
+            const row = y * bw;
+            const rawRow = y >= rawY0 && y <= rawY1;
+
+            if (pad > 0) {
+                if (!rawRow) {
+                    for (let x = xLo; x <= xHi; x++) {
+                        covered = true;
+                        if (data[row + x] > minZ) {
+                            return 1;
+                        }
+                    }
                     continue;
                 }
-                addEdge(a, b);
-            }
-        }
-
-        buildHull();
-        return _hn >= 3 && _minX <= _maxX;
-    }
-
-    function pushPoly(nx: number, ny: number) {
-        if (_pn >= POLY_MAX) {
-            _polyOverflow = true;
-            return;
-        }
-        _px[_pn] = nx;
-        _py[_pn] = ny;
-        _pn++;
-    }
-
-    function cross2(ox: number, oy: number, ax: number, ay: number, bx: number, by: number) {
-        return (ax - ox) * (by - oy) - (ay - oy) * (bx - ox);
-    }
-
-    function buildHull() {
-        const n = _pn;
-        _hn = 0;
-        if (n < 3) {
-            return;
-        }
-
-        const order = _order;
-        for (let i = 0; i < n; i++) {
-            order[i] = i;
-        }
-
-        for (let i = 1; i < n; i++) {
-            const id = order[i];
-            const x = _px[id];
-            const y = _py[id];
-            let j = i;
-            while (j > 0) {
-                const prev = order[j - 1];
-                const px = _px[prev];
-                const py = _py[prev];
-                if (px < x || (px === x && py <= y)) {
-                    break;
+                for (let x = xLo; x < rawX0; x++) {
+                    covered = true;
+                    if (data[row + x] > minZ) {
+                        return 1;
+                    }
                 }
-                order[j] = prev;
-                j--;
-            }
-            order[j] = id;
-        }
-
-        let m = 0;
-        for (let i = 0; i < n; i++) {
-            const id = order[i];
-            if (m > 0) {
-                const prev = order[m - 1];
-                if (_px[prev] === _px[id] && _py[prev] === _py[id]) {
-                    continue;
+                for (let x = rawX1 + 1; x <= xHi; x++) {
+                    covered = true;
+                    if (data[row + x] > minZ) {
+                        return 1;
+                    }
                 }
             }
-            order[m++] = id;
-        }
 
-        if (m < 3) {
-            return;
-        }
-
-        const hx = _hx;
-        const hy = _hy;
-        let k = 0;
-
-        for (let i = 0; i < m; i++) {
-            const id = order[i];
-            const x = _px[id];
-            const y = _py[id];
-            while (k >= 2 && cross2(hx[k - 2], hy[k - 2], hx[k - 1], hy[k - 1], x, y) <= 0) {
-                k--;
-            }
-            hx[k] = x;
-            hy[k] = y;
-            k++;
-        }
-
-        const lower = k + 1;
-        for (let i = m - 2; i >= 0; i--) {
-            const id = order[i];
-            const x = _px[id];
-            const y = _py[id];
-            while (k >= lower && cross2(hx[k - 2], hy[k - 2], hx[k - 1], hy[k - 1], x, y) <= 0) {
-                k--;
-            }
-            hx[k] = x;
-            hy[k] = y;
-            k++;
-        }
-
-        _hn = k - 1;
-    }
-
-    function rowSpan(y0: number, y1: number) {
-        const n = _hn;
-        const hx = _hx;
-        const hy = _hy;
-        let xa = 2;
-        let xb = -2;
-        let any = false;
-
-        for (let i = 0; i < n; i++) {
-            const j = i + 1 < n ? i + 1 : 0;
-            let x0 = hx[i];
-            let yy0 = hy[i];
-            let x1 = hx[j];
-            let yy1 = hy[j];
-
-            if (yy0 === yy1) {
-                if (yy0 >= y0 && yy0 <= y1) {
-                    if (x0 < xa) xa = x0;
-                    if (x1 < xa) xa = x1;
-                    if (x0 > xb) xb = x0;
-                    if (x1 > xb) xb = x1;
-                    any = true;
-                }
+            clipSpan(
+                innerLo, innerHi,
+                a0, b0 * py + c0,
+                a1, b1 * py + c1,
+                a2, b2 * py + c2
+            );
+            if (_s0 > _s1) {
                 continue;
             }
-
-            if (yy0 > yy1) {
-                const tx = x0;
-                x0 = x1;
-                x1 = tx;
-                const ty = yy0;
-                yy0 = yy1;
-                yy1 = ty;
+            covered = true;
+            for (let x = _s0; x <= _s1; x++) {
+                if (data[row + x] > minZ) {
+                    return 1;
+                }
             }
-
-            if (yy1 < y0 || yy0 > y1) {
-                continue;
-            }
-
-            if (yy0 < y0) {
-                const t = (y0 - yy0) / (yy1 - yy0);
-                x0 = x0 + (x1 - x0) * t;
-                yy0 = y0;
-            }
-            if (yy1 > y1) {
-                const t = (y1 - yy0) / (yy1 - yy0);
-                x1 = x0 + (x1 - x0) * t;
-            }
-
-            if (x0 < xa) xa = x0;
-            if (x1 < xa) xa = x1;
-            if (x0 > xb) xb = x0;
-            if (x1 > xb) xb = x1;
-            any = true;
         }
 
-        _spanAny = any;
-        _spanX0 = xa;
-        _spanX1 = xb;
-    }
-
-    function prepareBoxDepth(
-        view: Float32Array, vp: Float32Array,
-        camX: number, camY: number, camZ: number,
-        cx: number, cy: number, cz: number,
-        hx: number, hy: number, hz: number
-    ) {
-        const rx = view[0], ry = view[4], rz = view[8];
-        const ux = view[1], uy = view[5], uz = view[9];
-        const bx = view[2], by = view[6], bz = view[10];
-        const sx = Math.hypot(vp[0], vp[4], vp[8]);
-        const sy = Math.hypot(vp[1], vp[5], vp[9]);
-        if (!(sx > 1e-8 && sy > 1e-8)) {
-            _useX = 0;
-            _useY = 0;
-            _useZ = 0;
-            return;
-        }
-
-        const invSx = 1 / sx;
-        const invSy = 1 / sy;
-        _dxx = rx * invSx;
-        _dxy = ux * invSy;
-        _dxc = -bx;
-        _dyx = ry * invSx;
-        _dyy = uy * invSy;
-        _dyc = -by;
-        _dzx = rz * invSx;
-        _dzy = uz * invSy;
-        _dzc = -bz;
-
-        const minX = cx - hx;
-        const maxX = cx + hx;
-        if (camX < minX) {
-            _useX = 1;
-            _distX = minX - camX;
-        }
-        else if (camX > maxX) {
-            _useX = 1;
-            _distX = maxX - camX;
-        }
-        else {
-            _useX = 0;
-        }
-
-        const minY = cy - hy;
-        const maxY = cy + hy;
-        if (camY < minY) {
-            _useY = 1;
-            _distY = minY - camY;
-        }
-        else if (camY > maxY) {
-            _useY = 1;
-            _distY = maxY - camY;
-        }
-        else {
-            _useY = 0;
-        }
-
-        const minZ = cz - hz;
-        const maxZ = cz + hz;
-        if (camZ < minZ) {
-            _useZ = 1;
-            _distZ = minZ - camZ;
-        }
-        else if (camZ > maxZ) {
-            _useZ = 1;
-            _distZ = maxZ - camZ;
-        }
-        else {
-            _useZ = 0;
-        }
-    }
-
-    function minPlaneT(
-        dist: number, ax: number, ay: number, ac: number,
-        x0: number, y0: number, x1: number, y1: number
-    ) {
-        const d00 = ax * x0 + ay * y0 + ac;
-        const d10 = ax * x1 + ay * y0 + ac;
-        const d01 = ax * x0 + ay * y1 + ac;
-        const d11 = ax * x1 + ay * y1 + ac;
-        let denom: number;
-        if (dist > 0) {
-            if (d00 <= 1e-8 || d10 <= 1e-8 || d01 <= 1e-8 || d11 <= 1e-8) {
-                return -1;
-            }
-            denom = d00 > d10 ? d00 : d10;
-            if (d01 > denom) denom = d01;
-            if (d11 > denom) denom = d11;
-        }
-        else {
-            if (d00 >= -1e-8 || d10 >= -1e-8 || d01 >= -1e-8 || d11 >= -1e-8) {
-                return -1;
-            }
-            denom = d00 < d10 ? d00 : d10;
-            if (d01 < denom) denom = d01;
-            if (d11 < denom) denom = d11;
-        }
-        const t = dist / denom;
-        return t > 0 ? t : -1;
-    }
-
-    function boxDepthLower(x0: number, y0: number, x1: number, y1: number, minEye: number) {
-        let z = minEye;
-        if (x1 < x0 || y1 < y0) {
-            return z;
-        }
-        if (_useX) {
-            const t = minPlaneT(_distX, _dxx, _dxy, _dxc, x0, y0, x1, y1);
-            if (t > z) z = t;
-        }
-        if (_useY) {
-            const t = minPlaneT(_distY, _dyx, _dyy, _dyc, x0, y0, x1, y1);
-            if (t > z) z = t;
-        }
-        if (_useZ) {
-            const t = minPlaneT(_distZ, _dzx, _dzy, _dzc, x0, y0, x1, y1);
-            if (t > z) z = t;
-        }
-        return z;
+        return covered ? 0 : -1;
     }
 
     return CoverageCpuBuffer;

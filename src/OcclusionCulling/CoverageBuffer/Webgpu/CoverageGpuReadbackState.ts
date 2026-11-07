@@ -19,13 +19,6 @@ export class CoverageGpuReadbackState {
     public width = 0;
     /** Packed map height for this capture. */
     public height = 0;
-    /**
-     * Screen-UV divisor of this capture. Pixel `i` covers
-     * `[i / gridScaleX, (i + 1) / gridScaleX]`.
-     */
-    public gridScaleX = 0;
-    /** Screen-UV divisor on Y. See {@link gridScaleX}. */
-    public gridScaleY = 0;
     /** Held between `acquire` and `submit`. */
     public reserved = false;
 
@@ -58,8 +51,6 @@ export class CoverageGpuReadbackState {
         this._copyCount = 0;
         this.width = 0;
         this.height = 0;
-        this.gridScaleX = 0;
-        this.gridScaleY = 0;
         this._scratch = new Float32Array(this._pixelCount);
         this._destroyStaging();
         this.pending = false;

@@ -15,13 +15,6 @@ export class CoverageTFState extends TFState {
     public width = 0;
     /** Packed map height for this capture. */
     public height = 0;
-    /**
-     * Screen-UV divisor of this capture. Pixel `i` covers
-     * `[i / gridScaleX, (i + 1) / gridScaleX]`.
-     */
-    public gridScaleX = 0;
-    /** Screen-UV divisor on Y. See {@link gridScaleX}. */
-    public gridScaleY = 0;
 
     constructor(device: pc.WebglGraphicsDevice, elementCount: number) {
         super(device, elementCount, "float32");

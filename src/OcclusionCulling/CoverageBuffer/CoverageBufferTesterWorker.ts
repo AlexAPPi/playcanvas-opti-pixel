@@ -74,6 +74,13 @@ export class CoverageBufferTesterWorker implements IGPU2CPUReadbackOcclusionCull
      */
     public rectPadPixels = 0;
 
+    /**
+     * Moves reprojected occluders away from the camera.
+     * `b > 0`: `z * (1 + b) + b`. `b < 0`: `z + |b|` metres of view-space Z.
+     * Written into the bus before each worker job.
+     */
+    public depthBias = 0;
+
     public get coverage() { return this._coverage; }
     public set coverage(v: ICoverageBuffer) {
         this._coverage = v;
@@ -196,8 +203,6 @@ export class CoverageBufferTesterWorker implements IGPU2CPUReadbackOcclusionCull
             bus.srcDepth.set(src.subarray(0, n0));
             bus.srcVP.set(this._coverage.cpuViewProjection);
             bus.srcParams.set(this._coverage.cpuCameraParams);
-            bus.gridScale[0] = this._coverage.cpuGridScaleX;
-            bus.gridScale[1] = this._coverage.cpuGridScaleY;
             this._appliedVersion = this._coverage.cpuVersion;
         }
 
@@ -214,6 +219,7 @@ export class CoverageBufferTesterWorker implements IGPU2CPUReadbackOcclusionCull
         cam[2] = camPos.z;
 
         bus.aabbExpand[0] = this.aabbExpand;
+        bus.depthBias[0] = this.depthBias;
 
         header[3] = queueCount;
         header[4] = Math.max(0, this.rectPadPixels);

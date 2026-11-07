@@ -9,11 +9,10 @@ import type { IHierarchicalZBuffer } from "../HZB/IHierarchicalZBuffer.js";
  * Each axis picks the stored mip nearest to the buffer's max resolution; the
  * coarser of the two is packed. If that mip's screen footprint, clamped to the
  * max, would still cover three or more source texels per packed pixel, the next
- * coarser mip is used. The CPU map is the chosen mip's screen footprint in
- * whole texels, clamped to the max. Pixel `i` is HZB texel `i` of that
- * footprint; its screen UV is `i / cpuGridScale`, so a partial edge texel
- * stays on the screen edge. Each packed texel is the max device Z of the
- * texels in that bin, linearized to metres.
+ * coarser mip is used. The CPU map is that footprint rounded to whole texels.
+ * Pixel `i` covers screen UV `[i / cpuWidth, (i + 1) / cpuWidth]` (the same
+ * on Y) and reads the HZB texels under that slice. Each packed texel is that
+ * device Z, linearized to metres.
  */
 export interface ICoverageBuffer {
 
@@ -70,21 +69,6 @@ export interface ICoverageBuffer {
      * Height of the published map. See {@link cpuWidth}.
      */
     readonly cpuHeight: number;
-
-    /**
-     * Screen-UV divisor of the published map on X.
-     * Packed pixel `i` covers `[i / cpuGridScaleX, (i + 1) / cpuGridScaleX]`.
-     * The real footprint (`mipSize * uvFactor`) when every texel has its own
-     * pixel. Reports {@link cpuWidth} until the first publish, after {@link resize}
-     * changes the packed pixel count, and when that footprint is an integer
-     * texel count.
-     */
-    readonly cpuGridScaleX: number;
-
-    /**
-     * Screen-UV divisor of the published map on Y. See {@link cpuGridScaleX}.
-     */
-    readonly cpuGridScaleY: number;
 
     /**
      * View-projection of the camera packed into the published map

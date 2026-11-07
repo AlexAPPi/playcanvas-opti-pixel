@@ -3,7 +3,8 @@ import { ICoverageBuffer } from "../ICoverageBuffer.js";
 import type { IHierarchicalZBuffer } from "../../HZB/IHierarchicalZBuffer.js";
 import computeCodeCS from "./WebgpuCoverageBuffer.comp.wgsl.js";
 import { CoverageGpuReadback } from "./CoverageGpuReadback.js";
-import { hzbShaderKind, selectCoverageMip, THzbShaderKind } from "../CoverageMath.js";
+import { CoverageMipCache } from "../CoverageMipCache.js";
+import { hzbShaderKind, THzbShaderKind } from "../CoverageMath.js";
 
 const workgroupSize = 8;
 
@@ -11,8 +12,9 @@ const workgroupSize = 8;
  * WebGPU coverage depth buffer.
  *
  * Reads the HZB mip nearest to {@link maxWidth} × {@link maxHeight} and packs
- * its screen footprint to float view-space Z. Pixel `i` is HZB texel `i`
- * of that footprint. GPU→CPU download is a ring of
+ * its screen footprint to float view-space Z. Pixel `i` covers screen UV
+ * `[i / width, (i + 1) / width]` and reads the HZB texels under that slice.
+ * GPU→CPU download is a ring of
  * {@link readbackSlots} staging reads ({@link CoverageGpuReadback}).
  * The next pack starts when a slot is free.
  */
@@ -27,11 +29,13 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
     private _computeKind: THzbShaderKind | null = null;
     private _dispatchList: pc.Compute[] = [null!];
     private _sizeArr = [0, 0, 0, 0];
+    private _spanArr = new Float32Array(2);
     private _cameraParamsArr = new Float32Array(4);
 
     private _maxWidth: number;
     private _maxHeight: number;
     private _sourceMip = 0;
+    private _mipCache = new CoverageMipCache();
 
     private _viewProjection = new pc.Mat4();
     private _onDestroy: pc.EventHandle;
@@ -67,16 +71,6 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
     public get cpuHeight() {
         const height = this._readback.cpuHeight;
         return height > 0 ? height : this._maxHeight;
-    }
-
-    public get cpuGridScaleX() {
-        const scale = this._readback.cpuGridScaleX;
-        return scale > 0 ? scale : this.cpuWidth;
-    }
-
-    public get cpuGridScaleY() {
-        const scale = this._readback.cpuGridScaleY;
-        return scale > 0 ? scale : this.cpuHeight;
     }
 
     public get cpuViewProjection() { return this._readback.cpuViewProjection; }
@@ -127,16 +121,7 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
             return;
         }
 
-        const uv = hzb.uvFactor;
-        const mip = selectCoverageMip(
-            hzb.width,
-            hzb.height,
-            hzb.mipLevels,
-            this._maxWidth,
-            this._maxHeight,
-            uv[0],
-            uv[1]
-        );
+        const mip = this._mipCache.select(hzb, this._maxWidth, this._maxHeight);
 
         // WebGPU keeps every level on `texture`. WebGL's `buffers[level]` is the
         // ping-pong target that received that level; the texels still live at `level`.
@@ -162,9 +147,12 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
         this._sizeArr[1] = mip.packHeight;
         this._sizeArr[2] = mip.texelCountX;
         this._sizeArr[3] = mip.texelCountY;
+        this._spanArr[0] = mip.spanX;
+        this._spanArr[1] = mip.spanY;
 
         compute.setParameter("uCoverageMipLevel", mip.level);
         compute.setParameter("uCoverageSize", this._sizeArr);
+        compute.setParameter("uCoverageSpan", this._spanArr);
         compute.setParameter("uCoverageCameraParams", this._cameraParamsArr);
         compute.setParameter("uCoverageDepth", src);
         compute.setParameter("out_depth", output);
@@ -178,8 +166,6 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
 
         slot.width = mip.packWidth;
         slot.height = mip.packHeight;
-        slot.gridScaleX = mip.gridScaleX;
-        slot.gridScaleY = mip.gridScaleY;
 
         this._readback.submit(slot, this._viewProjection.data, this._cameraParamsArr, mip.packWidth * mip.packHeight);
     }
@@ -195,7 +181,8 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
             ub: new pc.UniformBufferFormat(this._device, [
                 new pc.UniformFormat("uCoverageMipLevel", pc.UNIFORMTYPE_INT),
                 new pc.UniformFormat("uCoverageSize", pc.UNIFORMTYPE_IVEC4),
-                new pc.UniformFormat("uCoverageCameraParams", pc.UNIFORMTYPE_VEC4)
+                new pc.UniformFormat("uCoverageCameraParams", pc.UNIFORMTYPE_VEC4),
+                new pc.UniformFormat("uCoverageSpan", pc.UNIFORMTYPE_VEC2)
             ])
         };
     }

@@ -14,14 +14,13 @@
  * 24:  float32 camY
  * 28:  float32 camZ
  * 32:  float32 aabbExpand
- * 36:  float32 srcParams[4] // camera_params: 1 / far, far, near, ortho
- * 52:  float32 dstParams[4]
- * 68:  float32 srcVP[16]
- * 132: float32 dstVP[16]
- * 196: float32 view[16]
- * 260: float32 gridScaleX   // screen UV of pixel i is i / gridScale
- * 264: float32 gridScaleY
- * 268: float32 srcDepth[width * height]
+ * 36:  float32 depthBias
+ * 40:  float32 srcParams[4] // camera_params: 1 / far, far, near, ortho
+ * 56:  float32 dstParams[4]
+ * 72:  float32 srcVP[16]
+ * 136: float32 dstVP[16]
+ * 200: float32 view[16]
+ * 264: float32 srcDepth[width * height]
  * then float32 aabbCenters[capacity * 4]
  * then float32 aabbHalves[capacity * 4]
  * then uint32  queue[capacity]
@@ -51,12 +50,12 @@ export interface ICoverageBusViews {
     n0: number;
     cam: Float32Array;
     aabbExpand: Float32Array;
+    depthBias: Float32Array;
     srcParams: Float32Array;
     dstParams: Float32Array;
     srcVP: Float32Array;
     dstVP: Float32Array;
     view: Float32Array;
-    gridScale: Float32Array;
     srcDepth: Float32Array;
     centers: Float32Array;
     halves: Float32Array;
@@ -98,7 +97,7 @@ export interface ICoverageBusApi {
 
 export function defineCoverageBufferBus(): ICoverageBusApi {
 
-    const HEADER_BYTES = 268;
+    const HEADER_BYTES = 264;
     const OUTPUT_HEADER_BYTES = 16;
     const OCCLUSION_UNKNOWN = -1;
 
@@ -130,12 +129,12 @@ export function defineCoverageBufferBus(): ICoverageBusApi {
             rectPadPixels,
             cam: new Float32Array(buffer, 20, 3),
             aabbExpand: new Float32Array(buffer, 32, 1),
-            srcParams: new Float32Array(buffer, 36, 4),
-            dstParams: new Float32Array(buffer, 52, 4),
-            srcVP: new Float32Array(buffer, 68, 16),
-            dstVP: new Float32Array(buffer, 132, 16),
-            view: new Float32Array(buffer, 196, 16),
-            gridScale: new Float32Array(buffer, 260, 2),
+            depthBias: new Float32Array(buffer, 36, 1),
+            srcParams: new Float32Array(buffer, 40, 4),
+            dstParams: new Float32Array(buffer, 56, 4),
+            srcVP: new Float32Array(buffer, 72, 16),
+            dstVP: new Float32Array(buffer, 136, 16),
+            view: new Float32Array(buffer, 200, 16),
             srcDepth: new Float32Array(buffer, srcOff, n0),
             centers: new Float32Array(buffer, aabbOff, capacity * 4),
             halves: new Float32Array(buffer, aabbOff + capacity * 16, capacity * 4),

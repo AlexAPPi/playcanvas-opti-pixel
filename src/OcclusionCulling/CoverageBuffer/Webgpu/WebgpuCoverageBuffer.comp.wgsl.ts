@@ -6,8 +6,9 @@ export default `
 
     struct Uniforms {
         uCoverageMipLevel: i32,
-        uCoverageSize: vec4<i32>, // xy: packed pixels, zw: HZB texels of the screen footprint. zw >= xy, all >= 1.
-        uCoverageCameraParams: vec4<f32> // x: 1/far, y: far, z: near, w: 1 if orthographic
+        uCoverageSize: vec4<i32>, // xy: packed pixels, zw: HZB texel count, the fetch clamp
+        uCoverageCameraParams: vec4<f32>, // x: 1/far, y: far, z: near, w: 1 if orthographic
+        uCoverageSpan: vec2<f32> // screen footprint in mip texels
     }
 
     @group(0) @binding(0) var<uniform> uniforms: Uniforms;
@@ -24,9 +25,13 @@ export default `
     fn linearizeDepth(deviceZ: f32) -> f32 {
         let nearClip = uniforms.uCoverageCameraParams.z;
         let farClip = uniforms.uCoverageCameraParams.y;
-        let perspective = (nearClip * farClip) / (farClip + deviceZ * (nearClip - farClip));
-        let ortho = nearClip + deviceZ * (farClip - nearClip);
-        return mix(perspective, ortho, uniforms.uCoverageCameraParams.w);
+        if (deviceZ >= 1.0) {
+            return farClip;
+        }
+        if (uniforms.uCoverageCameraParams.w > 0.5) {
+            return nearClip + deviceZ * (farClip - nearClip);
+        }
+        return (nearClip * farClip) / (farClip * (1.0 - deviceZ) + nearClip * deviceZ);
     }
 
     // HZB stores device Z. RGBA8 is packed with float2uint; float mips keep it in .r.
@@ -38,7 +43,7 @@ export default `
         #endif
     }
 
-    // Inclusive bin. selectCoverageMip keeps it to a few texels.
+    // Inclusive bin. The chosen mip keeps it to a few texels.
     fn sampleMax(minTexel: vec2i, maxTexel: vec2i, level: i32) -> f32 {
         var maxDeviceZ = 0.0;
         for (var y = minTexel.y; y <= maxTexel.y; y++) {
@@ -52,29 +57,48 @@ export default `
         return maxDeviceZ;
     }
 
+    // A cell wider than this covers more than the texel under its centre.
+    const WIDE_CELL: f32 = 1.5;
+    // edge1 is exclusive. Step back so a boundary does not include the next texel.
+    const EDGE_GAP: f32 = 0.001;
+
+    // Inclusive texel range of one axis. Returns (min, max).
+    // A narrow cell reads the texel under its centre. A wide cell reads every texel it covers.
+    fn binAxis(edge0: f32, edge1: f32) -> vec2i {
+        let width = edge1 - edge0;
+        let center = i32(floor((edge0 + edge1) * 0.5));
+        if (width > WIDE_CELL) {
+            return vec2i(i32(floor(edge0)), i32(floor(edge1 - EDGE_GAP)));
+        }
+        return vec2i(center, center);
+    }
+
     @compute @workgroup_size(GROUP_SIZE, GROUP_SIZE, 1)
     fn main(@builtin(global_invocation_id) gid: vec3u) {
 
-        let dest = uniforms.uCoverageSize.xy;
-        let src = uniforms.uCoverageSize.zw;
+        let packed = uniforms.uCoverageSize.xy;
+        let limit = max(uniforms.uCoverageSize.zw - vec2i(1), vec2i(0));
         let pixel = vec2i(i32(gid.x), i32(gid.y));
 
         // Dispatch is rounded up to the workgroup.
-        if (pixel.x >= dest.x || pixel.y >= dest.y) {
+        if (pixel.x >= packed.x || pixel.y >= packed.y) {
             return;
         }
 
-        // WebGPU HZB texel 0 is the top of the screen. CPU row 0 is the bottom.
-        // Pixel i owns source texels [i * src / dest, (i + 1) * src / dest).
-        let minTexel = pixel * src / dest;
-        let maxTexel = (pixel + vec2i(1)) * src / dest - vec2i(1);
-        let y0 = src.y - 1 - maxTexel.y;
-        let y1 = src.y - 1 - minTexel.y;
+        // Pixel i covers screen UV [i / packed, (i + 1) / packed], in mip texels
+        // from the bottom-left. Texture row 0 is the top of the screen, so Y
+        // bins the flipped edges.
+        let span = uniforms.uCoverageSpan;
+        let texel0 = vec2f(pixel) * span / vec2f(packed);
+        let texel1 = vec2f(pixel + vec2i(1)) * span / vec2f(packed);
 
-        let id = gid.y * u32(dest.x) + gid.x;
-        let minSampleTexel = vec2i(minTexel.x, y0);
-        let maxSampleTexel = vec2i(maxTexel.x, y1);
-        let maxDeviceZ = sampleMax(minSampleTexel, maxSampleTexel, uniforms.uCoverageMipLevel);
+        let xBin = binAxis(texel0.x, texel1.x);
+        let yBin = binAxis(span.y - texel1.y, span.y - texel0.y);
+        let minTexel = clamp(vec2i(xBin.x, yBin.x), vec2i(0), limit);
+        let maxTexel = clamp(vec2i(xBin.y, yBin.y), minTexel, limit);
+
+        let id = gid.y * u32(packed.x) + gid.x;
+        let maxDeviceZ = sampleMax(minTexel, maxTexel, uniforms.uCoverageMipLevel);
         let linearizedDepth = linearizeDepth(maxDeviceZ);
 
         out_depth[id] = linearizedDepth;

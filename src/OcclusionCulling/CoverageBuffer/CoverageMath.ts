@@ -21,6 +21,15 @@ export function integerLog2(n: number) {
     return 31 - Math.clz32(n);
 }
 
+/**
+ * Whole texels for a continuous footprint, at least 1 and at most `cap`.
+ * Rounded, not ceiled: a fractional tail given its own cell shifts the map
+ * by almost one pixel.
+ */
+function packCount(span: number, cap: number) {
+    return Math.min(cap, Math.max(1, Math.round(span)));
+}
+
 /** Smallest power of two >= `n` (clamped so `n <= 1` -> `1`). */
 export function nextPow2(n: number) {
     n = n | 0;
@@ -39,28 +48,21 @@ export interface ICoverageMip {
     height: number;
     /**
      * CPU map width. Screen footprint of {@link width}, clamped to `maxWidth`.
-     * Pixel `i` is HZB texel `i` of that footprint.
+     * Pixel `i` covers screen UV `[i / packWidth, (i + 1) / packWidth]`.
      */
     packWidth: number;
     /**
      * CPU map height. Screen footprint of {@link height}, clamped to `maxHeight`.
      */
     packHeight: number;
-    /**
-     * HZB texels of this mip the screen covers on X, before the cap.
-     * {@link packWidth} bins these whole texels.
-     */
+    /** Continuous screen footprint on X, in mip texels (`width * uvFactor`). */
+    spanX: number;
+    /** Continuous screen footprint on Y. See {@link spanX}. */
+    spanY: number;
+    /** Whole HZB texels that intersect {@link spanX}. The pack clamps fetches to this. */
     texelCountX: number;
-    /** HZB texels of this mip the screen covers on Y, before the cap. */
+    /** Whole HZB texels that intersect {@link spanY}. */
     texelCountY: number;
-    /**
-     * Screen-UV divisor for the packed X axis. Pixel `i` covers
-     * `[i / gridScaleX, (i + 1) / gridScaleX]`. Equals the real footprint
-     * (`width * uvFactor`) when every texel has its own pixel.
-     */
-    gridScaleX: number;
-    /** Screen-UV divisor for the packed Y axis. See {@link gridScaleX}. */
-    gridScaleY: number;
 }
 
 /**
@@ -104,29 +106,8 @@ function screenFootprint(mipSize: number, uv: number): ICoverageFootprint {
     const size = mipSize > 1 ? mipSize : 1;
     const scale = uv > 0 ? uv : 1;
     const span = size * scale;
-    let count = Math.ceil(span - 1e-4);
-    if (count < 1) {
-        count = 1;
-    }
-    if (count > size) {
-        count = size;
-    }
+    const count = Math.min(size, Math.max(1, Math.ceil(span - 1e-4)));
     return { span, count };
-}
-
-/**
- * Pixel `i` covers screen UV `[i / scale, (i + 1) / scale]`.
- * One pixel per texel uses the real span, so a partial edge texel stays on
- * the screen edge instead of stretching the grid to the integer count.
- * A clamped map bins several texels per pixel and scales by that bin size.
- */
-function gridScale(pack: number, footprint: ICoverageFootprint) {
-    const count = footprint.count;
-    const span = footprint.span;
-    if (count < 1 || !(span > 0) || span > count) {
-        return pack;
-    }
-    return pack * span / count;
 }
 
 /**
@@ -136,12 +117,10 @@ function gridScale(pack: number, footprint: ICoverageFootprint) {
  * Each axis picks its nearest stored level; the coarser of the two is used,
  * so neither axis is finer than its own nearest mip. `uvFactor` is the
  * pyramid's screen-to-mip scale and already includes a WebGL `minMipLevel`.
- * The packed size is the screen footprint in whole texels, clamped to the
- * max. Pixel `i` bins HZB texels of that footprint with integer edges, so it
- * is texel `i` whenever the footprint fits in the cap. If the clamp would
- * still cover three or more source texels per packed pixel, the next coarser
- * mip is used. `gridScale` is the UV divisor that places those texels on the
- * screen.
+ * The packed size is the rounded screen footprint, clamped to the max.
+ * Pixel `i` covers screen UV `[i / pack, (i + 1) / pack]` and the shader
+ * reads the HZB texels under that slice. If the clamp would still cover
+ * three or more source texels per packed pixel, the next coarser mip is used.
  */
 export function selectCoverageMip(
     hzbWidth: number,
@@ -174,8 +153,8 @@ export function selectCoverageMip(
     let footY = screenFootprint(height, uy);
 
     while (level < levels - 1) {
-        const packW = Math.min(capW, footX.count);
-        const packH = Math.min(capH, footY.count);
+        const packW = packCount(footX.span, capW);
+        const packH = packCount(footY.span, capH);
         if (footX.span / packW < COVERAGE_MAX_SPAN && footY.span / packH < COVERAGE_MAX_SPAN) {
             break;
         }
@@ -186,8 +165,8 @@ export function selectCoverageMip(
         footY = screenFootprint(height, uy);
     }
 
-    const packWidth = Math.min(capW, footX.count);
-    const packHeight = Math.min(capH, footY.count);
+    const packWidth = packCount(footX.span, capW);
+    const packHeight = packCount(footY.span, capH);
 
     return {
         level,
@@ -195,9 +174,9 @@ export function selectCoverageMip(
         height,
         packWidth,
         packHeight,
+        spanX: footX.span,
+        spanY: footY.span,
         texelCountX: footX.count,
-        texelCountY: footY.count,
-        gridScaleX: gridScale(packWidth, footX),
-        gridScaleY: gridScale(packHeight, footY)
+        texelCountY: footY.count
     };
 }

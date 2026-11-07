@@ -4,7 +4,7 @@ Coverage reads one mip of an already-built hierarchical Z-buffer, packs it to a 
 
 `OcclusionCullingSystem` does **not** create this path. Instantiate a buffer plus `CoverageBufferTesterWorker` yourself, and pass the same HZB you update.
 
-Build the pyramid first (`hzb.update` or `hzb.updateSceneDepth`). Coverage does not read the depth grab. It picks the stored mip nearest to `maxWidth` × `maxHeight`, packs that mip's screen footprint so pixel `i` lines up with HZB texel `i`, takes the max device Z of the texels in that pixel, and linearizes that to view-space metres. The worker reprojects the last finished capture into the current camera, then tests queued AABBs against that map.
+Build the pyramid first (`hzb.update` or `hzb.updateSceneDepth`). Coverage does not read the depth grab. It picks the stored mip nearest to `maxWidth` × `maxHeight`, packs that mip so pixel `i` covers screen UV `[i / width, (i + 1) / width]`, takes the max device Z of the HZB texels under that slice, and linearizes that to view-space metres. The worker reprojects the last finished capture into the current camera, then tests queued AABBs against that map.
 
 ## Setup
 
@@ -123,9 +123,9 @@ sequenceDiagram
 
 ## Pack from an HZB mip
 
-`maxWidth` × `maxHeight` (defaults 256×128) is the cap, not the map. Each axis picks the stored mip nearest to that cap; the coarser of the two is packed. The downloaded map is that mip's screen footprint in whole texels (`ceil(uvFactor * mipSize)`), and never larger than the cap. Packed pixel `i` is HZB texel `i` of that footprint, or a bin of whole texels when the footprint is clamped to the cap. If that clamp would still cover three or more source texels per packed pixel, the next coarser mip is used. WebGL HZB does not store levels finer than its `maxSize` (default 256), so those are not available to coverage. `uvFactor` is the HZB's own screen-to-mip scale, so padding outside the screen is not packed as full NDC.
+`maxWidth` × `maxHeight` (defaults 256×128) is the cap, not the map. Each axis picks the stored mip nearest to that cap; the coarser of the two is packed. The downloaded map is the screen footprint rounded to whole texels, and never larger than the cap. Pixel `i` covers screen UV `[i / cpuWidth, (i + 1) / cpuWidth]` and reads the HZB texel under the centre of that slice. A fractional footprint is rounded rather than ceiled, so the leftover does not become its own cell and shift the map. A slice wider than one and a half texels maxes every texel it overlaps. If that would still cover three or more source texels per packed pixel, the next coarser mip is used. WebGL HZB does not store levels finer than its `maxSize` (default 256), so those are not available to coverage. `uvFactor` is the HZB's own screen-to-mip scale, so padding outside the screen is not packed as full NDC.
 
-`cpuWidth` × `cpuHeight` is the harvested footprint in texels. Until the first harvest, and after `resize` changes the packed pixel count, those report the cap. `cpuGridScaleX` / `cpuGridScaleY` place that map on the screen: pixel `i` covers `[i / scale, (i + 1) / scale]`. The scale is the real footprint `uvFactor * mipSize` when each texel has its own pixel, so a partial last texel stays on the screen edge instead of stretching onto the integer width. Each packed texel is the max device Z of the HZB texels in its bin, then linearized to float view-space Z. Row 0 of the download is the bottom of the screen.
+`cpuWidth` × `cpuHeight` is the harvested footprint in texels. Until the first harvest, and after `resize` changes the packed pixel count, those report the cap. Pixel `i` covers `[i / cpuWidth, (i + 1) / cpuWidth]` (and the same on Y). Each packed texel is the device Z of the HZB texel under that cell (the max, when the cell covers more than one), then linearized to float view-space Z. Row 0 of the download is the bottom of the screen.
 
 | Device | Pack | Download |
 | --- | --- | --- |
@@ -177,15 +177,21 @@ Each idle `execute` with `cpuReady`:
 
 1. Flushes dirty AABBs into the bus (full copy after construct/resize, otherwise incremental `lock` / `enqueueAabbUpdate` ids).
 2. Copies `coverage.cpuDepth` when `cpuVersion` changed, plus the capture view-projection and `camera_params`.
-3. Writes the **current** view-projection, view matrix, camera position, `aabbExpand`, `rectPadPixels`, and queue ids.
+3. Writes the **current** view-projection, view matrix, camera position, `aabbExpand`, `rectPadPixels`, `depthBias`, and queue ids.
 4. Transfers the bus and the write slot. The queue is cleared.
 
-The worker reprojects capture depth into the current camera (perspective only; orthographic leaves the map at far), fills scatter holes from a 3×3 neighbourhood, then tests each queued AABB:
+The worker reprojects capture depth into the current camera (perspective only; orthographic leaves the map at far):
+
+1. Every capture sample is scattered into the current camera. When several land on one pixel, the nearest wins. Sky samples (within 5% of the capture far) and samples past the current far land as far, so they never occlude.
+2. A pixel no sample landed on takes the **farthest** sample of its 3×3 neighbours. With no neighbour it stays at far.
+3. `depthBias` moves every occluder away from the camera. Far stays far.
+
+It then tests each queued AABB:
 
 - Camera inside the (expanded) box → visible
 - Box behind far, or fully in front of the nearest coverage sample → visible
 - Box farther than every coverage sample → occluded
-- Else: clip the box and test the texels its silhouette covers. A texel occludes when its depth is nearer than the box’s front over that texel. Empty corners of the screen AABB are ignored, so an oblique box toward the edge of the view is not kept visible by background behind those corners. `rectPadPixels` still grows the rect; the extra texels use the nearest eye Z
+- Else: rasterize only the faces that look at the camera. Each face is two triangles. When every corner is in front of the near plane the corners are projected once; otherwise each triangle is clipped to the near plane. A box entirely in front of near is visible. A texel of a triangle occludes when its depth is nearer than the nearest eye Z of that triangle. The box is occluded only when every texel those faces actually cover is occluding. Empty corners of the screen AABB are not tested, so an oblique box is not kept visible by background beside its faces. A face that misses the map does not cull the box. `rectPadPixels` grows each triangle's bounds; texels in that pad use the same nearest eye Z
 
 Moving occludees: `tester.enqueueAabbUpdate(id, aabb, matrix?)`. Prefer that over poking the internal store.
 
@@ -195,10 +201,11 @@ Moving occludees: `tester.enqueueAabbUpdate(id, aabb, matrix?)`. Prefer that ove
 | --- | --- | --- |
 | `tester.aabbExpand` | `0` | World AABB inflate as a fraction of camera-to-box distance. Written into the bus each job. |
 | `tester.rectPadPixels` | `0` | Extra coverage pixels around the projected rect. |
+| `tester.depthBias` | `0` | Moves reprojected occluders away from the camera. `b > 0`: `z * (1 + b) + b`. `b < 0`: `z + abs(b)` metres. Written into the bus each job. |
 
 The packed map is coarse. Thin occluders, foliage, and objects smaller than a texel tend to stay visible. Objects that write depth **after** the HZB update do not occlude this capture. Near-plane / first-person geometry in the pyramid can self-occlude; exclude it from the pyramid or from the test set.
 
-Reprojection uses the last harvested capture, a few frames behind the camera. Fast camera motion leaves holes; those fill to far (conservative: less occlusion).
+Reprojection uses the last harvested capture, a few frames behind the camera. Each sample is the pixel centre, so motion toward a surface leaves one-pixel cracks. The 3×3 fill closes them with the farthest neighbour, so a crack at a silhouette takes the background, not the occluder. Wider gaps and the band at the screen edge the previous frame never saw stay at far. Raise `depthBias` when reprojected occluders hide objects just behind them.
 
 ## Debug overlay
 
