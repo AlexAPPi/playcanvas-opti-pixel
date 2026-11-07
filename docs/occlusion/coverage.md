@@ -98,7 +98,7 @@ sequenceDiagram
         Worker->>Worker: reproject, AABB tests
         Worker-->>Tester: bus plus flags (published slot)
     else worker busy (bus in flight)
-        Note over Tester: keep queue; last flags stay
+        Note over Tester: keep queue, last flags stay
     else not cpuReady / disabled
         Note over Tester: flags UNKNOWN, queue cleared
     end
