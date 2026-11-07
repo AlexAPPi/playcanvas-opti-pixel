@@ -55,7 +55,10 @@ export default `
         ivec2 minTexel = pixel * src / dest;
         ivec2 maxTexel = (pixel + ivec2(1)) * src / dest - ivec2(1);
 
-        out_depth = linearizeDepth(sampleMax(minTexel, maxTexel, uCoverageMipLevel));
+        float maxDeviceZ = sampleMax(minTexel, maxTexel, uCoverageMipLevel);
+        float linearizedDepth = linearizeDepth(maxDeviceZ);
+
+        out_depth = linearizedDepth;
         gl_Position = vec4(0.0);
         gl_PointSize = 1.0;
     }

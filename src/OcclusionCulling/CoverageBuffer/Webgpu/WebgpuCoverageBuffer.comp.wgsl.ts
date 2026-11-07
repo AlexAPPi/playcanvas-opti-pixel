@@ -72,6 +72,11 @@ export default `
         let y1 = src.y - 1 - minTexel.y;
 
         let id = gid.y * u32(dest.x) + gid.x;
-        out_depth[id] = linearizeDepth(sampleMax(vec2i(minTexel.x, y0), vec2i(maxTexel.x, y1), uniforms.uCoverageMipLevel));
+        let minSampleTexel = vec2i(minTexel.x, y0);
+        let maxSampleTexel = vec2i(maxTexel.x, y1);
+        let maxDeviceZ = sampleMax(minSampleTexel, maxSampleTexel, uniforms.uCoverageMipLevel);
+        let linearizedDepth = linearizeDepth(maxDeviceZ);
+
+        out_depth[id] = linearizedDepth;
     }
 `;
