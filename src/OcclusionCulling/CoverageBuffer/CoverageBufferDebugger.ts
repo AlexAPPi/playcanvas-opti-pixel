@@ -15,8 +15,8 @@ export class CoverageBufferDebugger {
     private _screen: DebugScreenDrawer;
     private _tester: CoverageBufferTesterWorker | undefined;
     private _debugAABBTexture: pc.Texture;
-    private _packedUpload = createDebugFloatUpload();
-    private _reprojectUpload = createDebugFloatUpload();
+    private _packedUpload = createDebugDepthUpload();
+    private _reprojectUpload = createDebugDepthUpload();
 
     public set tester(v: CoverageBufferTesterWorker) {
         this._tester = v;
@@ -36,8 +36,8 @@ export class CoverageBufferDebugger {
 
     public destroy() {
         this._screen.destroy();
-        destroyDebugFloatUpload(this._packedUpload);
-        destroyDebugFloatUpload(this._reprojectUpload);
+        destroyDebugDepthUpload(this._packedUpload);
+        destroyDebugDepthUpload(this._reprojectUpload);
         this._debugAABBTexture?.destroy();
         this._debugAABBTexture = null!;
     }
@@ -97,7 +97,7 @@ export class CoverageBufferDebugger {
             return null;
         }
 
-        return this._uploadFloatDepth(
+        return this._uploadDepth(
             coverage.cpuDepth,
             coverage.cpuWidth,
             coverage.cpuHeight,
@@ -112,7 +112,7 @@ export class CoverageBufferDebugger {
             return null;
         }
 
-        return this._uploadFloatDepth(
+        return this._uploadDepth(
             viewer.depth,
             viewer.width,
             viewer.height,
@@ -121,11 +121,11 @@ export class CoverageBufferDebugger {
         );
     }
 
-    private _uploadFloatDepth(
+    private _uploadDepth(
         src: Float32Array,
         w: number,
         h: number,
-        cache: IDebugFloatUpload,
+        cache: IDebugDepthUpload,
         name: string
     ) {
 
@@ -134,18 +134,21 @@ export class CoverageBufferDebugger {
             return null;
         }
 
+        const device = this._app.graphicsDevice;
+
         if (!cache.texture ||
             cache.texture.width !== w ||
             cache.texture.height !== h ||
-            cache.texture.format !== pc.PIXELFORMAT_R32F) {
+            cache.texture.format !== pc.PIXELFORMAT_RGBA8) {
             cache.texture?.destroy();
-            cache.texture = new pc.Texture(this._app.graphicsDevice, {
+            cache.texture = new pc.Texture(device, {
                 name,
                 width: w,
                 height: h,
                 mipmaps: false,
+                numLevels: 1,
                 flipY: false,
-                format: pc.PIXELFORMAT_R32F,
+                format: pc.PIXELFORMAT_RGBA8,
                 minFilter: pc.FILTER_NEAREST,
                 magFilter: pc.FILTER_NEAREST,
                 addressU: pc.ADDRESS_CLAMP_TO_EDGE,
@@ -153,8 +156,8 @@ export class CoverageBufferDebugger {
             });
         }
 
-        const locked = cache.texture.lock();
-        new Float32Array(locked.buffer, locked.byteOffset, n).set(src.subarray(0, n));
+        const locked = cache.texture.lock() as Uint8Array;
+        locked.set(new Uint8Array(src.buffer, src.byteOffset, n * 4));
         cache.texture.unlock();
 
         return cache.texture;
@@ -162,7 +165,6 @@ export class CoverageBufferDebugger {
 
     private _drawDepth(buffer: pc.Texture, far: number, x: number, y: number, width: number, height: number) {
 
-        // Stored depth is view-space metres. Scale by the capture far, not the pass camera.
         this._screen.draw(x, y, width, height, COVERAGE_DEPTH_SHADER, {
             uDepthMip: buffer,
             uCoverageInvFar: far > 0 ? 1 / far : 1
@@ -171,7 +173,7 @@ export class CoverageBufferDebugger {
 }
 
 const COVERAGE_DEPTH_SHADER: DebugScreenShader = {
-    name: "OPTIPIXEL_COVERAGE_DEBUG_R32F_SHADER",
+    name: "OPTIPIXEL_COVERAGE_DEBUG_RGBA8_SHADER",
     glsl: debugShaderGLSL,
     wgsl: debugShaderWGSL
 };
@@ -179,15 +181,15 @@ const COVERAGE_DEPTH_SHADER: DebugScreenShader = {
 const _minPoint = new pc.Vec3();
 const _maxPoint = new pc.Vec3();
 
-interface IDebugFloatUpload {
+interface IDebugDepthUpload {
     texture: pc.Texture | null;
 }
 
-function createDebugFloatUpload(): IDebugFloatUpload {
+function createDebugDepthUpload(): IDebugDepthUpload {
     return { texture: null };
 }
 
-function destroyDebugFloatUpload(cache: IDebugFloatUpload) {
+function destroyDebugDepthUpload(cache: IDebugDepthUpload) {
     cache.texture?.destroy();
     cache.texture = null;
 }
