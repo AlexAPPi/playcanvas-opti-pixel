@@ -90,7 +90,6 @@ export class SoftwareOcclusionTester implements ICPUSoftwareOcclusionCullingTest
     private _flagsPing: Uint32Array | null = null;
     private _inflightQueueIds: Uint32Array | null = null;
     private _inflightIdsScratch = new Uint32Array(0);
-    private _inflightIdsView: Uint32Array<ArrayBufferLike> = EMPTY_U32;
     private _vpScratch = new Float32Array(16);
     private _transfer: Transferable[] = [];
     private _syncedAabbVersion = -1;
@@ -275,10 +274,7 @@ export class SoftwareOcclusionTester implements ICPUSoftwareOcclusionCullingTest
             for (let i = 0; i < queueCount; i++) {
                 dst[i] = src[i];
             }
-            if (this._inflightIdsView.buffer !== dst.buffer || this._inflightIdsView.length !== queueCount) {
-                this._inflightIdsView = dst.subarray(0, queueCount);
-            }
-            inflightIds = this._inflightIdsView;
+            inflightIds = dst.subarray(0, queueCount);
         }
 
         this._vpScratch.set(this._viewProjection.data);

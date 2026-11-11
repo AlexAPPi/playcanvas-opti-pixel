@@ -2,6 +2,21 @@ import pc from "../../engine.js";
 import type { IHierarchicalZBuffer } from "../HZB/IHierarchicalZBuffer.js";
 
 /**
+ * Last pack that started a readback, and the last capture {@link ICoverageBuffer.frameUpdate} published.
+ * A skipped capture leaves these values. Milliseconds.
+ *
+ * `packMs` is the CPU time to issue the pack. The GPU pack finishes inside `latencyMs`.
+ * `readMs` is the copy into `cpuDepth`: WebGL `getBufferSubData`, or on WebGPU the mapped-range copy plus the publish copy.
+ * `latencyMs` and `latencyFrames` run from that readback's submit until the copy finished.
+ */
+export interface ICoverageReadbackStats {
+    packMs: number;
+    readMs: number;
+    latencyMs: number;
+    latencyFrames: number;
+}
+
+/**
  * Packed CPU **view-space Z** (metres) taken from one mip of a hierarchical Z-buffer.
  * Shared by WebGL (transform feedback / PBO) and WebGPU (compute / mapAsync).
  *
@@ -92,6 +107,11 @@ export interface ICoverageBuffer {
     readonly sourceMip: number;
 
     /**
+     * Last pack and last published GPU read. See {@link ICoverageReadbackStats}.
+     */
+    readonly stats: ICoverageReadbackStats;
+
+    /**
      * When false, {@link capture} does nothing. Defaults to true.
      */
     enabled: boolean;
@@ -118,7 +138,7 @@ export interface ICoverageBuffer {
      * Device Z is linearized in the pack.
      * No-op when this buffer or the pyramid is disabled, when {@link cpuReadback}
      * is off, or without a pyramid texture. Also no-op when no readback slot is
-     * free, when a readback was already submitted this frame, or on a WebGL tick
+     * free, when a readback was already submitted this frame, or on a tick
      * that `readbackPeriod` skips.
      * Call after `hzb.update` / `hzb.updateSceneDepth`, once opaque depth is in the pyramid.
      */

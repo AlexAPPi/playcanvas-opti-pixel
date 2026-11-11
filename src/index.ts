@@ -61,9 +61,9 @@ import { WebglHierarchicalZBuffer } from "./OcclusionCulling/HZB/Webgl/WebglHier
 import { WebgpuHierarchicalZBuffer } from "./OcclusionCulling/HZB/Webgpu/WebgpuHierarchicalZBuffer.js";
 import { WebglHZBCPUFBTester } from "./OcclusionCulling/HZB/Webgl/WebglHZBCPUFBTester.js";
 import { CoverageBufferDebugger } from "./OcclusionCulling/CoverageBuffer/CoverageBufferDebugger.js";
-import { CoverageBufferTesterWorker } from "./OcclusionCulling/CoverageBuffer/CoverageBufferTesterWorker.js";
+import { CoverageBufferTesterWorker, type ICoverageBufferStats } from "./OcclusionCulling/CoverageBuffer/CoverageBufferTesterWorker.js";
 import { CoverageCpuBufferViewer } from "./OcclusionCulling/CoverageBuffer/CoverageCpuBufferViewer.js";
-import { ICoverageBuffer } from "./OcclusionCulling/CoverageBuffer/ICoverageBuffer.js";
+import { ICoverageBuffer, type ICoverageReadbackStats } from "./OcclusionCulling/CoverageBuffer/ICoverageBuffer.js";
 import { WebglCoverageBuffer } from "./OcclusionCulling/CoverageBuffer/Webgl/WebglCoverageBuffer.js";
 import { WebgpuCoverageBuffer } from "./OcclusionCulling/CoverageBuffer/Webgpu/WebgpuCoverageBuffer.js";
 import { AABBStore } from "./Extras/AABBStore.js";
@@ -180,6 +180,8 @@ export type {
     IPrimitive,
     IAABBStore,
     ICoverageBuffer,
+    ICoverageReadbackStats,
+    ICoverageBufferStats,
     IHierarchicalZBuffer,
     IOcclusionCullingTester,
     IHierarchicalZBufferTester,

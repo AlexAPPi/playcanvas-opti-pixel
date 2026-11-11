@@ -91,20 +91,30 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
     const _emptyU32 = new Uint32Array(0);
     const _emptyI8 = new Int8Array(0);
 
-    // Scatter target. 0 = no sample landed. Grown to the packed pixel count.
-    let _scatter = _emptyF32;
+    // A triangle whose bounds hold more texels than this asks the mips first.
+    const MIP_TEST_TEXELS = 64;
 
     // Max-depth mips of the reprojected map. Level 0 is the map itself;
     // levels 1+ are packed into `_mips` at `_mipOff`.
     const MIP_LEVELS_MAX = 16;
+
     const _mipOff = new Int32Array(MIP_LEVELS_MAX);
     const _mipW = new Int32Array(MIP_LEVELS_MAX);
     const _mipH = new Int32Array(MIP_LEVELS_MAX);
+
     let _mipCount = 0;
     let _mips = _emptyF32;
 
-    // A triangle whose bounds hold more texels than this asks the mips first.
-    const MIP_TEST_TEXELS = 64;
+    // Scatter target. 0 = no sample landed. Grown to the packed pixel count.
+    let _scatter = _emptyF32;
+
+    const _job = {
+        reprojectMs: 0,
+        mipMs: 0,
+        aabbTestMs: 0,
+        aabbCount: 0,
+        occludedCount: 0
+    };
 
     /**
      * CPU occlusion over a **view-space Z** buffer (metres) owned by the output slot.
@@ -153,6 +163,8 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
             const f32 = this._busF32;
             return f32.length > F32_DST_PARAMS + 1 ? f32[F32_DST_PARAMS + 1] : 1000;
         }
+
+        public get job() { return _job; }
 
         /**
          * Bind the transferred bus + output slot. The views must be rebuilt
@@ -207,11 +219,17 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
         public update() {
 
             if (!this._bound) {
+                _job.reprojectMs = 0;
+                _job.mipMs = 0;
                 return;
             }
 
+            const t0 = performance.now();
             this._reprojectDepth();
+            const t1 = performance.now();
             buildMaxMips(this._reprojected, this._width, this._height);
+            _job.reprojectMs = t1 - t0;
+            _job.mipMs = performance.now() - t1;
             this._globalMin = _rangeMin;
             this._globalMax = _rangeMax;
             this._built = true;
@@ -220,13 +238,20 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
         public test() {
 
             if (!this._bound) {
+                _job.aabbTestMs = 0;
+                _job.aabbCount = 0;
+                _job.occludedCount = 0;
                 return;
             }
 
+            const t0 = performance.now();
             const flags = this._flags;
             flags.fill(OCCLUSION_UNKNOWN);
 
             if (!this._built) {
+                _job.aabbTestMs = performance.now() - t0;
+                _job.aabbCount = 0;
+                _job.occludedCount = 0;
                 return;
             }
 
@@ -247,17 +272,26 @@ export function defineCoverageCpuBuffer(): new () => ICoverageCpuBuffer {
             const queueOff = this._queueOff;
             const centersOff = this._centersOff;
             const halvesOff = this._halvesOff;
+            let occluded = 0;
 
             for (let i = 0; i < queueCount; i++) {
                 const id = u32[queueOff + i] | 0;
                 const i0 = id << 2;
                 const cp = centersOff + i0;
                 const hp = halvesOff + i0;
-                flags[id] = this._testAabb(
+                const flag = this._testAabb(
                     f32[cp], f32[cp + 1], f32[cp + 2],
                     f32[hp], f32[hp + 1], f32[hp + 2]
                 );
+                flags[id] = flag;
+                if (flag === OCCLUSION_OCCLUDED) {
+                    occluded++;
+                }
             }
+
+            _job.aabbTestMs = performance.now() - t0;
+            _job.aabbCount = queueCount;
+            _job.occludedCount = occluded;
         }
 
         private _reprojectDepth() {

@@ -17,7 +17,7 @@ const PACK_TF_VARYINGS = ["out_depth"];
  * Pixel `i` covers screen UV `[i / width, (i + 1) / width]` and reads the
  * HZB texels under that slice. GPU→CPU download is a
  * ring of {@link readbackSlots} PBO/fence reads ({@link CoverageTFReadback}).
- * The next pack starts when a slot is free.
+ * The next pack starts when a slot is free, on a {@link readbackPeriod} tick.
  */
 export class WebglCoverageBuffer implements ICoverageBuffer {
 
@@ -58,6 +58,7 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
     public get height() { return this._maxHeight; }
     public get device() { return this._device; }
     public get sourceMip() { return this._sourceMip; }
+    public get stats() { return this._readback.stats; }
 
     public get maxWidth() { return this._maxWidth; }
     public set maxWidth(value: number) {
@@ -155,16 +156,18 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
             return;
         }
 
+        // Period skip and a full ring both return here, before the pack.
+        const slot = this._readback.acquire();
+        if (!slot) {
+            return;
+        }
+
         const mip = this._mipCache.select(hzb, this._maxWidth, this._maxHeight);
         // `buffers[level]` is the ping-pong texture that was rendered at that
         // mip. The texels live at lod `level`, same as the HZB debugger.
         const src = hzb.buffers?.[mip.level] ?? texture;
         const kind = hzbShaderKind(hzb);
         const packShader = this._ensurePackShader(kind);
-        const slot = this._readback.acquire();
-        if (!slot) {
-            return;
-        }
 
         this._sourceMip = mip.level;
 
@@ -198,6 +201,7 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         this._depthScope.setValue(src);
         this._cameraParamsScope.setValue(this._cameraParamsArr);
 
+        const packStart = performance.now();
         executeTransformFeedbackShader(
             packShader,
             mip.packWidth * mip.packHeight,
@@ -210,7 +214,10 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         slot.height = mip.packHeight;
         slot.vp.set(this._viewProjection.data);
         slot.cameraParams.set(this._cameraParamsArr);
-        this._readback.submit(slot, mip.packWidth * mip.packHeight);
+        if (this._readback.submit(slot, mip.packWidth * mip.packHeight)) {
+            slot.submitTime = performance.now();
+            this._readback.stats.packMs = slot.submitTime - packStart;
+        }
     }
 
     public destroy() {

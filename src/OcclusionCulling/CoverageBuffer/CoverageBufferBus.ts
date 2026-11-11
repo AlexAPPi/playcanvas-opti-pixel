@@ -214,6 +214,14 @@ export function defineCoverageBufferBus(): ICoverageBusApi {
         halves[i + 3] = srcHalves[i + 3];
     }
 
+    function copyPacked(src: Float32Array, dst: Float32Array): void {
+        if (src.length <= dst.length) {
+            dst.set(src);
+            return;
+        }
+        dst.set(src.subarray(0, dst.length));
+    }
+
     function copyAabbFromStore(
         centers: Float32Array,
         halves: Float32Array,
@@ -221,11 +229,11 @@ export function defineCoverageBufferBus(): ICoverageBusApi {
         ids: Iterable<number> | null
     ): void {
         if (ids === null) {
-            const n = Math.min(centers.length, dst.centers.length);
-            dst.centers.set(centers.subarray(0, n));
-            dst.halves.set(halves.subarray(0, Math.min(halves.length, dst.halves.length)));
+            copyPacked(centers, dst.centers);
+            copyPacked(halves, dst.halves);
             return;
         }
+
         for (const id of ids) {
             copyAabbSlot(centers, halves, dst, id);
         }

@@ -11,6 +11,8 @@ export class CoverageTFState extends TFState {
 
     public vp = new Float32Array(16);
     public cameraParams = new Float32Array(4);
+    /** `performance.now()` when the readback was submitted. `0` until then. */
+    public submitTime = 0;
     /** Packed map width for this capture. Row stride of the downloaded prefix. */
     public width = 0;
     /** Packed map height for this capture. */

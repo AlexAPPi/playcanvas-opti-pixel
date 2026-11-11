@@ -1,5 +1,6 @@
 import pc from "../../../engine.js";
 import { TFStateQueue } from "../../../GPUReadback/Webgl/TFStateQueue.js";
+import type { ICoverageReadbackStats } from "../ICoverageBuffer.js";
 import { CoverageTFState } from "./CoverageTFState.js";
 
 /**
@@ -7,7 +8,8 @@ import { CoverageTFState } from "./CoverageTFState.js";
  * {@link TFStateQueue.submit} copies into that slot's STREAM_READ PBO and
  * inserts a fence. {@link TFStateQueue.frameUpdate} copies the newest ready
  * slot into {@link cpuDepth} once {@link TFStateQueue.minReadbackLag} has
- * elapsed — one `getBufferSubData` per tick. The next pack takes any free slot.
+ * elapsed — one `getBufferSubData` per tick. The next pack takes any free slot,
+ * and only on a capture tick ({@link TFStateQueue.readbackPeriod}).
  *
  * Do not harvest from `capture` / postrender.
  */
@@ -20,6 +22,12 @@ export class CoverageTFReadback extends TFStateQueue<CoverageTFState> {
     private _cpuHeight = 0;
     private _cpuReady = false;
     private _cpuVersion = 0;
+    private _stats: ICoverageReadbackStats = {
+        packMs: 0,
+        readMs: 0,
+        latencyMs: 0,
+        latencyFrames: 0
+    };
 
     public constructor(device: pc.WebglGraphicsDevice, pixelCount: number, slotCount: number = 5) {
         super(device, slotCount);
@@ -31,6 +39,7 @@ export class CoverageTFReadback extends TFStateQueue<CoverageTFState> {
     public get cpuDepth() { return this._cpuDepth; }
     public get cpuViewProjection() { return this._cpuVP; }
     public get cpuCameraParams() { return this._cpuParams; }
+    public get stats() { return this._stats; }
 
     /** Width of the harvested map. `0` before the first one and after a resize. */
     public get cpuWidth() { return this._cpuWidth; }
@@ -125,7 +134,9 @@ export class CoverageTFReadback extends TFStateQueue<CoverageTFState> {
     }
 
     protected override _commit(slot: CoverageTFState): boolean {
+        const t0 = performance.now();
         const count = slot.read(this._cpuDepth);
+        const now = performance.now();
         const n = slot.width * slot.height;
         if (count <= 0 || n <= 0 || count !== n) {
             return false;
@@ -137,6 +148,11 @@ export class CoverageTFReadback extends TFStateQueue<CoverageTFState> {
         this._cpuParams.set(slot.cameraParams);
         this._cpuReady = true;
         this._cpuVersion++;
+
+        const stats = this._stats;
+        stats.readMs = now - t0;
+        stats.latencyMs = slot.submitTime > 0 ? now - slot.submitTime : 0;
+        stats.latencyFrames = this._frameId - slot.submitFrame;
         return true;
     }
 

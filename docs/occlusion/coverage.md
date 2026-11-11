@@ -79,7 +79,7 @@ The three calls are not interchangeable.
 | --- | --- | --- |
 | `tester.frameUpdate(dt)` | Every frame, typically on `frameupdate`, **before** `enqueue` / `execute` | Copy the newest ready download into `coverage.cpuDepth` and drop the older ones |
 | `tester.enqueue` then `execute(camera)` | `update`, after harvest | Copy the last capture (if `cpuVersion` changed), transfer a job bus to the worker, clear the queue |
-| `hzb.update` or `hzb.updateSceneDepth`, then `tester.updateGPUDepthBuffer(hzb, camera)` | After opaque depth (`postrender`) | Build the pyramid, then pack its chosen mip to view-space Z and start an async readback on a free slot. The pack is skipped when every slot is busy, or on a WebGL tick that `readbackPeriod` skips. |
+| `hzb.update` or `hzb.updateSceneDepth`, then `tester.updateGPUDepthBuffer(hzb, camera)` | After opaque depth (`postrender`) | Build the pyramid, then pack its chosen mip to view-space Z and start an async readback on a free slot. The pack is skipped when every slot is busy, or on a tick that `readbackPeriod` skips. |
 
 ```mermaid
 sequenceDiagram
@@ -106,7 +106,7 @@ sequenceDiagram
     App->>Tester: updateGPUDepthBuffer(hzb, camera)
     alt a readback slot is free
         Tester->>Buffer: pack the chosen mip and beginRead
-    else every slot busy, or WebGL skipped this tick
+    else every slot busy, or this tick is skipped
         Note over Buffer: skip pack and readback
     end
 ```
@@ -132,7 +132,7 @@ sequenceDiagram
 | WebGL2 (`WebglCoverageBuffer`) | Transform feedback, `texelFetch` of the mip | Ring of `readbackSlots` `STREAM_READ` PBOs (default 5). `copyBufferSubData` + `fenceSync`. One `getBufferSubData` per `frameUpdate` |
 | WebGPU (`WebgpuCoverageBuffer`) | Compute, `textureLoad` of the mip, into one storage buffer | Ring of `readbackSlots` persistent `MAP_READ` staging buffers (default 5). `copyBufferToBuffer`, then `mapAsync` after that frame submits |
 
-Up to `readbackSlots` packed downloads stay in flight. A new pack starts whenever a slot is free, so call it from every `postrender` after the HZB update. A frame with no free slot does no GPU work.
+Up to `readbackSlots` packed downloads stay in flight. A new pack starts on a capture tick whenever a slot is free, so call it from every `postrender` after the HZB update. A frame with no free slot, and a tick that `readbackPeriod` skips, does no GPU work.
 
 `frameUpdate` publishes the **newest** eligible slot and retires the older ones unread. Coverage is not FIFO (HZB readback is): every capture replaces the whole depth map, so an older one is only staler. Draining FIFO would pin the latency at `readbackSlots` — once the ring filled, each tick would free exactly one slot and the next capture would refill it, so the oldest would never get younger.
 
@@ -148,16 +148,11 @@ Shared by both buffers (defaults match WebGL HZB):
 | --- | --- | --- |
 | `readbackSlots` | `5` | In-flight download slots, clamped to at least `2`. Extra slots absorb a GPU hitch without skipping captures; they do not add latency, since harvest takes the newest. Changing it drops downloads that have not landed. `cpuDepth` from the last finished slot stays. |
 | `minReadbackLag` | `2` | `frameUpdate` ticks to wait before copying a finished slot into `cpuDepth`. Other slots can still capture during the wait. |
-
-WebGL only:
-
-| Property | Default | Meaning |
-| --- | --- | --- |
-| `readbackPeriod` | `1` | While a slot is free, submit a packed capture every N `updateGPUDepthBuffer` attempts. A busy ring does not advance the counter. Harvest still polls every `frameUpdate`. On Android Chrome, `getBufferSubData` is an ordered GPU-process wait — set this to `3` (or higher) there. |
+| `readbackPeriod` | `1` | While a slot is free, submit a packed capture every N `updateGPUDepthBuffer` attempts. A busy ring does not advance the counter. Harvest still polls every `frameUpdate`. On Android Chrome WebGL, `getBufferSubData` is an ordered GPU-process wait — set this to `3` (or higher) there. |
 
 WebGL constructor: `new WebglCoverageBuffer(device, maxWidth?, maxHeight?, minReadbackLag?)`.
 
-WebGPU constructor: `new WebgpuCoverageBuffer(device, maxWidth?, maxHeight?)`. Lag and `readbackSlots` are still settable after construct. WebGPU has no `readbackPeriod`. Both skip the pack when every slot is busy.
+WebGPU constructor: `new WebgpuCoverageBuffer(device, maxWidth?, maxHeight?)`. Lag, `readbackSlots`, and `readbackPeriod` are settable after construct. Both skip the pack when every slot is busy, and on a tick `readbackPeriod` skips.
 
 Do not call `gl.flush()` or `clientWaitSync` after the PBO fence. Leave a slot's PBO or staging buffer alone until that slot has been read.
 
@@ -234,6 +229,31 @@ app.on("update", () => {
 `CoverageCpuBufferViewer` (`tester.cpuViewer`) can also query min/max view-space Z over a UV or pixel rectangle of that reprojected map. Origin is bottom-left, same as the packed CPU layout.
 
 Call `debug.destroy()` with the tester.
+
+## Timings
+
+Times are milliseconds. A skipped capture leaves `coverage.stats` as it was. A busy worker leaves `tester.stats` as it was. They are separate jobs: the published read is a few frames behind the pack.
+
+`coverage.stats` — the GPU read:
+
+| Field | Meaning |
+| --- | --- |
+| `packMs` | CPU time to issue the pack and start the readback. The GPU pack finishes later |
+| `readMs` | CPU time of the copy into `cpuDepth`. WebGL is `getBufferSubData`. WebGPU is the mapped-range copy plus the publish copy |
+| `latencyMs` | Wall time from that readback submit until the copy finished, including `readMs` |
+| `latencyFrames` | `frameUpdate` ticks between that submit and the publish. At least `minReadbackLag` on a steady capture |
+
+`tester.stats` — the last completed worker job. Visible AABBs are `aabbCount - occludedCount`.
+
+| Field | Meaning |
+| --- | --- |
+| `copyMs` | Main-thread copy of `cpuDepth` into the job bus |
+| `reprojectMs` | Reprojection into the current camera |
+| `mipMs` | Max-depth pyramid |
+| `aabbTestMs` | AABB tests |
+| `workerMs` | Worker total (bind + those three) |
+| `waitMs` | Main-thread time from `postMessage` until the result. Includes `workerMs` |
+| `aabbCount` / `occludedCount` | AABBs in that job, and how many were occluded |
 
 ## Limitations
 

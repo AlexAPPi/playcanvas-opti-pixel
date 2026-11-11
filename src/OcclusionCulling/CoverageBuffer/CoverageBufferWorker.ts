@@ -25,28 +25,43 @@ export function coverageBufferWorkerMain(
     const result = {
         t: "result",
         bus: new ArrayBuffer(0),
-        out: new ArrayBuffer(0)
-    };
-
-    ctx.onmessage = function (event: MessageEvent<ICoverageBufferFrameMessage>) {
-        runFrame(event.data);
+        out: new ArrayBuffer(0),
+        workerMs: 0,
+        reprojectMs: 0,
+        mipMs: 0,
+        aabbTestMs: 0,
+        aabbCount: 0,
+        occludedCount: 0
     };
 
     function runFrame(msg: ICoverageBufferFrameMessage) {
 
         const bus = msg.bus;
         const outBuf = msg.out;
+        const t0 = performance.now();
 
         try {
             cpu.bind(bus, outBuf);
             cpu.update();
             cpu.test();
+            const job = cpu.job;
+            result.reprojectMs = job.reprojectMs;
+            result.mipMs = job.mipMs;
+            result.aabbTestMs = job.aabbTestMs;
+            result.aabbCount = job.aabbCount;
+            result.occludedCount = job.occludedCount;
         }
         catch {
             // Return the slots even if bind/update/test throws.
             // Otherwise the tester keeps `_bus` / `_writeOut` null forever.
+            result.reprojectMs = 0;
+            result.mipMs = 0;
+            result.aabbTestMs = 0;
+            result.aabbCount = 0;
+            result.occludedCount = 0;
         }
 
+        result.workerMs = performance.now() - t0;
         result.bus = bus;
         result.out = outBuf;
         transfer.length = 0;
@@ -54,6 +69,10 @@ export function coverageBufferWorkerMain(
         ctx.postMessage(result, transfer);
         transfer.length = 0;
     }
+
+    ctx.onmessage = function (event: MessageEvent<ICoverageBufferFrameMessage>) {
+        runFrame(event.data);
+    };
 
     ctx.postMessage({ t: "ready" });
 }

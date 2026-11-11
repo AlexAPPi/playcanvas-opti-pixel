@@ -4,6 +4,7 @@
  * (reprojected + flags). The blob worker cannot import values from this file
  * at runtime (`coverageBufferWorkerMain` is stringified); use `import type` only.
  */
+import type { ICoverageCpuJob } from "./ICoverageCpuBuffer.js";
 
 export interface ICoverageBufferReadyMessage {
     t: "ready";
@@ -15,10 +16,12 @@ export interface ICoverageBufferFrameMessage {
     out: ArrayBuffer;
 }
 
-export interface ICoverageBufferResultMessage {
+export interface ICoverageBufferResultMessage extends ICoverageCpuJob {
     t: "result";
     bus: ArrayBuffer;
     out: ArrayBuffer;
+    /** Bind + reprojection + pyramid + tests, milliseconds. */
+    workerMs: number;
 }
 
 /** Main-thread handler union (worker → main). */

@@ -1,4 +1,5 @@
 import pc from "../../../engine.js";
+import type { ICoverageReadbackStats } from "../ICoverageBuffer.js";
 import { CoverageGpuReadbackState } from "./CoverageGpuReadbackState.js";
 
 /**
@@ -7,7 +8,7 @@ import { CoverageGpuReadbackState } from "./CoverageGpuReadbackState.js";
  * soon as the frame holding that copy has been submitted, and {@link frameUpdate}
  * retries any slot that is not mapping yet. The newest ready slot is copied
  * into {@link cpuDepth} once {@link minReadbackLag} has elapsed. The next pack
- * takes any free slot.
+ * takes any free slot, and only on a capture tick ({@link readbackPeriod}).
  *
  * Do not harvest from `capture` / postrender.
  */
@@ -19,6 +20,8 @@ export class CoverageGpuReadback {
     private _pixelCount = 0;
     private _slotCount = 5;
     private _minReadbackLag = 2;
+    private _readbackPeriod = 1;
+    private _captureTick = 0;
     private _frameId = 0;
     private _submitFrame = -1;
     private _cpuDepth: Float32Array;
@@ -28,6 +31,12 @@ export class CoverageGpuReadback {
     private _cpuHeight = 0;
     private _cpuReady = false;
     private _cpuVersion = 0;
+    private _stats: ICoverageReadbackStats = {
+        packMs: 0,
+        readMs: 0,
+        latencyMs: 0,
+        latencyFrames: 0
+    };
 
     /** Shared pack target (`STORAGE | COPY_SRC`). Staging slots copy out of this. */
     public get outputBuffer() { return this._output; }
@@ -60,14 +69,26 @@ export class CoverageGpuReadback {
     public get cpuDepth() { return this._cpuDepth; }
     public get cpuViewProjection() { return this._cpuVP; }
     public get cpuCameraParams() { return this._cpuParams; }
+    public get stats() { return this._stats; }
+
     /** Width of the harvested map. `0` before the first one and after a resize. */
     public get cpuWidth() { return this._cpuWidth; }
+
     /** Height of the harvested map. `0` before the first one and after a resize. */
     public get cpuHeight() { return this._cpuHeight; }
 
     public get minReadbackLag() { return this._minReadbackLag; }
     public set minReadbackLag(value: number) {
         this._minReadbackLag = Math.max(0, value | 0);
+    }
+
+    /**
+     * Submit a packed capture every N {@link acquire} attempts while a slot
+     * is free. Harvest still polls every {@link frameUpdate}. Default `1`.
+     */
+    public get readbackPeriod() { return this._readbackPeriod; }
+    public set readbackPeriod(value: number) {
+        this._readbackPeriod = Math.max(1, value | 0);
     }
 
     /**
@@ -165,7 +186,12 @@ export class CoverageGpuReadback {
             }
         }
 
+        // The only CPU copy runs inside `read`, so this interval is the whole cost.
+
+        const copyStart = performance.now();
         const count = newest.read(this._cpuDepth);
+        const now = performance.now();
+        const readMs = now - copyStart;
         const n = newest.width * newest.height;
         if (count <= 0 || n <= 0 || count !== n) {
             newest.abortRead();
@@ -178,15 +204,26 @@ export class CoverageGpuReadback {
         this._cpuParams.set(newest.cameraParams);
         this._cpuReady = true;
         this._cpuVersion++;
+
+        const stats = this._stats;
+        stats.readMs = readMs;
+        stats.latencyMs = newest.submitTime > 0 ? now - newest.submitTime : 0;
+        stats.latencyFrames = frameId - newest.submitFrame;
     }
 
     /**
-     * A free staging slot, or `null` when every slot is in flight or this
-     * frame already submitted. The slot stays {@link CoverageGpuReadbackState.reserved}
-     * until {@link submit}.
+     * A free staging slot on a capture tick, or `null`. A skipped tick advances
+     * the period. A full ring does not. The slot stays
+     * {@link CoverageGpuReadbackState.reserved} until {@link submit} or {@link release}.
+     * The period counts the capture in {@link submit}, so a released slot is not a capture.
      */
     public acquire(): CoverageGpuReadbackState | null {
         if (this._submitFrame === this._frameId) {
+            return null;
+        }
+
+        if ((this._captureTick % this._readbackPeriod) !== 0) {
+            this._captureTick++;
             return null;
         }
 
@@ -223,6 +260,7 @@ export class CoverageGpuReadback {
         slot.cameraParams.set(cameraParams);
         slot.submitFrame = this._frameId;
         this._submitFrame = this._frameId;
+        this._captureTick++;
         return true;
     }
 

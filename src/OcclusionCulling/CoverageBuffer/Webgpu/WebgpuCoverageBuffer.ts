@@ -16,7 +16,7 @@ const workgroupSize = 8;
  * `[i / width, (i + 1) / width]` and reads the HZB texels under that slice.
  * GPU→CPU download is a ring of
  * {@link readbackSlots} staging reads ({@link CoverageGpuReadback}).
- * The next pack starts when a slot is free.
+ * The next pack starts when a slot is free, on a {@link readbackPeriod} tick.
  */
 export class WebgpuCoverageBuffer implements ICoverageBuffer {
 
@@ -48,6 +48,7 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
     public get height() { return this._maxHeight; }
     public get device() { return this._device; }
     public get sourceMip() { return this._sourceMip; }
+    public get stats() { return this._readback.stats; }
 
     public get maxWidth() { return this._maxWidth; }
     public set maxWidth(value: number) {
@@ -89,6 +90,18 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
     public set readbackSlots(value: number) { this._readback.slotCount = value; }
 
     /**
+     * Submit a packed capture every N attempts while a readback slot is free
+     * ({@link capture}, or the tester wrapper). Harvest still polls every
+     * {@link frameUpdate}. The pack is skipped when every slot is in flight
+     * and on ticks that will not capture. An attempt with no free slot does
+     * not advance this counter. Default `1`.
+     */
+    public get readbackPeriod() { return this._readback.readbackPeriod; }
+    public set readbackPeriod(value: number) {
+        this._readback.readbackPeriod = value;
+    }
+
+    /**
      * @param device - WebGPU device
      * @param maxWidth - CPU width, default 256
      * @param maxHeight - CPU height, default 128
@@ -121,6 +134,12 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
             return;
         }
 
+        // Period skip and a full ring both return here, before the pack.
+        const slot = this._readback.acquire();
+        if (!slot) {
+            return;
+        }
+
         const mip = this._mipCache.select(hzb, this._maxWidth, this._maxHeight);
 
         // WebGPU keeps every level on `texture`. WebGL's `buffers[level]` is the
@@ -128,10 +147,6 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
         const src = hzb.buffers?.[mip.level] ?? texture;
         const kind = hzbShaderKind(hzb);
         const compute = this._computeFor(kind);
-        const slot = this._readback.acquire();
-        if (!slot) {
-            return;
-        }
 
         const output = this._readback.outputBuffer;
         if (!output) {
@@ -161,13 +176,18 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
             Math.ceil(mip.packHeight / workgroupSize)
         );
 
+        const packStart = performance.now();
+
         this._dispatchList[0] = compute;
         this._device.computeDispatch(this._dispatchList, compute.name);
 
         slot.width = mip.packWidth;
         slot.height = mip.packHeight;
 
-        this._readback.submit(slot, this._viewProjection.data, this._cameraParamsArr, mip.packWidth * mip.packHeight);
+        if (this._readback.submit(slot, this._viewProjection.data, this._cameraParamsArr, mip.packWidth * mip.packHeight)) {
+            slot.submitTime = performance.now();
+            this._readback.stats.packMs = slot.submitTime - packStart;
+        }
     }
 
     public destroy() {

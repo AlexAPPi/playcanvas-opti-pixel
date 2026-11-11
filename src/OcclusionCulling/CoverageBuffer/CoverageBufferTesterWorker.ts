@@ -16,11 +16,28 @@ import { CoverageBusApi, type ICoverageBusViews, type ICoverageOutputViews } fro
 import { CoverageCpuBufferViewer } from "./CoverageCpuBufferViewer.js";
 import type { IHierarchicalZBuffer } from "../HZB/IHierarchicalZBuffer.js";
 import type { ICoverageBuffer } from "./ICoverageBuffer.js";
+import type { ICoverageCpuJob } from "./ICoverageCpuBuffer.js";
 import { spawnCoverageBufferWorker } from "./CoverageBufferWorker.js";
 import type {
     ICoverageBufferFrameMessage,
+    ICoverageBufferResultMessage,
     TCoverageBufferMessage
 } from "./CoverageBufferWorkerMessages.js";
+
+/**
+ * Last completed worker job. Milliseconds. The GPU read is {@link ICoverageBuffer.stats}.
+ * A busy worker leaves the previous job.
+ *
+ * `workerMs` is bind + reprojection + pyramid + tests.
+ * `waitMs` is from `postMessage` until the result, so it includes `workerMs`.
+ * `copyMs` stays at the last copy of `cpuDepth` into the bus.
+ * Visible AABBs are `aabbCount - occludedCount`.
+ */
+export interface ICoverageBufferStats extends ICoverageCpuJob {
+    copyMs: number;
+    workerMs: number;
+    waitMs: number;
+}
 
 /**
  * JS worker coverage tester. Owns the AABB pool, one transferable job bus, and a
@@ -56,6 +73,7 @@ export class CoverageBufferTesterWorker implements IGPU2CPUReadbackOcclusionCull
     private _workerUrl: string | null = null;
     private _ready = false;
     private _transfer: Transferable[] = [];
+    private _submitTime = 0;
     private _frameMessage: ICoverageBufferFrameMessage = {
         t: "frame",
         bus: null!,
@@ -80,6 +98,17 @@ export class CoverageBufferTesterWorker implements IGPU2CPUReadbackOcclusionCull
      * Written into the bus before each worker job.
      */
     public depthBias = 0;
+
+    public readonly stats: ICoverageBufferStats = {
+        copyMs: 0,
+        reprojectMs: 0,
+        mipMs: 0,
+        aabbTestMs: 0,
+        workerMs: 0,
+        waitMs: 0,
+        aabbCount: 0,
+        occludedCount: 0
+    };
 
     public get coverage() { return this._coverage; }
     public set coverage(v: ICoverageBuffer) {
@@ -200,7 +229,9 @@ export class CoverageBufferTesterWorker implements IGPU2CPUReadbackOcclusionCull
             if (src.length < n0) {
                 return;
             }
+            const tCopy = performance.now();
             bus.srcDepth.set(src.subarray(0, n0));
+            this.stats.copyMs = performance.now() - tCopy;
             bus.srcVP.set(this._coverage.cpuViewProjection);
             bus.srcParams.set(this._coverage.cpuCameraParams);
             this._appliedVersion = this._coverage.cpuVersion;
@@ -223,7 +254,9 @@ export class CoverageBufferTesterWorker implements IGPU2CPUReadbackOcclusionCull
 
         header[3] = queueCount;
         header[4] = Math.max(0, this.rectPadPixels);
-        bus.queue.set(this._queue.indexes.subarray(0, queueCount));
+        if (queueCount > 0) {
+            bus.queue.set(this._queue.indexes.subarray(0, queueCount));
+        }
 
         this._frameMessage.bus = bus.buffer;
         this._frameMessage.out = out.buffer;
@@ -233,12 +266,14 @@ export class CoverageBufferTesterWorker implements IGPU2CPUReadbackOcclusionCull
         transfer.push(bus.buffer, out.buffer);
 
         try {
+            this._submitTime = performance.now();
             worker.postMessage(this._frameMessage, transfer);
             this._bus = null;
             this._writeOut = null;
             this._queue.clear();
         }
         catch {
+            this._submitTime = 0;
             this._bus = CoverageBusApi.wrap(bus.buffer);
             this._writeOut = CoverageBusApi.wrapOutput(out.buffer);
         }
@@ -350,6 +385,18 @@ export class CoverageBufferTesterWorker implements IGPU2CPUReadbackOcclusionCull
         return true;
     }
 
+    private _applyJobStats(msg: ICoverageBufferResultMessage): void {
+        const stats = this.stats;
+        stats.reprojectMs = msg.reprojectMs;
+        stats.mipMs = msg.mipMs;
+        stats.aabbTestMs = msg.aabbTestMs;
+        stats.aabbCount = msg.aabbCount;
+        stats.occludedCount = msg.occludedCount;
+        stats.workerMs = msg.workerMs;
+        stats.waitMs = this._submitTime ? performance.now() - this._submitTime : 0;
+        this._submitTime = 0;
+    }
+
     private _fillUnknown(): void {
         this._publishedOut?.flags.fill(OCCLUSION_UNKNOWN);
     }
@@ -383,6 +430,7 @@ export class CoverageBufferTesterWorker implements IGPU2CPUReadbackOcclusionCull
             }
             if (msg.t === "result") {
                 this._attachResult(msg.bus, msg.out);
+                this._applyJobStats(msg);
             }
             else if (msg.t === "ready") {
                 this._ready = true;
