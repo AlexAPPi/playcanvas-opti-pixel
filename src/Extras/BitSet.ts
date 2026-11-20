@@ -433,20 +433,23 @@ export class BitSet implements IReadonlyBitSet {
             }
 
             const base = wordIdx << 5;
+            const baseSet = base + 31;
 
             while (word !== 0) {
                 const lsb = word & -word;
-                if (callback(base + 31 - Math.clz32(lsb)) === false) return;
+                if (callback(baseSet - Math.clz32(lsb)) === false) return;
                 word ^= lsb;
             }
         }
 
         const base = lastWordIdx << 5;
+        const baseSet = base + 31;
+
         let word = (arr[lastWordIdx] ^ invert) & this._lastWordMask;
 
         while (word !== 0) {
             const lsb = word & -word;
-            if (callback(base + 31 - Math.clz32(lsb)) === false) return;
+            if (callback(baseSet - Math.clz32(lsb)) === false) return;
             word ^= lsb;
         }
     }
@@ -508,10 +511,11 @@ export class BitSet implements IReadonlyBitSet {
             }
 
             const base = wordIdx << 5;
+            const baseSet = base + 31;
 
             while (diff !== 0) {
                 const lsb = diff & -diff;
-                if (callback(base + 31 - Math.clz32(lsb), (otherWord & lsb) !== 0) === false) return;
+                if (callback(baseSet - Math.clz32(lsb), (otherWord & lsb) !== 0) === false) return;
                 diff ^= lsb;
             }
         }
