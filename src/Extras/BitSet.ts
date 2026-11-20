@@ -47,11 +47,20 @@ export interface IReadonlyBitSet {
     findFirst(value: boolean): number;
 
     /**
+     * Finds the last bit matching the requested value.
+     *
+     * @param value Bit value to search for.
+     * @returns The last matching index, or -1 if none was found.
+     */
+    findLast(value: boolean): number;
+
+    /**
      * Iterates over all bits matching the requested value.
      *
      * @param value Bit value to filter by.
      * @param callback Called for every matching bit index.
      * @remarks Returning `false` from the callback stops iteration early.
+     * @remarks {@link BitSetIterator} walks the same bits without a callback.
      */
     forEachFilter(value: boolean, callback: TOkForeachCallback): void;
 
@@ -79,21 +88,46 @@ export interface IReadonlyBitSet {
 }
 
 /** Mask covering the lowest `bits` bits of a 32-bit word (`bits` in 1..32). */
-function tailMask(bits: number): number {
+export function tailMask(bits: number): number {
     return bits === 32 ? 0xffffffff : ((1 << bits) - 1) >>> 0;
 }
 
+/**
+ * XOR mask so a requested bit value becomes a set bit.
+ * `0` when looking for ones, `0xffffffff` when looking for zeros.
+ */
+export function matchInvert(value: boolean): number {
+    return value ? 0 : 0xffffffff;
+}
+
 /** Lowest-set-bit index within a non-zero 32-bit word. */
-function lowestBitIndex(word: number): number {
+export function lowestBitIndex(word: number): number {
     return 31 - Math.clz32(word & -word);
 }
 
+/** Highest-set-bit index within a non-zero 32-bit word. */
+export function highestBitIndex(word: number): number {
+    return 31 - Math.clz32(word);
+}
+
 /** Number of set bits in a 32-bit word. */
-function popcount(word: number): number {
+export function popcount(word: number): number {
     let n = word >>> 0;
     n = n - ((n >>> 1) & 0x55555555);
     n = (n & 0x33333333) + ((n >>> 2) & 0x33333333);
     return (((n + (n >>> 4)) & 0x0f0f0f0f) * 0x01010101) >>> 24;
+}
+
+/**
+ * Private storage of {@link BitSet}. Not part of the public surface.
+ * The iterator reads these fields through a cast so they can stay private.
+ */
+export interface IInternalBitSet {
+    _array: Uint32Array;
+    _clean: boolean;
+    _cleanValue: boolean;
+    _size: number;
+    _lastWordMask: number;
 }
 
 export class BitSet implements IReadonlyBitSet {
@@ -102,11 +136,11 @@ export class BitSet implements IReadonlyBitSet {
     private _clean: boolean;
     private _cleanValue: boolean;
     private _size: number;
-    private _bitsInLast: number;
-    /** True when the last word stores fewer than 32 valid bits. */
-    private _hasPartialLastWord: boolean;
-    /** Exclusive end index of full 32-bit words (partial last word starts here). */
-    private _lastFullWordIdx: number;
+    /**
+     * Valid bits of the last word, `0xffffffff` when it is full.
+     * Bits above the mask keep `clearValue` and are outside the set.
+     */
+    private _lastWordMask: number;
 
     public get size() {
         return this._size;
@@ -116,11 +150,9 @@ export class BitSet implements IReadonlyBitSet {
         return this._cleanValue;
     }
 
-    constructor(size: number, clearValue: boolean = false) {
+    public constructor(size: number, clearValue: boolean = false) {
         this._array = new Uint32Array(Math.ceil(size / 32));
-        this._bitsInLast = size % 32 || 32;
-        this._hasPartialLastWord = this._bitsInLast !== 32;
-        this._lastFullWordIdx = this._hasPartialLastWord ? this._array.length - 1 : this._array.length;
+        this._lastWordMask = tailMask(size % 32 || 32);
         this._cleanValue = clearValue;
         this._clean = false;
         this._size = size;
@@ -144,63 +176,36 @@ export class BitSet implements IReadonlyBitSet {
         const cleanWord = this._cleanWord();
         const srcArr = source._array;
         const dstArr = this._array;
-        const srcSize = source._size;
-        const dstSize = this._size;
-        const copyCount = Math.min(srcSize, dstSize);
+        const copyCount = Math.min(source._size, this._size);
+        const fullWords = copyCount >>> 5;
+        const remBits = copyCount & 31;
 
-        const fullCopyWords = copyCount >>> 5;
-        const copyRemBits = copyCount & 31;
+        let clean = true;
 
-        let cleanState = true;
-
-        for (let i = 0; i < fullCopyWords; i++) {
-            const v = srcArr[i];
-            if (v !== cleanWord) {
-                cleanState = false;
+        for (let wordIdx = 0; wordIdx < fullWords; wordIdx++) {
+            const word = srcArr[wordIdx];
+            if (word !== cleanWord) {
+                clean = false;
             }
-            dstArr[i] = v;
+            dstArr[wordIdx] = word;
         }
 
-        let wordIdx = fullCopyWords;
+        let fillFrom = fullWords;
 
-        if (copyRemBits > 0 || dstSize > srcSize) {
-            // Build the word that contains the end of the copied range and/or
-            // the start of the clearValue fill (same word when growing in-place).
-            const copyMask = copyRemBits === 0 ? 0 : tailMask(copyRemBits);
-            let v = copyRemBits > 0 ? (srcArr[wordIdx] & copyMask) : 0;
-
-            if (dstSize > srcSize) {
-                // Bits [srcSize, min(dstSize, wordEnd)) get clearValue.
-                const bitsInThisWord = wordIdx === dstArr.length - 1 && this._hasPartialLastWord
-                    ? this._bitsInLast
-                    : 32;
-                const fillMask = (tailMask(bitsInThisWord) ^ copyMask) >>> 0;
-                v = (v | (cleanWord & fillMask)) >>> 0;
+        if (remBits > 0) {
+            // Bits above the copied range hold clearValue, unused high bits included,
+            // so the word equals `cleanWord` exactly when clear() would write it.
+            const copyMask = tailMask(remBits);
+            const word = ((srcArr[fullWords] & copyMask) | (cleanWord & ~copyMask)) >>> 0;
+            if (word !== cleanWord) {
+                clean = false;
             }
-            else if (this._hasPartialLastWord && wordIdx === dstArr.length - 1) {
-                // Shrinking into a partial last word: drop unused high bits.
-                v &= tailMask(this._bitsInLast);
-            }
-
-            // Normalize unused high bits so clean detection matches clear().
-            if (this._hasPartialLastWord && wordIdx === dstArr.length - 1) {
-                const unused = (~tailMask(this._bitsInLast)) >>> 0;
-                v = (v & tailMask(this._bitsInLast) | (cleanWord & unused)) >>> 0;
-            }
-
-            if (v !== cleanWord) {
-                cleanState = false;
-            }
-
-            dstArr[wordIdx] = v;
-            wordIdx++;
+            dstArr[fullWords] = word;
+            fillFrom++;
         }
 
-        if (wordIdx < dstArr.length) {
-            dstArr.fill(cleanWord, wordIdx);
-        }
-
-        this._clean = cleanState;
+        dstArr.fill(cleanWord, fillFrom);
+        this._clean = clean;
     }
 
     /**
@@ -302,15 +307,11 @@ export class BitSet implements IReadonlyBitSet {
         }
 
         const arr = this._array;
-        const lastFullWordIdx = this._lastFullWordIdx;
-        let total = 0;
+        const lastWordIdx = arr.length - 1;
+        let total = popcount(arr[lastWordIdx] & this._lastWordMask);
 
-        for (let wordIdx = 0; wordIdx < lastFullWordIdx; wordIdx++) {
+        for (let wordIdx = 0; wordIdx < lastWordIdx; wordIdx++) {
             total += popcount(arr[wordIdx]);
-        }
-
-        if (this._hasPartialLastWord) {
-            total += popcount(arr[lastFullWordIdx] & tailMask(this._bitsInLast));
         }
 
         return value ? total : size - total;
@@ -335,31 +336,56 @@ export class BitSet implements IReadonlyBitSet {
         }
 
         const arr = this._array;
-        const lastFullWordIdx = this._lastFullWordIdx;
+        const invert = matchInvert(value);
+        const lastWordIdx = arr.length - 1;
 
-        for (let wordIdx = 0; wordIdx < lastFullWordIdx; wordIdx++) {
+        for (let wordIdx = 0; wordIdx < lastWordIdx; wordIdx++) {
 
-            let word = arr[wordIdx];
-            if (!value) {
-                word ^= 0xffffffff;
-            }
+            const word = arr[wordIdx] ^ invert;
 
             if (word !== 0) {
                 return (wordIdx << 5) + lowestBitIndex(word);
             }
         }
 
-        if (this._hasPartialLastWord) {
+        const lastWord = (arr[lastWordIdx] ^ invert) & this._lastWordMask;
 
-            const base = lastFullWordIdx << 5;
-            const word = arr[lastFullWordIdx];
-            const bits = this._bitsInLast;
-            const want = value ? 1 : 0;
+        return lastWord !== 0 ? (lastWordIdx << 5) + lowestBitIndex(lastWord) : -1;
+    }
 
-            for (let bit = 0; bit < bits; bit++) {
-                if (((word >>> bit) & 1) === want) {
-                    return base + bit;
-                }
+    /**
+     * Finds the last bit matching the requested value.
+     *
+     * @param value Bit value to search for.
+     * @returns The last matching index, or -1 if none was found.
+     */
+    public findLast(value: boolean): number {
+
+        const size = this._size;
+
+        if (size === 0) {
+            return -1;
+        }
+
+        if (this._clean) {
+            return this._cleanValue === value ? size - 1 : -1;
+        }
+
+        const arr = this._array;
+        const invert = matchInvert(value);
+        const lastWordIdx = arr.length - 1;
+        const lastWord = (arr[lastWordIdx] ^ invert) & this._lastWordMask;
+
+        if (lastWord !== 0) {
+            return (lastWordIdx << 5) + highestBitIndex(lastWord);
+        }
+
+        for (let wordIdx = lastWordIdx - 1; wordIdx >= 0; wordIdx--) {
+
+            const word = arr[wordIdx] ^ invert;
+
+            if (word !== 0) {
+                return (wordIdx << 5) + highestBitIndex(word);
             }
         }
 
@@ -372,11 +398,15 @@ export class BitSet implements IReadonlyBitSet {
      * @param value Bit value to filter by.
      * @param callback Called for every matching bit index.
      * @remarks Returning `false` from the callback stops iteration early.
+     * @remarks {@link BitSetIterator} walks the same bits without a callback.
      */
     public forEachFilter(value: boolean, callback: TOkForeachCallback): void {
 
         const size = this._size;
-        const arr = this._array;
+
+        if (size === 0) {
+            return;
+        }
 
         if (this._clean) {
 
@@ -389,37 +419,35 @@ export class BitSet implements IReadonlyBitSet {
             return;
         }
 
-        const lastFullWordIdx = this._lastFullWordIdx;
+        const arr = this._array;
+        const invert = matchInvert(value);
+        const lastWordIdx = arr.length - 1;
 
-        for (let wordIdx = 0; wordIdx < lastFullWordIdx; wordIdx++) {
+        for (let wordIdx = 0; wordIdx < lastWordIdx; wordIdx++) {
+
+            let word = arr[wordIdx] ^ invert;
+
+            // Redundant with the loop below, but sparse sets scan ~20% faster with it.
+            if (word === 0) {
+                continue;
+            }
 
             const base = wordIdx << 5;
-            let word = arr[wordIdx];
-
-            if (!value) {
-                word ^= 0xffffffff;
-            }
 
             while (word !== 0) {
                 const lsb = word & -word;
-                const bit = lowestBitIndex(lsb);
-                if (callback(base + bit) === false) return;
+                if (callback(base + 31 - Math.clz32(lsb)) === false) return;
                 word ^= lsb;
             }
         }
 
-        if (this._hasPartialLastWord) {
+        const base = lastWordIdx << 5;
+        let word = (arr[lastWordIdx] ^ invert) & this._lastWordMask;
 
-            const base = lastFullWordIdx << 5;
-            const word = arr[lastFullWordIdx];
-            const bits = this._bitsInLast;
-            const want = value ? 1 : 0;
-
-            for (let bit = 0; bit < bits; bit++) {
-                if (((word >>> bit) & 1) === want) {
-                    if (callback(base + bit) === false) return;
-                }
-            }
+        while (word !== 0) {
+            const lsb = word & -word;
+            if (callback(base + 31 - Math.clz32(lsb)) === false) return;
+            word ^= lsb;
         }
     }
 
@@ -483,8 +511,7 @@ export class BitSet implements IReadonlyBitSet {
 
             while (diff !== 0) {
                 const lsb = diff & -diff;
-                const bit = lowestBitIndex(lsb);
-                if (callback(base + bit, (otherWord & lsb) !== 0) === false) return;
+                if (callback(base + 31 - Math.clz32(lsb), (otherWord & lsb) !== 0) === false) return;
                 diff ^= lsb;
             }
         }
