@@ -26,13 +26,23 @@ export function getCameraDepthTexture(camera: pc.Camera): pc.Texture | null {
 }
 
 /**
- * Encoding of {@link Camera.sceneDepthMap}. The texture itself is `camera.sceneDepthMap`.
+ * Texture on {@link Camera.sceneDepthMapHandle}, or null until a producer publishes one.
+ * Depth grab, the linear prepass, and scene-texture depth all publish here; the last publish wins.
+ */
+export function getCameraSceneDepthTexture(camera: pc.Camera): pc.Texture | null {
+    return camera.sceneDepthMapHandle.texture;
+}
+
+/**
+ * Encoding of {@link getCameraSceneDepthTexture}.
+ * `linear` / `packed` / `reciprocal` on the handle select device Z, view-space metres,
+ * packed RGBA8, or `1 / viewZ`.
  */
 export function getCameraSceneDepthMode(camera: pc.Camera): number {
-    const params = camera.shaderParams;
-    if (!params.sceneDepthMapLinear) { return CAMERA_DEPTH_DEVICE; }
-    if (params.sceneDepthMapPacked) { return CAMERA_DEPTH_LINEAR_PACKED; }
-    if (params.sceneDepthMapReciprocal) { return CAMERA_DEPTH_RECIPROCAL; }
+    const handle = camera.sceneDepthMapHandle;
+    if (!handle.linear) { return CAMERA_DEPTH_DEVICE; }
+    if (handle.packed) { return CAMERA_DEPTH_LINEAR_PACKED; }
+    if (handle.reciprocal) { return CAMERA_DEPTH_RECIPROCAL; }
     return CAMERA_DEPTH_LINEAR;
 }
 

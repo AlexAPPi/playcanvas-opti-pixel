@@ -71,10 +71,10 @@ export interface IHierarchicalZBuffer {
     update(camera: pc.Camera): void;
 
     /**
-     * Same pyramid as {@link update}, from `camera.sceneDepthMap`.
-     * The encoding comes from `camera.shaderParams` (`sceneDepthMapLinear`,
-     * `sceneDepthMapPacked`, `sceneDepthMapReciprocal`): view-space metres, packed RGBA8,
-     * or `1 / viewZ`. The first pass point-samples that texture and stores device Z.
+     * Same pyramid as {@link update}, from `camera.sceneDepthMapHandle`.
+     * The encoding comes from the handle (`linear`, `packed`, `reciprocal`):
+     * view-space metres, packed RGBA8, or `1 / viewZ`.
+     * The first pass point-samples that texture and stores device Z.
      * Later mips and the occlusion test stay in device Z.
      * No-op until the map is published, or when disabled.
      * Call from `postrender` or `frameend`.

@@ -3,7 +3,7 @@ import type { IHierarchicalZBuffer } from "../IHierarchicalZBuffer.js";
 import vertexCodeVS from "./WebgpuHierarchicalZBuffer.vert.wgsl.js";
 import fragmentCodePS from "./WebgpuHierarchicalZBuffer.frag.wgsl.js";
 import computeCodeCS from "./WebgpuHierarchicalZBuffer.comp.wgsl.js";
-import { CAMERA_DEPTH_DEVICE, applySceneDepthDefines, getCameraDepthTexture, getCameraSceneDepthMode } from "../../../Extras/CameraHelpers.js";
+import { CAMERA_DEPTH_DEVICE, applySceneDepthDefines, getCameraDepthTexture, getCameraSceneDepthMode, getCameraSceneDepthTexture } from "../../../Extras/CameraHelpers.js";
 
 const workgroupSizeX: number = 8;
 const workgroupSizeY: number = 8;
@@ -611,12 +611,12 @@ export class WebgpuHierarchicalZBuffer implements IHierarchicalZBuffer {
     }
 
     /**
-     * Same pyramid as {@link update}, from `camera.sceneDepthMap`.
-     * `camera.shaderParams` selects metres, packed RGBA8, or `1 / viewZ`.
+     * Same pyramid as {@link update}, from {@link Camera.sceneDepthMapHandle}.
+     * The handle selects metres, packed RGBA8, or `1 / viewZ`.
      * The first pass point-samples that encoding into device Z. No-op until the map is published.
      */
     public updateSceneDepth(camera: pc.Camera) {
-        this._updateFrom(camera, camera.sceneDepthMap, getCameraSceneDepthMode(camera));
+        this._updateFrom(camera, getCameraSceneDepthTexture(camera), getCameraSceneDepthMode(camera));
     }
 
     private _updateFrom(camera: pc.Camera, mainDepthTexture: pc.Texture | null, depthMode: number) {

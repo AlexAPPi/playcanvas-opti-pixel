@@ -57,7 +57,7 @@ export class OcclusionCullingSystem extends pc.EventHandler {
     }
 
     /**
-     * When true, {@link autoUpdate} builds the pyramid from `camera.sceneDepthMap` (CameraFrame).
+     * When true, {@link autoUpdate} builds the pyramid from `camera.sceneDepthMapHandle` (CameraFrame).
      */
     public get useSceneDepthMap() { return this._useSceneDepthMap; }
     public set useSceneDepthMap(value: boolean) { this._useSceneDepthMap = value; }

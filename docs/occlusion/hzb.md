@@ -94,7 +94,7 @@ HZB is only as good as the depth you copy. Build it after opaque geometry, befor
 
 `update(camera)` samples the PlayCanvas **depth grab** (`pc.Camera.renderPassDepthGrab`). Enable it with `CameraComponent.requestSceneDepthMap(true)`.
 
-`updateSceneDepth(camera)` samples `camera.sceneDepthMap`. Use it with CameraFrame (`rendering.sceneDepthMap`, or a post effect that publishes scene depth). `requestSceneDepthMap` is ignored while `framePasses` is set. Linear, packed, and reciprocal encodings are decoded to device Z on the first pass, so later mips and the occlusion test stay in device Z. The call is a no-op until the map is published. Call it from `postrender` or `frameend` — in `update` the map is still the previous frame.
+`updateSceneDepth(camera)` samples `camera.sceneDepthMapHandle.texture`. Use it with CameraFrame (`rendering.sceneDepthMap`, or a post effect that publishes scene depth). `requestSceneDepthMap` is ignored while `framePasses` is set. The handle's `linear`, `packed`, and `reciprocal` flags select metres, packed RGBA8, or `1 / viewZ`; those are decoded to device Z on the first pass, so later mips and the occlusion test stay in device Z. The call is a no-op until the map is published. Call it from `postrender` or `frameend` — in `update` the map is still the previous frame.
 
 ```ts
 cameraFrame.rendering.sceneDepthMap = true;
