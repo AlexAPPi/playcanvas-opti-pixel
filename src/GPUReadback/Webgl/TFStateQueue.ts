@@ -50,7 +50,7 @@ export abstract class TFStateQueue<TSlot extends TFState = TFState> {
     public constructor(device: pc.WebglGraphicsDevice, slotCount: number) {
         this._device = device;
         this._slotCount = Math.max(2, slotCount | 0);
-        this._frameFence = new WebglFrameFence(device, () => this._markFenced());
+        this._frameFence = new WebglFrameFence(device);
         this._deviceLostHandle = device.on(pc.GraphicsDevice.EVENT_DEVICELOST, this.onDeviceLost, this);
     }
 
@@ -103,15 +103,6 @@ export abstract class TFStateQueue<TSlot extends TFState = TFState> {
 
     /** Copy the slot out and publish it. `false` aborts the slot. */
     protected abstract _commit(slot: TSlot): boolean;
-
-    /**
-     * True when the next {@link acquire} would return a slot.
-     * Does not consume a capture tick — call {@link acquire} to take the slot
-     * (and to advance {@link readbackPeriod}).
-     */
-    public canAcquire(): boolean {
-        return this._peekFreeSlot() !== null;
-    }
 
     protected _resize(elementCount: number) {
         this._elementCount = Math.max(0, elementCount | 0);
@@ -192,12 +183,12 @@ export abstract class TFStateQueue<TSlot extends TFState = TFState> {
     }
 
     /**
-     * Fenced, old enough for {@link minReadbackLag}, and covered by a fence
-     * that has signaled. The previous frame's fence is not enough: Chromium
-     * signals it two frames after it was inserted.
+     * Old enough for {@link minReadbackLag}, and covered by a fence that has
+     * signaled. Chromium signals that fence two frames after it was inserted,
+     * so the previous frame is not enough.
      */
     protected _isEligible(slot: TSlot): boolean {
-        return slot.pending && slot.fenced
+        return slot.pending
             && slot.submitFrame <= this._coveredFrame
             && this._frameId - slot.submitFrame >= this._minReadbackLag;
     }
@@ -267,7 +258,6 @@ export abstract class TFStateQueue<TSlot extends TFState = TFState> {
      * Returns `true` if the readback was scheduled.
      */
     public submit(slot: TSlot, copyCount?: number): boolean {
-        slot.reserved = false;
         slot.beginRead(copyCount);
         if (!slot.pending) {
             this._refundCaptureTick();
@@ -279,16 +269,6 @@ export abstract class TFStateQueue<TSlot extends TFState = TFState> {
         return true;
     }
 
-    /** Every copy recorded so far sits in front of the fence that was just inserted. */
-    private _markFenced(): void {
-        const slots = this._slots;
-        for (let i = 0; i < slots.length; i++) {
-            if (slots[i].pending) {
-                slots[i].fenced = true;
-            }
-        }
-    }
-
     private _refundCaptureTick() {
         if (this._captureTick > 0) {
             this._captureTick--;
@@ -297,13 +277,6 @@ export abstract class TFStateQueue<TSlot extends TFState = TFState> {
 
     private _isCaptureTick(): boolean {
         return (this._captureTick % this._readbackPeriod) === 0;
-    }
-
-    private _peekFreeSlot(): TSlot | null {
-        if (this._submitFrame === this._frameId || !this._isCaptureTick()) {
-            return null;
-        }
-        return this._physicalFreeSlot();
     }
 
     private _physicalFreeSlot(): TSlot | null {

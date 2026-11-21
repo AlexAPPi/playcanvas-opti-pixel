@@ -258,17 +258,11 @@ export class CoverageGpuReadback {
 
         for (let i = 0; i < slots.length; i++) {
             const slot = slots[i];
-            if (!slot.pending || this._frameId - slot.submitFrame < this._minReadbackLag) {
+            if (!slot.pending || !slot.ready || this._frameId - slot.submitFrame < this._minReadbackLag) {
                 continue;
             }
 
-            const status = slot.poll();
-            if (status === "failed") {
-                slot.abortRead();
-                continue;
-            }
-
-            if (status === "ready" && (!newest || slot.submitFrame > newest.submitFrame)) {
+            if (!newest || slot.submitFrame > newest.submitFrame) {
                 newest = slot;
             }
         }

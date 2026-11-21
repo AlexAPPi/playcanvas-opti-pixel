@@ -126,7 +126,8 @@ export interface ICoverageBuffer {
     cpuReadback: boolean;
 
     /**
-     * Advance the frame counter. Call on `frameupdate`. Publishes nothing.
+     * Advance the frame counter. Publishes nothing. WebGPU also starts
+     * `mapAsync` for a copy the previous {@link frameEnd} could not map yet.
      * @param dt Frame delta in seconds. Unused; kept for the frame callback.
      */
     frameUpdate(dt: number): void;
@@ -135,9 +136,12 @@ export interface ICoverageBuffer {
      * Publish the newest finished readback whose lag has elapsed into
      * {@link cpuDepth}, {@link cpuViewProjection}, and {@link cpuCameraParams},
      * then bump {@link cpuVersion}. Captures older than that one are dropped
-     * unread. Never waits on the GPU: a readback still in flight stays for a
-     * later frame. Call on `framerender`, after scripts, before tests and
-     * before the GPU timer opens.
+     * unread. One that is not finished stays for a later frame. On WebGL the
+     * copy runs only once the frame fence after that capture has signaled;
+     * `getBufferSubData` can still wait for newer commands already recorded.
+     * On WebGPU the copy is out of a range `mapAsync` has already finished.
+     * Call on `framerender`, after scripts, before tests and before the GPU
+     * timer opens.
      */
     frameRender(): void;
 

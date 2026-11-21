@@ -9,8 +9,7 @@ export type TTFElementType = "float32" | "uint32";
  * {@link beginRead} copies `outputBuffer` into the PBO, {@link read} pulls it
  * out with `getBufferSubData`. The slot has no fence of its own: that call
  * waits for every command recorded before it, not just this copy, so the
- * queue reads only behind a fence that covers the whole frame, and sets
- * {@link fenced} once one is in.
+ * queue reads only behind a fence that covers the whole frame.
  *
  * {@link pending} is the whole slot state: a copy is in flight from
  * `beginRead()` until `read()` or `abortRead()`. The PBO object lives with the
@@ -25,8 +24,6 @@ export class TFState {
     public submitFrame = 0;
     /** A copy is in the PBO and not yet read or aborted. */
     public pending = false;
-    /** A frame fence went in after this copy. Set by the queue. */
-    public fenced = false;
     /** Held for enqueue / fill between `acquire` and `submit`. */
     public reserved = false;
 
@@ -45,8 +42,6 @@ export class TFState {
         this._elementType = elementType;
         this.resize(elementCount);
     }
-
-    public get elementCount() { return this._elementCount; }
 
     public resize(elementCount: number) {
         this._elementCount = Math.max(0, elementCount | 0);
@@ -72,7 +67,6 @@ export class TFState {
      */
     public abortRead(): void {
         this.pending = false;
-        this.fenced = false;
         this.reserved = false;
         this._copyCount = 0;
     }
@@ -119,6 +113,8 @@ export class TFState {
      * Copy the PBO into `dest`. Call only once the frame fence after this
      * copy has signaled; before that `getBufferSubData` stalls.
      * Returns the number of elements read, `0` if nothing was copied.
+     *
+     * @param dstOffset - Element index in `dest` where the copy starts.
      */
     public read(dest: Float32Array | Uint32Array, dstOffset: number = 0): number {
 

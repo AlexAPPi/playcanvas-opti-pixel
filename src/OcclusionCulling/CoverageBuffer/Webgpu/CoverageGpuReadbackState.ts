@@ -1,7 +1,5 @@
 import pc from "../../../engine.js";
 
-export type TCoverageReadbackPoll = "pending" | "ready" | "failed";
-
 /**
  * One in-flight coverage pack. Compute writes float view-space Z into a
  * shared storage buffer; {@link beginRead} copies that into this slot's
@@ -53,8 +51,6 @@ export class CoverageGpuReadbackState {
         this._device = device;
         this.resize(pixelCount);
     }
-
-    public get pixelCount() { return this._pixelCount; }
 
     public resize(pixelCount: number) {
         this.abortRead();
@@ -170,13 +166,14 @@ export class CoverageGpuReadbackState {
         void this._awaitMap(gpu, this._readGen, this._copyCount * 4);
     }
 
-    public poll(): TCoverageReadbackPoll {
-        if (this._ready) {
-            return "ready";
-        }
-        return this.pending ? "pending" : "failed";
-    }
+    /** The mapped range is ready to copy out. */
+    public get ready() { return this._ready; }
 
+    /**
+     * Copy the mapped range into `dest`.
+     *
+     * @param dstOffset - Element index in `dest` where the copy starts.
+     */
     public read(dest: Float32Array, dstOffset: number = 0): number {
 
         const count = this._copyCount;

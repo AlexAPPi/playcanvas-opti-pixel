@@ -85,10 +85,10 @@ These calls are not interchangeable.
 
 | Call | When | What it does |
 | --- | --- | --- |
-| `tester.frameUpdate(dt)` | Every frame, on `frameupdate`, **before** `enqueue` / `execute` | Advance the readback frame counter |
-| `tester.frameRender()` | Every frame, on `framerender` | Copy the newest finished download into `coverage.cpuDepth` and drop the older ones. Never waits on the GPU |
+| `tester.frameUpdate(dt)` | Every frame, on `frameupdate`, **before** `enqueue` / `execute` | Advance the readback frame counter. WebGPU also starts `mapAsync` for a copy the previous `frameEnd` could not map yet |
+| `tester.frameRender()` | Every frame, on `framerender` | Copy the newest finished download into `coverage.cpuDepth` and drop the older ones. WebGL copies only after that capture's frame fence has signaled; `getBufferSubData` can still wait for newer commands already recorded. WebGPU copies a map `mapAsync` has already finished |
 | `tester.frameEnd()` | Every frame, on `frameend`, after the capture | Close the frame: WebGL fences everything it recorded, WebGPU starts `mapAsync` for its copy |
-| `tester.enqueue` then `execute(camera)` | `update` | Copy the last published capture (if `cpuVersion` changed), transfer a job bus to the worker, clear the queue |
+| `tester.enqueue` then `execute(camera)` | `update` | Copy the last published capture (if `cpuVersion` changed). When the worker is idle, transfer the job bus and clear the queue. A busy worker keeps the queue |
 | `hzb.update` or `hzb.updateSceneDepth`, then `tester.updateGPUDepthBuffer(hzb, camera)` | After opaque depth (`postrender`) | Build the pyramid, then pack its chosen mip to view-space Z and start an async readback on a free slot. The pack is skipped when every slot is busy, or on a tick that `readbackPeriod` skips. |
 
 ```mermaid
@@ -112,7 +112,7 @@ sequenceDiagram
         Note over Tester: flags UNKNOWN, queue cleared
     end
     App->>Tester: frameRender()
-    alt a fence after that capture has signaled
+    alt WebGL fence covers that capture, or the WebGPU map is ready
         Tester->>Buffer: publish the newest finished download
     else still running
         Note over Buffer: keep it for a later frame
@@ -147,26 +147,26 @@ sequenceDiagram
 | Device | Pack | Download |
 | --- | --- | --- |
 | WebGL2 (`WebglCoverageBuffer`) | Transform feedback, `texelFetch` of the mip | Ring of `readbackSlots` `STREAM_READ` PBOs (default 2). `copyBufferSubData`, one fence per frame kept until it signals. At most one `getBufferSubData` per `frameRender` |
-| WebGPU (`WebgpuCoverageBuffer`) | Compute, `textureLoad` of the mip, into one storage buffer | Ring of `readbackSlots` persistent `MAP_READ` staging buffers (default 5). `copyBufferToBuffer`, then `mapAsync` from `frameEnd` |
+| WebGPU (`WebgpuCoverageBuffer`) | Compute, `textureLoad` of the mip, into one storage buffer | Ring of `readbackSlots` persistent `MAP_READ` staging buffers (default 5). `copyBufferToBuffer`, then `mapAsync` from `frameEnd`, retried on the next `frameUpdate` |
 
 Up to `readbackSlots` packed downloads stay in flight. A new pack starts on a capture tick whenever a slot is free, so call it from every `postrender` after the HZB update. A frame with no free slot, and a tick that `readbackPeriod` skips, does no GPU work.
 
 `frameRender` publishes the **newest** eligible slot and retires the older ones unread. Coverage is not FIFO (HZB readback is): every capture replaces the whole depth map, so an older one is only staler. Draining FIFO would pin the latency at `readbackSlots` — once the ring filled, each tick would free exactly one slot and the next capture would refill it, so the oldest would never get younger.
 
-Do not harvest from `capture` / `postrender`. On ANGLE `getBufferSubData` waits for every command recorded so far, not only the copy it reads, so the copy runs only once a fence inserted after that capture has signaled. `frameEnd` inserts that fence in a microtask after the rest of `frameend` (no `gl.flush()`), and the fence is kept until then. Chromium does not signal it on the next frame: the commands flush with the following frame, and `SYNC_STATUS` comes back a frame after that. `frameRender` polls the oldest open fence once and publishes a slot that fence covers. A slot newer than the newest signaled fence stays pending. Nothing forces a copy. A capture whose fence never signals ages out after `maxResultAge` frames: `cpuReady` goes false and the tester returns `UNKNOWN`.
+Do not harvest from `capture` / `postrender`. On ANGLE `getBufferSubData` waits for every command recorded so far, not only the copy it reads, so the copy runs only once a fence inserted after that capture has signaled. `frameEnd` inserts that fence in a microtask after the rest of `frameend` (no `gl.flush()`), and the fence is kept until then. Chromium does not signal it on the next frame: the commands flush with the following frame, and `SYNC_STATUS` comes back a frame after that. `frameRender` polls the oldest open fence once and publishes the newest slot that fence covers. A slot newer than the newest signaled fence stays pending; age does not drop it. Nothing forces a copy. The last published map stops counting after `maxResultAge` frames: `cpuReady` goes false and the tester returns `UNKNOWN`.
 
-WebGPU follows the same schedule without a fence: `mapAsync` never blocks, so `frameRender` publishes whatever has mapped and leaves the rest.
+WebGPU follows the same schedule without a fence. `mapAsync` never blocks. `frameEnd` starts it after the frame's submit, and the next `frameUpdate` retries a copy that was still on the open encoder. `frameRender` publishes the newest map that has finished mapping and whose lag has elapsed, and leaves the rest.
 
 The readback ring is allocated for `maxWidth` × `maxHeight` pixels. A window resize changes the HZB and therefore the footprint (`cpuWidth` / `cpuHeight` on the next harvest), not this ring, so in-flight captures and the last published one survive — coverage keeps culling while the window is being dragged. Changing `maxWidth` / `maxHeight` rebuilds the ring only when that pixel count changes, and the rebuild clears `cpuReady` until the next capture lands. A same-count change keeps the ring, in-flight captures, and the published map.
 
 ## Readback knobs
 
-Shared by both buffers (defaults match WebGL HZB, except the WebGPU ring):
+Shared by both coverage buffers. WebGL HZB uses the same lag, age, and period; its ring defaults to 3.
 
 | Property | Default | Meaning |
 | --- | --- | --- |
 | `readbackSlots` | `2` WebGL, `5` WebGPU | In-flight download slots, clamped to at least `2`. Coverage acquires after `frameRender` publishes, and a newer map drops the older ones, so two WebGL slots are enough. A dropped WebGPU slot stays busy until its `mapAsync` settles, hence the larger ring. Changing it drops downloads that have not landed. `cpuDepth` from the last finished slot stays. |
-| `minReadbackLag` | `1` | Frames from a capture to its earliest copy into `cpuDepth`, clamped to at least `1`. The frame fence has to have signaled as well; Chromium does that two frames after the capture. A larger value only adds latency. |
+| `minReadbackLag` | `1` | Frames from a capture to its earliest copy into `cpuDepth`, clamped to at least `1`. On WebGL the frame fence also has to have signaled; Chromium does that two frames after the capture. On WebGPU the map also has to have finished. A larger value only adds latency. |
 | `maxResultAge` | `10` | Frames, counted from the capture, a published map stays valid. Past that `cpuReady` is false. Never shorter than `minReadbackLag + readbackPeriod`. |
 | `readbackPeriod` | `1` | While a slot is free, submit a packed capture every N `updateGPUDepthBuffer` attempts. A busy ring does not advance the counter. `frameRender` still publishes every frame. On Android Chrome WebGL, `getBufferSubData` is an ordered GPU-process wait — set this to `3` (or higher) there. |
 
@@ -176,7 +176,7 @@ WebGPU constructor: `new WebgpuCoverageBuffer(device, maxWidth?, maxHeight?)`. L
 
 Do not call `gl.flush()` or `clientWaitSync`. Leave a slot's PBO or staging buffer alone until that slot has been read.
 
-Typical readback latency in Chromium is two frames: the frame fence signals on the `frameRender` two frames after the capture, and `execute` on the following `update` consumes it, then a worker job. Where the fence signals sooner, latency is `minReadbackLag` frames.
+On WebGL in Chromium the frame fence signals on the `frameRender` two frames after the capture, and `execute` on the following `update` consumes it, then a worker job. Where that fence signals sooner, latency is `minReadbackLag` frames. On WebGPU the same lag applies once `mapAsync` has finished.
 
 ## Worker job
 
@@ -261,7 +261,7 @@ Times are milliseconds. A skipped capture leaves `coverage.stats` as it was. A b
 | `packMs` | CPU time to issue the pack and start the readback. The GPU pack finishes later |
 | `readMs` | CPU time of the copy into `cpuDepth`. WebGL is `getBufferSubData`. WebGPU is the copy out of the mapped range |
 | `latencyMs` | Wall time from that readback submit until the copy finished, including `readMs` |
-| `latencyFrames` | Frames between that submit and the publish. At least `minReadbackLag`; more means the GPU was still busy with an earlier frame |
+| `latencyFrames` | Frames between that submit and the publish. At least `minReadbackLag`. On WebGL in Chromium it is two, because that is when the frame fence signals. A larger number means the copy waited longer |
 
 `tester.stats` — the last completed worker job. Visible AABBs are `aabbCount - occludedCount`.
 
@@ -278,8 +278,8 @@ Times are milliseconds. A skipped capture leaves `coverage.stats` as it was. A b
 ## Limitations
 
 - Coarser than GPU HZB; not a shadow map or triangle-perfect visibility
-- Always delayed: two frames of GPU readback in Chromium, then one worker job
-- A capture whose fence never signals ages out after `maxResultAge` and tests return `UNKNOWN`
+- WebGL in Chromium waits two frames for the frame fence, then one worker job. WebGPU waits until `mapAsync` finishes, at least `minReadbackLag` frames, then one worker job
+- A published map older than `maxResultAge` reads as not ready, so tests return `UNKNOWN`. A download that has not finished stays in its slot and is not dropped for age
 - One in-flight worker job; a slow test stalls new submits (queue is retained)
 - Perspective cameras only for reprojection; ortho fills the map at far
 - You must build the HZB, then drive `frameUpdate`, `frameRender`, `frameEnd`, and `updateGPUDepthBuffer(hzb, camera)` yourself

@@ -37,7 +37,6 @@ interface FrameFence {
 export class WebglFrameFence {
 
     private _device: pc.WebglGraphicsDevice;
-    private _onSealed: () => void;
     private _fences: FrameFence[] = [];
     private _signaledFrame = -1;
     private _sealFrame = -1;
@@ -45,14 +44,9 @@ export class WebglFrameFence {
     private _destroyed = false;
     private _sealTask: () => void;
 
-    /**
-     * @param device - WebGL2 device
-     * @param onSealed - Runs right after a fence is inserted. Every command
-     * recorded before that call is behind the fence.
-     */
-    constructor(device: pc.WebglGraphicsDevice, onSealed: () => void) {
+    /** @param device - WebGL2 device */
+    constructor(device: pc.WebglGraphicsDevice) {
         this._device = device;
-        this._onSealed = onSealed;
         this._sealTask = () => this._insert();
     }
 
@@ -115,7 +109,6 @@ export class WebglFrameFence {
             }
         }
         this._fences.push({ sync, frame: this._sealFrame });
-        this._onSealed();
     }
 
     private _deleteFences(): void {
