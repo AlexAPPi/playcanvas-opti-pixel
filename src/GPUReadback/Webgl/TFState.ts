@@ -1,17 +1,18 @@
 import pc from "../../engine.js";
 
-export type TTFReadbackPoll = "pending" | "ready" | "failed";
 export type TTFElementType = "float32" | "uint32";
 
 /**
- * One in-flight WebGL2 transform-feedback slot: TF output buffer + STREAM_READ
- * PBO + fence. Shared by coverage pack and HZB flag readback.
+ * One WebGL2 transform-feedback readback slot: the TF output buffer and a
+ * STREAM_READ PBO. Shared by coverage pack and HZB flag readback.
  *
- * `beginRead()` copies and inserts a fence.
- * `poll()` checks the fence without waiting.
- * `read()` pulls data only after the fence is ready.
+ * {@link beginRead} copies `outputBuffer` into the PBO, {@link read} pulls it
+ * out with `getBufferSubData`. The slot has no fence of its own: that call
+ * waits for every command recorded before it, not just this copy, so the
+ * queue reads only behind a fence that covers the whole frame, and sets
+ * {@link fenced} once one is in.
  *
- * {@link pending} is the whole slot state: a capture is in flight from
+ * {@link pending} is the whole slot state: a copy is in flight from
  * `beginRead()` until `read()` or `abortRead()`. The PBO object lives with the
  * slot, but `beginRead` reallocates its storage with `bufferData` every time,
  * so a copy never lands on bytes the GPU may still be reading or that
@@ -22,8 +23,10 @@ export class TFState {
 
     public outputBuffer: pc.VertexBuffer;
     public submitFrame = 0;
-    /** A capture is fenced and not yet read or aborted. */
+    /** A copy is in the PBO and not yet read or aborted. */
     public pending = false;
+    /** A frame fence went in after this copy. Set by the queue. */
+    public fenced = false;
     /** Held for enqueue / fill between `acquire` and `submit`. */
     public reserved = false;
 
@@ -32,7 +35,6 @@ export class TFState {
     private _copyCount = 0;
     private _elementType: TTFElementType;
     private _pbo: WebGLBuffer | null = null;
-    private _sync: WebGLSync | null = null;
 
     constructor(
         device: pc.WebglGraphicsDevice,
@@ -48,18 +50,14 @@ export class TFState {
 
     public resize(elementCount: number) {
         this._elementCount = Math.max(0, elementCount | 0);
-        this._deleteSync();
         this._deletePbo();
         this._destroyOutputBuffer();
-        this.pending = false;
-        this.reserved = false;
+        this.abortRead();
         this.submitFrame = 0;
-        this._copyCount = 0;
         this._createOutputBuffer();
     }
 
     public destroy() {
-        this._deleteSync();
         this._deletePbo();
         this._destroyOutputBuffer();
     }
@@ -69,20 +67,19 @@ export class TFState {
     }
 
     /**
-     * Retire the capture without reading it. Keeps the PBO object — the next
+     * Retire the copy without reading it. Keeps the PBO object — the next
      * {@link beginRead} reallocates its storage anyway.
      */
     public abortRead(): void {
-        this._deleteSync();
         this.pending = false;
+        this.fenced = false;
         this.reserved = false;
         this._copyCount = 0;
     }
 
     /**
-     * Copy TF output into the STREAM_READ PBO and insert a fence.
-     * Does not block the CPU. Call after TF has written `outputBuffer`.
-     * Leaves the slot idle if anything is missing.
+     * Copy TF output into the PBO. Does not block the CPU. Call after TF has
+     * written `outputBuffer`. Leaves the slot idle if anything is missing.
      *
      * @param copyCount - Elements to copy. Defaults to the full buffer.
      */
@@ -114,58 +111,20 @@ export class TFState {
         gl.bindBuffer(gl.COPY_READ_BUFFER, null);
         gl.bindBuffer(gl.COPY_WRITE_BUFFER, null);
 
-        // No `gl.flush()`: on Android GLES a flush after the pack often stalls,
-        // and the fence still completes at the end of the frame.
-        this._sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
-        if (!this._sync) {
-            return;
-        }
-
         this._copyCount = count;
         this.pending = true;
     }
 
     /**
-     * Check the fence without waiting. Idempotent: `"ready"` does not consume
-     * the fence — `read()` / `abortRead()` delete it.
-     * Uses `getSyncParameter` rather than `clientWaitSync(0)`: on some
-     * ANGLE/Adreno drivers the latter still flushes.
-     * `"pending"` — GPU has not reached it yet.
-     * `"ready"` — safe to call `read()`.
-     * `"failed"` — the fence is gone or the status is not signaled.
-     */
-    public poll(): TTFReadbackPoll {
-
-        const gl = this._device.gl;
-        if (!gl || !this._sync) {
-            return "failed";
-        }
-
-        const status = gl.getSyncParameter(this._sync, gl.SYNC_STATUS);
-        if (status === gl.UNSIGNALED) {
-            return "pending";
-        }
-        if (status === gl.SIGNALED) {
-            return "ready";
-        }
-
-        this._deleteSync();
-        return "failed";
-    }
-
-    /**
-     * Copy the PBO into `dest`.
-     * Call only after `poll()` returns `"ready"`.
-     * Returns the number of elements read, `0` if nothing was copied — the
-     * slot then polls `"failed"` so the owner can abort it.
+     * Copy the PBO into `dest`. Call only once the frame fence after this
+     * copy has signaled; before that `getBufferSubData` stalls.
+     * Returns the number of elements read, `0` if nothing was copied.
      */
     public read(dest: Float32Array | Uint32Array, dstOffset: number = 0): number {
 
         const gl = this._device.gl;
         const count = this._copyCount;
         const offset = dstOffset | 0;
-
-        this._deleteSync();
 
         if (!gl || !this._pbo || count <= 0 || offset < 0 || dest.length - offset < count) {
             return 0;
@@ -175,18 +134,14 @@ export class TFState {
         gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, dest, offset, count);
         gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
 
-        this.pending = false;
-        this._copyCount = 0;
+        this.abortRead();
         return count;
     }
 
     /** Every GL handle is already invalid, so drop them without deleting. */
-    public onContextLost() {
-        this._sync = null;
+    public onDeviceLost() {
         this._pbo = null;
-        this.pending = false;
-        this.reserved = false;
-        this._copyCount = 0;
+        this.abortRead();
     }
 
     private _ensureOutputBuffer() {
@@ -232,16 +187,14 @@ export class TFState {
     }
 
     private _deletePbo() {
-        if (this._pbo) {
-            this._device.gl?.deleteBuffer(this._pbo);
-            this._pbo = null;
+        const pbo = this._pbo;
+        if (!pbo) {
+            return;
         }
-    }
-
-    private _deleteSync() {
-        if (this._sync) {
-            this._device.gl?.deleteSync(this._sync);
-            this._sync = null;
+        this._pbo = null;
+        const gl = this._device.gl;
+        if (gl && !this._device.isContextLost()) {
+            gl.deleteBuffer(pbo);
         }
     }
 }

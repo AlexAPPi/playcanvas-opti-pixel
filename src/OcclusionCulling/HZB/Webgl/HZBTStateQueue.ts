@@ -5,12 +5,17 @@ import { HZBTFState } from "./HZBTFState.js";
 import { OCCLUSION_OCCLUDED, OCCLUSION_UNKNOWN, OCCLUSION_VISIBLE, TOcclusionResult } from "../../IOcclusionCullingTester.js";
 
 /**
- * HZB GPU->CPU flag download on the same PBO/fence slots as coverage.
- * Harvest stays FIFO: each slot is a different AABB queue and must not be skipped.
+ * HZB GPU->CPU flag download on the same PBO slots as coverage.
  *
  * A fill slot is reserved on {@link frameUpdate} (or the first {@link enqueue})
- * so AABB ids can be queued before {@link submitFill}. Harvest is FIFO, one
- * fence poll per tick, no `gl.flush()`.
+ * so AABB ids can be queued before {@link submitFill}. {@link frameRender}
+ * publishes FIFO, one slot per frame: each slot is a different AABB queue and
+ * a publish replaces the whole answer set, so a skipped slot would lose its ids.
+ *
+ * The ring is 3. Chromium signals the frame fence two frames after the
+ * capture, and the slot stays busy until {@link frameRender} frees it.
+ * {@link frameUpdate} reserves the next slot before that free, so two
+ * in-flight slots leave nothing to reserve and a capture is skipped.
  */
 export class HZBTStateQueue extends TFStateQueue<HZBTFState> {
 
@@ -19,22 +24,21 @@ export class HZBTStateQueue extends TFStateQueue<HZBTFState> {
     private _resultData: Uint32Array;
     private _resultGen: Uint32Array;
     private _resultEpoch = 1;
+    private _resultFrame = 0;
     private _hasResult = false;
     private _destroyHandle: pc.EventHandle;
-    private _contextLostHandle: pc.EventHandle;
 
     public readonly indexManager: IndexManager;
 
     public constructor(
         device: pc.WebglGraphicsDevice,
         indexManager: IndexManager,
-        slotCount: number = 4
+        slotCount: number = 3
     ) {
         super(device, slotCount);
         this.indexManager = indexManager;
         this.resize();
         this._destroyHandle = device.on("destroy", this.destroy, this);
-        this._contextLostHandle = device.on("contextlost", this.onContextLost, this);
     }
 
     public get actual() { return this._fill; }
@@ -82,8 +86,8 @@ export class HZBTStateQueue extends TFStateQueue<HZBTFState> {
     }
 
     /**
-     * Copy TF flags into the PBO and insert a fence. Call after the fill
-     * slot's transform feedback has written `outputBuffer`.
+     * Copy TF flags into the PBO. Call after the fill slot's transform
+     * feedback has written `outputBuffer`.
      */
     public submitFill(): boolean {
         const slot = this._fill;
@@ -107,8 +111,9 @@ export class HZBTStateQueue extends TFStateQueue<HZBTFState> {
     }
 
     /**
-     * Drop an unused fill slot without a GPU copy. Does not start a new
-     * capture this frame ({@link readbackPeriod} already advanced on acquire).
+     * Drop an unused fill slot without a GPU copy.
+     * Does not call {@link release}: `acquire` already counted this tick, and
+     * an empty fill still consumes {@link readbackPeriod}.
      */
     public releaseFill(): void {
         const slot = this._fill;
@@ -129,7 +134,6 @@ export class HZBTStateQueue extends TFStateQueue<HZBTFState> {
 
     public override destroy() {
         this._destroyHandle?.off();
-        this._contextLostHandle?.off();
         this._fill = null;
         this._hasResult = false;
         super.destroy();
@@ -141,6 +145,7 @@ export class HZBTStateQueue extends TFStateQueue<HZBTFState> {
             return false;
         }
         this._commitSnapshot(slot, count);
+        this._resultFrame = slot.submitFrame;
         return true;
     }
 
@@ -152,7 +157,7 @@ export class HZBTStateQueue extends TFStateQueue<HZBTFState> {
         this._hasResult = false;
     }
 
-    protected override _onContextLost(): void {
+    protected override _onDeviceLost(): void {
         this._fill = null;
         this._fillAttemptFrame = -1;
         this._hasResult = false;
@@ -187,7 +192,8 @@ export class HZBTStateQueue extends TFStateQueue<HZBTFState> {
         return this._hasResult &&
             index >= 0 &&
             index < this._resultGen.length &&
-            this._resultGen[index] === this._resultEpoch;
+            this._resultGen[index] === this._resultEpoch &&
+            this._isFresh(this._resultFrame);
     }
 
     private _ensureAtlas() {

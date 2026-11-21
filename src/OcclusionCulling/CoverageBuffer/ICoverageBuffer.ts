@@ -2,11 +2,11 @@ import pc from "../../engine.js";
 import type { IHierarchicalZBuffer } from "../HZB/IHierarchicalZBuffer.js";
 
 /**
- * Last pack that started a readback, and the last capture {@link ICoverageBuffer.frameUpdate} published.
+ * Last pack that started a readback, and the last capture {@link ICoverageBuffer.frameRender} published.
  * A skipped capture leaves these values. Milliseconds.
  *
  * `packMs` is the CPU time to issue the pack. The GPU pack finishes inside `latencyMs`.
- * `readMs` is the copy into `cpuDepth`: WebGL `getBufferSubData`, or on WebGPU the mapped-range copy plus the publish copy.
+ * `readMs` is the copy into `cpuDepth`: WebGL `getBufferSubData`, or on WebGPU the copy out of the mapped range.
  * `latencyMs` and `latencyFrames` run from that readback's submit until the copy finished.
  */
 export interface ICoverageReadbackStats {
@@ -49,15 +49,17 @@ export interface ICoverageBuffer {
     readonly height: number;
 
     /**
-     * True after {@link frameUpdate} has published a capture.
-     * False before the first publish, after {@link resize} changes the packed
-     * pixel count (`maxWidth * maxHeight`), and on WebGL after context loss.
-     * A resize that keeps that count leaves a published map ready.
+     * True while a capture published by {@link frameRender} is no older than
+     * `maxResultAge` frames, counted from the capture. False before the first
+     * publish, once nothing has replaced the map for that long, after
+     * {@link resize} changes the packed pixel count (`maxWidth * maxHeight`),
+     * and on WebGL after context loss. A resize that keeps that count leaves a
+     * published map ready.
      */
     readonly cpuReady: boolean;
 
     /**
-     * Bumped when {@link frameUpdate} publishes a capture, and when {@link resize}
+     * Bumped when {@link frameRender} publishes a capture, and when {@link resize}
      * changes the packed pixel count. Changing `readbackSlots` does not bump it.
      * The tester recopies {@link cpuDepth} when this differs from the copy it
      * last applied and {@link cpuReady} is set.
@@ -118,19 +120,33 @@ export interface ICoverageBuffer {
 
     /**
      * When false, {@link capture} does not pack or start a readback.
-     * {@link frameUpdate} still publishes a readback already in flight.
+     * {@link frameRender} still publishes a readback already in flight.
      * Defaults to true.
      */
     cpuReadback: boolean;
 
     /**
-     * Harvest the newest finished readback whose lag has elapsed into {@link cpuDepth},
-     * {@link cpuViewProjection}, and {@link cpuCameraParams}, then bump {@link cpuVersion}.
-     * Captures older than that one are dropped unread.
-     * Call every frame before tests. Does not start a capture.
-     * @param dt Frame delta in seconds. Unused by the harvest itself; kept for the frame callback.
+     * Advance the frame counter. Call on `frameupdate`. Publishes nothing.
+     * @param dt Frame delta in seconds. Unused; kept for the frame callback.
      */
     frameUpdate(dt: number): void;
+
+    /**
+     * Publish the newest finished readback whose lag has elapsed into
+     * {@link cpuDepth}, {@link cpuViewProjection}, and {@link cpuCameraParams},
+     * then bump {@link cpuVersion}. Captures older than that one are dropped
+     * unread. Never waits on the GPU: a readback still in flight stays for a
+     * later frame. Call on `framerender`, after scripts, before tests and
+     * before the GPU timer opens.
+     */
+    frameRender(): void;
+
+    /**
+     * Close the frame for the readback. WebGL fences everything this frame
+     * recorded; WebGPU starts `mapAsync` for this frame's copy. Call on
+     * `frameend`, after the capture.
+     */
+    frameEnd(): void;
 
     /**
      * Select a mip of an already-built pyramid, pack it into the CPU map, and start

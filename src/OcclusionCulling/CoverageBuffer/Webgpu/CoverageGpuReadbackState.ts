@@ -6,7 +6,8 @@ export type TCoverageReadbackPoll = "pending" | "ready" | "failed";
  * One in-flight coverage pack. Compute writes float view-space Z into a
  * shared storage buffer; {@link beginRead} copies that into this slot's
  * persistent `MAP_READ | COPY_DST` staging buffer. {@link kickMap} calls
- * `mapAsync` once that copy has been submitted. `MAP_READ` cannot be combined
+ * `mapAsync` once that copy has been submitted; the owner calls it on
+ * `frameend` and again on `frameupdate`. `MAP_READ` cannot be combined
  * with `STORAGE`.
  *
  * The staging buffer stays mapped until {@link read} copies the range out,
@@ -44,20 +45,12 @@ export class CoverageGpuReadbackState {
     private _mapped: Float32Array | null = null;
     private _readGen = 0;
     private _submitVersion = -1;
-    private _kickTimer: number | null = null;
-    private _onKickTimer: () => void;
     private _aborted = false;
     private _ready = false;
     private _mapStarted = false;
 
     constructor(device: pc.WebgpuGraphicsDevice, pixelCount: number) {
         this._device = device;
-        this._onKickTimer = () => {
-            this._kickTimer = null;
-            if (this.pending) {
-                this.kickMap();
-            }
-        };
         this.resize(pixelCount);
     }
 
@@ -81,10 +74,6 @@ export class CoverageGpuReadbackState {
 
     public destroy() {
         this._readGen++;
-        if (this._kickTimer !== null) {
-            clearTimeout(this._kickTimer);
-            this._kickTimer = null;
-        }
         this.abortRead();
         this._destroyStaging();
     }
@@ -114,8 +103,7 @@ export class CoverageGpuReadbackState {
     /**
      * Record a copy from the packed storage buffer into this slot's staging
      * buffer. Returns false when the slot is already in flight or the copy
-     * was not recorded. The timer from the constructor calls {@link kickMap}
-     * after this stack returns.
+     * was not recorded. The copy is mapped by a later {@link kickMap}.
      */
     public beginRead(output: pc.StorageBuffer, pixelCount?: number): boolean {
 
@@ -152,7 +140,6 @@ export class CoverageGpuReadbackState {
         this._copyCount = count;
         this._submitVersion = this._device.submitVersion;
         this.pending = true;
-        this._kickTimer ??= setTimeout(this._onKickTimer, 0);
         return true;
     }
 

@@ -53,19 +53,22 @@ app.on("update", () => {
 });
 ```
 
-When `autoUpdate` is false, call `update(camera)` or `updateSceneDepth(camera)` and `tester.execute(camera)` yourself after opaque depth is available. `OcclusionCullingSystem` still runs `tester.frameUpdate` on `frameupdate`. If you constructed the tester yourself (no system), call `frameUpdate` each frame so readbacks can complete.
+When `autoUpdate` is false, call `update(camera)` or `updateSceneDepth(camera)` and `tester.execute(camera)` yourself after opaque depth is available. `OcclusionCullingSystem` runs `tester.frameUpdate` on `frameupdate`, `tester.frameRender` on `framerender`, and `tester.frameEnd` at the end of its `frameend` handler. If you constructed the tester yourself (no system), call those three each frame so readbacks can complete.
 
-WebGL HZB downloads with `copyBufferSubData` into a STREAM_READ PBO and `fenceSync`, then harvests FIFO, one slot per `frameUpdate`, no `gl.flush()`. Default **4** in-flight slots and **2** frames of `minReadbackLag`. Coverage uses the same PBO read, but harvests newest-first: its slots are interchangeable full-frame depth maps, while each HZB slot is a different AABB queue and must not be skipped. Its ring size is `readbackSlots` (default **5**). `enqueue` can return `-1` (`SOME_ENQUEUE_PROBLEM`) on a non-capture tick (`readbackPeriod`) or when every slot is busy — treat that like `OCCLUSION_UNKNOWN`.
+WebGL HZB downloads with `copyBufferSubData` into a STREAM_READ PBO, then publishes FIFO, one slot per `frameRender`. Default **3** in-flight slots and **1** frame of `minReadbackLag`. Coverage uses the same PBO read, but publishes newest-first: its slots are interchangeable full-frame depth maps, while each HZB slot is a different AABB queue and must not be skipped. `enqueue` can return `-1` (`SOME_ENQUEUE_PROBLEM`) on a non-capture tick (`readbackPeriod`) or when every slot is busy — treat that like `OCCLUSION_UNKNOWN`.
 
-Readback is **delayed** by at least one GPU frame. Treat `UNKNOWN` as visible.
+Readback is **delayed** by the frame fence: two frames in Chromium, one where that fence signals sooner. Treat `UNKNOWN` as visible.
 
 | Property | Default | Meaning |
 | --- | --- | --- |
-| `readbackSlots` | `4` (clamped to at least **2**) | In-flight TF/download slots |
-| `minReadbackLag` | `2` | `frameUpdate` ticks to wait before polling a slot |
-| `readbackPeriod` | `1` | Reserve a fill slot / submit a capture every N `frameUpdate` ticks. Harvest still polls every `frameUpdate`. On Android Chrome, `getBufferSubData` is an ordered GPU-process wait — set this to `3` (or higher) there. |
+| `readbackSlots` | `3` (clamped to at least **2**) | In-flight TF/download slots. The fill slot is reserved on `frameUpdate`, before `frameRender` frees one, and Chromium holds a capture for two frames, so two slots skip every third capture. More than three keep capturing through a hitch; FIFO then publishes that backlog in order and the answers get older |
+| `minReadbackLag` | `1` | Frames from a capture to its earliest copy, clamped to at least `1`. The frame fence has to have signaled as well; Chromium does that two frames after the capture |
+| `maxResultAge` | `10` | Frames, counted from the capture, a published answer stays valid. Past that every id is `OCCLUSION_UNKNOWN` |
+| `readbackPeriod` | `1` | Reserve a fill slot / submit a capture every N `frameUpdate` ticks. `frameRender` still publishes every frame. On Android Chrome, `getBufferSubData` is an ordered GPU-process wait — set this to `3` (or higher) there. |
 
-Do not call `gl.flush()` after the PBO fence. `frameUpdate` must run **before** `enqueue` in the same tick (`OcclusionCullingSystem` already does that on `frameupdate`).
+Do not call `gl.flush()` or `clientWaitSync`. `frameUpdate` must run **before** `enqueue` in the same tick, since it reserves the fill slot (`OcclusionCullingSystem` already does that on `frameupdate`).
+
+On ANGLE `getBufferSubData` waits for every command recorded so far, not only the copy it reads, so the copy runs only once a fence inserted after that capture has signaled. `frameEnd` inserts that fence in a microtask after the rest of `frameend` (no `gl.flush()`), and the fence is kept until then. Chromium does not signal it on the next frame: the commands flush with the following frame, and `SYNC_STATUS` comes back a frame after that. `frameRender` — after scripts, before the GPU timer — polls the oldest open fence once and publishes the slot that fence covers. A slot newer than the newest signaled fence stays pending. Nothing forces a copy. Answers whose fence never signals age out after `maxResultAge` frames and read as `UNKNOWN`.
 
 `HierarchicalZBufferDebugger` can overlay mips (`system.drawHZB = true`). `hzbDebugger.opacity` (0–1, default `1`) blends that overlay, including the screen rect from `debugItem`, over the scene.
 

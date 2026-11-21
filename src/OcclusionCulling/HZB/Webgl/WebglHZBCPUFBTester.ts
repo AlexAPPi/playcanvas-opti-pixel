@@ -32,15 +32,27 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
     private _aabbStore: IAABBStore;
     private _modelViewProjection = new pc.Mat4();
 
+    /**
+     * In-flight PBO slots. Default `3`, clamped to at least `2`.
+     * Two are still in flight when {@link frameUpdate} reserves the next one.
+     */
     public get readbackSlots() { return this._queue.slotCount; }
     public set readbackSlots(value: number) { this._queue.slotCount = value; }
 
+    /** Frames from a capture to its earliest copy. Default `1`, clamped to at least `1`. */
     public get minReadbackLag() { return this._queue.minReadbackLag; }
     public set minReadbackLag(value: number) { this._queue.minReadbackLag = value; }
 
     /**
+     * Frames, counted from the capture, a published answer stays valid; past
+     * that every id reads `OCCLUSION_UNKNOWN`. Default `10`.
+     */
+    public get maxResultAge() { return this._queue.maxResultAge; }
+    public set maxResultAge(value: number) { this._queue.maxResultAge = value; }
+
+    /**
      * Submit a TF capture every N {@link frameUpdate} ticks that try to
-     * reserve a fill slot. Harvest still polls every {@link frameUpdate}.
+     * reserve a fill slot. {@link frameRender} still publishes every frame.
      * Default `1`. Raise on devices where `getBufferSubData` hitches.
      */
     public get readbackPeriod() { return this._queue.readbackPeriod; }
@@ -166,6 +178,14 @@ export class WebglHZBCPUFBTester implements IHierarchicalZBufferTester, IGPU2CPU
 
     public frameUpdate(dt: number) {
         this._queue.frameUpdate(dt);
+    }
+
+    public frameRender(): void {
+        this._queue.frameRender();
+    }
+
+    public frameEnd(): void {
+        this._queue.frameEnd();
     }
 
     public enqueue(index: number, extra?: number | number[] | undefined) {

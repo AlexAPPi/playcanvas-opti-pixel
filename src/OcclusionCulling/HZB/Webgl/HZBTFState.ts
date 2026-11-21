@@ -5,7 +5,7 @@ import { TFState } from "../../../GPUReadback/Webgl/TFState.js";
 
 /**
  * HZB transform-feedback slot: AABB index queue + uint flags output + the
- * shared WebGL2 PBO/fence readback in {@link TFState}.
+ * shared WebGL2 PBO readback in {@link TFState}.
  */
 export class HZBTFState extends TFState {
 

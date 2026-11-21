@@ -13,9 +13,9 @@ Readback testers (`IReadbackOcclusionCullingTester`) add:
 - `execute(camera)` — submit / test the batch
 - `getOcclusionStatus(id)` → `OCCLUSION_UNKNOWN | VISIBLE | OCCLUDED`
 
-CPU software also has `occluders: OccluderStore`. It has **no** `frameUpdate` (jobs complete on the worker callback). Coverage harvests in `tester.frameUpdate` (you must call it; the system does not). WebGL HZB and queries need `frameUpdate` too (`OcclusionCullingSystem` runs those on `frameupdate`).
+CPU software also has `occluders: OccluderStore`. It has **no** `frameUpdate` (jobs complete on the worker callback). Coverage publishes in `tester.frameRender` and needs `frameUpdate` and `frameEnd` around it (you must call all three; the system does not). WebGL HZB needs the same three hooks and queries need `frameUpdate` (`OcclusionCullingSystem` runs those).
 
-The [coverage buffer](coverage.md) tester adds `updateGPUDepthBuffer(hzb, camera)` after the pyramid is built. That call packs one HZB mip to 256×128 **view-space Z** and starts the download. `frameUpdate` harvests it; `execute` only reprojects and tests. Build the HZB from a PlayCanvas depth grab (`requestSceneDepthMap`) or from CameraFrame scene depth.
+The [coverage buffer](coverage.md) tester adds `updateGPUDepthBuffer(hzb, camera)` after the pyramid is built. That call packs one HZB mip to 256×128 **view-space Z** and starts the download. `frameRender` publishes it; `execute` only reprojects and tests. Build the HZB from a PlayCanvas depth grab (`requestSceneDepthMap`) or from CameraFrame scene depth.
 
 WebGPU HZB implements `IGPUIndirectDrawOcclusionCullingTester`: `enqueue` takes an indirect draw slot and primitive; the GPU writes the draw args. There is no CPU visibility bit.
 

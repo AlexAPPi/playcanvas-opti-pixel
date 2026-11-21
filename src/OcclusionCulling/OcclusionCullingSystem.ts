@@ -35,6 +35,7 @@ export class OcclusionCullingSystem extends pc.EventHandler {
     private _onPostRenderLayerHandle: pc.EventHandle | null = null;
     private _onCanvasResizeHandle: pc.EventHandle | null = null;
     private _onFrameUpdateHandle: pc.EventHandle | null = null;
+    private _onFrameRenderHandle: pc.EventHandle | null = null;
     private _onFrameEndHandle: pc.EventHandle | null = null;
 
     public get hzb(): IHierarchicalZBuffer | null { return this._hzb; }
@@ -149,6 +150,10 @@ export class OcclusionCullingSystem extends pc.EventHandler {
         this._queriesTester?.frameUpdate(dt);
     }
 
+    private _onFrameRender() {
+        this._hzbTester?.frameRender();
+    }
+
     private _updateHzbAndHandleReadbackTester() {
 
         if (this._autoUpdate && this._camera) {
@@ -168,6 +173,7 @@ export class OcclusionCullingSystem extends pc.EventHandler {
 
     private _onFrameEnd() {
         this._updateHzbAndHandleReadbackTester();
+        this._hzbTester?.frameEnd();
     }
 
     private _onResizeCanvas() {
@@ -190,10 +196,12 @@ export class OcclusionCullingSystem extends pc.EventHandler {
         this._onPostRenderLayerHandle?.off();
         this._onCanvasResizeHandle?.off();
         this._onFrameUpdateHandle?.off();
+        this._onFrameRenderHandle?.off();
         this._onFrameEndHandle?.off();
         this._onPostRenderLayerHandle = null;
         this._onCanvasResizeHandle = null;
         this._onFrameUpdateHandle = null;
+        this._onFrameRenderHandle = null;
         this._onFrameEndHandle = null;
     }
 
@@ -201,6 +209,7 @@ export class OcclusionCullingSystem extends pc.EventHandler {
         this._offHandles();
         this._onCanvasResizeHandle = this.app.graphicsDevice.on("resizecanvas", this._onResizeCanvas, this);
         this._onFrameUpdateHandle = this.app.on("frameupdate", this._onFrameUpdate, this);
+        this._onFrameRenderHandle = this.app.on("framerender", this._onFrameRender, this);
         this._onFrameEndHandle = this.app.on("frameend", this._onFrameEnd, this);
         this._onPostRenderLayerHandle = this.app.scene.on(pc.EVENT_POSTRENDER_LAYER, this._onPostRenderLayer, this);
     }

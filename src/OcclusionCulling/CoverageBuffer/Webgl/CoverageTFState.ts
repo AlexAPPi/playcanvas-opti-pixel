@@ -2,7 +2,7 @@ import pc from "../../../engine.js";
 import { TFState } from "../../../GPUReadback/Webgl/TFState.js";
 
 /**
- * Coverage transform-feedback slot: the shared PBO/fence readback in
+ * Coverage transform-feedback slot: the shared PBO readback in
  * {@link TFState}, plus the view-projection and camera params that were
  * current when this depth map was packed. CPU tests reproject with that
  * snapshot, not with the camera of the frame that finally reads the PBO.

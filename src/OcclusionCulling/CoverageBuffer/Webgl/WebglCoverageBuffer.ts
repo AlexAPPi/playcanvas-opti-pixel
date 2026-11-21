@@ -16,7 +16,7 @@ const PACK_TF_VARYINGS = ["out_depth"];
  * its screen footprint with transform feedback to float view-space Z.
  * Pixel `i` covers screen UV `[i / width, (i + 1) / width]` and reads the
  * HZB texels under that slice. GPU→CPU download is a
- * ring of {@link readbackSlots} PBO/fence reads ({@link CoverageTFReadback}).
+ * ring of {@link readbackSlots} PBO reads ({@link CoverageTFReadback}).
  * The next pack starts when a slot is free, on a {@link readbackPeriod} tick.
  */
 export class WebglCoverageBuffer implements ICoverageBuffer {
@@ -47,8 +47,7 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
     private _spanArr = new Float32Array(2);
     private _cameraParamsArr = new Float32Array(4);
     private _onDestroy: pc.EventHandle;
-    private _onContextLost: pc.EventHandle;
-    private _onContextRestored: pc.EventHandle;
+    private _deviceRestoredHandle: pc.EventHandle;
 
     public get enabled() { return this._enabled; }
     public set enabled(value) { this._enabled = value; }
@@ -87,13 +86,23 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
     public get cpuViewProjection() { return this._readback.cpuViewProjection; }
     public get cpuCameraParams() { return this._readback.cpuCameraParams; }
 
+    /** Frames from a capture to its earliest copy. Default `1`, clamped to at least `1`. */
     public get minReadbackLag() { return this._readback.minReadbackLag; }
     public set minReadbackLag(value: number) {
         this._readback.minReadbackLag = value;
     }
 
     /**
-     * In-flight PBO slots. Default `5`, clamped to at least `2`.
+     * Frames, counted from the capture, a published map stays valid; past
+     * that {@link cpuReady} turns false. Default `10`.
+     */
+    public get maxResultAge() { return this._readback.maxResultAge; }
+    public set maxResultAge(value: number) {
+        this._readback.maxResultAge = value;
+    }
+
+    /**
+     * In-flight PBO slots. Default `2`, clamped to at least `2`.
      * Changing it drops downloads that have not landed yet.
      */
     public get readbackSlots() { return this._readback.slotCount; }
@@ -101,8 +110,8 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
 
     /**
      * Submit a packed capture every N attempts while a readback slot is free
-     * ({@link capture}, or the tester wrapper). Harvest still polls every
-     * {@link frameUpdate}. The pack is skipped when every slot is in flight
+     * ({@link capture}, or the tester wrapper). {@link frameRender} still
+     * publishes every frame. The pack is skipped when every slot is in flight
      * and on ticks that will not capture. An attempt with no free slot does
      * not advance this counter. Default `1`. Raise on devices where
      * `getBufferSubData` hitches.
@@ -116,9 +125,9 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
      * @param device - WebGL2 device
      * @param maxWidth - CPU width, default 256
      * @param maxHeight - CPU height, default 128
-     * @param minReadbackLag - minimum `frameUpdate` ticks before copying the download, default 2
+     * @param minReadbackLag - frames from a capture to its earliest copy, default 1
      */
-    constructor(device: pc.WebglGraphicsDevice, maxWidth: number = 256, maxHeight: number = 128, minReadbackLag: number = 2) {
+    constructor(device: pc.WebglGraphicsDevice, maxWidth: number = 256, maxHeight: number = 128, minReadbackLag: number = 1) {
         this._enabled = true;
         this._cpuReadback = true;
         this._device = device;
@@ -130,8 +139,7 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         this._depthScope = this._device.scope.resolve("uCoverageDepth");
         this._cameraParamsScope = this._device.scope.resolve("uCoverageCameraParams");
         this._onDestroy = device.on("destroy", this.destroy, this);
-        this._onContextLost = device.on("contextlost", this._onDeviceContextLost, this);
-        this._onContextRestored = device.on("devicerestored", this._onDeviceContextRestored, this);
+        this._deviceRestoredHandle = device.on(pc.GraphicsDevice.EVENT_DEVICERESTORED, this._onDeviceRestored, this);
         this._readback = new CoverageTFReadback(device, this._maxWidth * this._maxHeight);
         this._readback.minReadbackLag = minReadbackLag;
         this._initPackTarget();
@@ -147,6 +155,14 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
 
     public frameUpdate(dt: number) {
         this._readback.frameUpdate(dt);
+    }
+
+    public frameRender(): void {
+        this._readback.frameRender();
+    }
+
+    public frameEnd(): void {
+        this._readback.frameEnd();
     }
 
     public capture(hzb: IHierarchicalZBuffer, camera: pc.Camera) {
@@ -222,8 +238,7 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
 
     public destroy() {
         this._onDestroy?.off();
-        this._onContextLost?.off();
-        this._onContextRestored?.off();
+        this._deviceRestoredHandle?.off();
         this._readback.destroy();
         this._disposeGpu();
     }
@@ -328,11 +343,7 @@ export class WebglCoverageBuffer implements ICoverageBuffer {
         return this._pixelBuffer;
     }
 
-    private _onDeviceContextLost() {
-        this._readback.onContextLost();
-    }
-
-    private _onDeviceContextRestored() {
+    private _onDeviceRestored() {
         this._releasePackShader();
         this._initPackTarget();
         this._initPixelBuffer();

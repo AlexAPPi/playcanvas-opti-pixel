@@ -190,6 +190,14 @@ export class CoverageBufferTesterWorker implements IGPU2CPUReadbackOcclusionCull
         this._coverage.frameUpdate(dt);
     }
 
+    public frameRender(): void {
+        this._coverage.frameRender();
+    }
+
+    public frameEnd(): void {
+        this._coverage.frameEnd();
+    }
+
     public getDebugInfo(index: number) {
         this._aabbStore.get(index, _boundingBox);
         return getDebugInfo(this._coverage, this._viewProjection, _boundingBox);

@@ -77,9 +77,19 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
     public get cpuViewProjection() { return this._readback.cpuViewProjection; }
     public get cpuCameraParams() { return this._readback.cpuCameraParams; }
 
+    /** Frames from a capture to its earliest publish. Default `1`, clamped to at least `1`. */
     public get minReadbackLag() { return this._readback.minReadbackLag; }
     public set minReadbackLag(value: number) {
         this._readback.minReadbackLag = value;
+    }
+
+    /**
+     * Frames, counted from the capture, a published map stays valid; past
+     * that {@link cpuReady} turns false. Default `10`.
+     */
+    public get maxResultAge() { return this._readback.maxResultAge; }
+    public set maxResultAge(value: number) {
+        this._readback.maxResultAge = value;
     }
 
     /**
@@ -91,8 +101,8 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
 
     /**
      * Submit a packed capture every N attempts while a readback slot is free
-     * ({@link capture}, or the tester wrapper). Harvest still polls every
-     * {@link frameUpdate}. The pack is skipped when every slot is in flight
+     * ({@link capture}, or the tester wrapper). {@link frameRender} still
+     * publishes every frame. The pack is skipped when every slot is in flight
      * and on ticks that will not capture. An attempt with no free slot does
      * not advance this counter. Default `1`.
      */
@@ -114,7 +124,6 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
         this._maxHeight = Math.max(1, maxHeight | 0);
         this._onDestroy = device.on("destroy", this.destroy, this);
         this._readback = new CoverageGpuReadback(device, this._maxWidth * this._maxHeight);
-        this._readback.minReadbackLag = 2;
     }
 
     public resize(maxWidth: number = this.maxWidth, maxHeight: number = this.maxHeight) {
@@ -125,6 +134,14 @@ export class WebgpuCoverageBuffer implements ICoverageBuffer {
 
     public frameUpdate(dt: number) {
         this._readback.frameUpdate(dt);
+    }
+
+    public frameRender(): void {
+        this._readback.frameRender();
+    }
+
+    public frameEnd(): void {
+        this._readback.frameEnd();
     }
 
     public capture(hzb: IHierarchicalZBuffer, camera: pc.Camera) {

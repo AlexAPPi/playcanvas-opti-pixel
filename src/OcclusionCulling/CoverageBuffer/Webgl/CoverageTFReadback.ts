@@ -4,12 +4,10 @@ import type { ICoverageReadbackStats } from "../ICoverageBuffer.js";
 import { CoverageTFState } from "./CoverageTFState.js";
 
 /**
- * In-flight coverage TF readbacks. Pack writes a slot's `outputBuffer`, then
- * {@link TFStateQueue.submit} copies into that slot's STREAM_READ PBO and
- * inserts a fence. {@link TFStateQueue.frameUpdate} copies the newest ready
- * slot into {@link cpuDepth} once {@link TFStateQueue.minReadbackLag} has
- * elapsed — one `getBufferSubData` per tick. The next pack takes any free slot,
- * and only on a capture tick ({@link TFStateQueue.readbackPeriod}).
+ * Coverage ring. Pack writes a slot, {@link TFStateQueue.submit} copies it into
+ * the PBO, and {@link TFStateQueue.frameRender} publishes the newest finished
+ * map into {@link cpuDepth}. The next pack takes any free slot, and only on a
+ * capture tick ({@link TFStateQueue.readbackPeriod}).
  *
  * Do not harvest from `capture` / postrender.
  */
@@ -21,6 +19,7 @@ export class CoverageTFReadback extends TFStateQueue<CoverageTFState> {
     private _cpuWidth = 0;
     private _cpuHeight = 0;
     private _cpuReady = false;
+    private _cpuFrame = 0;
     private _cpuVersion = 0;
     private _stats: ICoverageReadbackStats = {
         packMs: 0,
@@ -29,12 +28,13 @@ export class CoverageTFReadback extends TFStateQueue<CoverageTFState> {
         latencyFrames: 0
     };
 
-    public constructor(device: pc.WebglGraphicsDevice, pixelCount: number, slotCount: number = 5) {
+    public constructor(device: pc.WebglGraphicsDevice, pixelCount: number, slotCount: number = 2) {
         super(device, slotCount);
         this._resize(Math.max(0, pixelCount | 0));
     }
 
-    public get cpuReady() { return this._cpuReady; }
+    /** A map is published and no older than {@link TFStateQueue.maxResultAge}. */
+    public get cpuReady() { return this._cpuReady && this._isFresh(this._cpuFrame); }
     public get cpuVersion() { return this._cpuVersion; }
     public get cpuDepth() { return this._cpuDepth; }
     public get cpuViewProjection() { return this._cpuVP; }
@@ -54,8 +54,8 @@ export class CoverageTFReadback extends TFStateQueue<CoverageTFState> {
      * published one instead of dropping coverage for a few frames every time
      * the depth source changes size.
      *
-     * Context restore also lands here with an unchanged count and needs no
-     * rebuild — {@link CoverageTFState.onContextLost} drops the fence and PBO for
+     * A device restore also lands here with an unchanged count and needs no
+     * rebuild — {@link CoverageTFState.onDeviceLost} drops the PBO for
      * `beginRead` to recreate, and the engine restores `outputBuffer` before
      * it fires `devicerestored`.
      */
@@ -74,62 +74,34 @@ export class CoverageTFReadback extends TFStateQueue<CoverageTFState> {
     }
 
     /**
-     * Newest wins, unlike the FIFO base. Every coverage slot holds the same
-     * full depth map, so an older capture has nothing unique to contribute.
-     * Draining oldest-first keeps the ring full once a stall has filled it —
-     * one slot freed and one captured per frame — which pins the published
-     * capture at {@link TFStateQueue.slotCount} frames old instead of
-     * {@link TFStateQueue.minReadbackLag}.
-     *
-     * Still one `getBufferSubData` per tick: only the published slot is read.
-     * Retiring the older ones is free — `abortRead` just drops their fence.
+     * Newest eligible map. Every slot is a full depth map, so an older one has
+     * nothing the newest lacks. FIFO would keep the ring full after a stall —
+     * one slot freed and one captured per frame — and pin the published map
+     * at {@link TFStateQueue.slotCount} frames instead of {@link TFStateQueue.minReadbackLag}.
      */
-    public override harvest() {
-
+    protected override _pickSlot(): CoverageTFState | null {
         const slots = this._slots;
-        const frameId = this._frameId;
-        const minReadbackLag = this._minReadbackLag;
-
         let newest: CoverageTFState | null = null;
-
         for (let i = 0; i < slots.length; i++) {
-
             const slot = slots[i];
-
-            if (!slot.pending || frameId - slot.submitFrame < minReadbackLag) {
-                continue;
-            }
-
-            // `poll` is idempotent; a ready fence is consumed only by `read`.
-            const status = slot.poll();
-
-            if (status === "failed") {
-                slot.abortRead();
-                continue;
-            }
-
-            if (status !== "ready") {
-                continue;
-            }
-
-            if (!newest || slot.submitFrame > newest.submitFrame) {
+            if (this._isEligible(slot) && (!newest || slot.submitFrame > newest.submitFrame)) {
                 newest = slot;
             }
         }
+        return newest;
+    }
 
-        if (!newest) {
-            return;
-        }
-
+    /**
+     * Drop maps older than the one about to be published. A newer map replaces
+     * them, so they must not keep a slot busy.
+     */
+    protected override _dropSuperseded(picked: CoverageTFState): void {
+        const slots = this._slots;
         for (let i = 0; i < slots.length; i++) {
             const slot = slots[i];
-            if (slot !== newest && slot.pending && slot.submitFrame < newest.submitFrame) {
+            if (slot !== picked && slot.pending && slot.submitFrame < picked.submitFrame) {
                 slot.abortRead();
             }
-        }
-
-        if (!this._commit(newest)) {
-            newest.abortRead();
         }
     }
 
@@ -147,6 +119,7 @@ export class CoverageTFReadback extends TFStateQueue<CoverageTFState> {
         this._cpuVP.set(slot.vp);
         this._cpuParams.set(slot.cameraParams);
         this._cpuReady = true;
+        this._cpuFrame = slot.submitFrame;
         this._cpuVersion++;
 
         const stats = this._stats;
@@ -164,7 +137,7 @@ export class CoverageTFReadback extends TFStateQueue<CoverageTFState> {
         this._cpuReady = false;
     }
 
-    protected override _onContextLost(): void {
+    protected override _onDeviceLost(): void {
         this._cpuReady = false;
     }
 

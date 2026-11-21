@@ -4,11 +4,19 @@ import { CoverageGpuReadbackState } from "./CoverageGpuReadbackState.js";
 
 /**
  * In-flight coverage readbacks. Compute writes {@link outputBuffer}, then
- * {@link submit} copies into a slot's staging buffer. `mapAsync` starts as
- * soon as the frame holding that copy has been submitted, and {@link frameUpdate}
- * retries any slot that is not mapping yet. The newest ready slot is copied
- * into {@link cpuDepth} once {@link minReadbackLag} has elapsed. The next pack
- * takes any free slot, and only on a capture tick ({@link readbackPeriod}).
+ * {@link submit} copies into a slot's staging buffer. Same frame contract as
+ * the WebGL ring:
+ * - {@link frameUpdate} on `frameupdate` — advances the frame counter and
+ *   starts `mapAsync` for any copy that reached the queue late.
+ * - {@link frameRender} on `framerender` — publishes the newest mapped capture
+ *   into {@link cpuDepth} once {@link minReadbackLag} has elapsed.
+ * - {@link frameEnd} on `frameend` — starts `mapAsync` for this frame's copy,
+ *   which the engine has submitted by then.
+ *
+ * Nothing waits for the GPU: an unmapped capture stays pending, and a
+ * published map that nothing replaces ages out ({@link maxResultAge}).
+ * The next pack takes any free slot, and only on a capture tick
+ * ({@link readbackPeriod}).
  *
  * Do not harvest from `capture` / postrender.
  */
@@ -19,8 +27,9 @@ export class CoverageGpuReadback {
     private _output: pc.StorageBuffer | null = null;
     private _pixelCount = 0;
     private _slotCount = 5;
-    private _minReadbackLag = 2;
+    private _minReadbackLag = 1;
     private _readbackPeriod = 1;
+    private _maxResultAge = 10;
     private _captureTick = 0;
     private _frameId = 0;
     private _submitFrame = -1;
@@ -30,6 +39,7 @@ export class CoverageGpuReadback {
     private _cpuWidth = 0;
     private _cpuHeight = 0;
     private _cpuReady = false;
+    private _cpuFrame = 0;
     private _cpuVersion = 0;
     private _stats: ICoverageReadbackStats = {
         packMs: 0,
@@ -51,7 +61,11 @@ export class CoverageGpuReadback {
         this._createSlots();
     }
 
-    /** In-flight staging slots. Clamped to at least `2`. */
+    /**
+     * In-flight staging slots. Default `5`, clamped to at least `2`. A retired
+     * slot stays busy until its `mapAsync` settles, so the ring needs more
+     * room than the WebGL one.
+     */
     public get slotCount() { return this._slotCount; }
     public set slotCount(value: number) {
         const next = Math.max(2, value | 0);
@@ -64,7 +78,12 @@ export class CoverageGpuReadback {
         this._createSlots();
     }
 
-    public get cpuReady() { return this._cpuReady; }
+    /** A map is published and no older than {@link maxResultAge}. */
+    public get cpuReady() {
+        const limit = Math.max(this._maxResultAge, this._minReadbackLag + this._readbackPeriod);
+        return this._cpuReady && this._frameId - this._cpuFrame <= limit;
+    }
+
     public get cpuVersion() { return this._cpuVersion; }
     public get cpuDepth() { return this._cpuDepth; }
     public get cpuViewProjection() { return this._cpuVP; }
@@ -77,14 +96,28 @@ export class CoverageGpuReadback {
     /** Height of the harvested map. `0` before the first one and after a resize. */
     public get cpuHeight() { return this._cpuHeight; }
 
+    /**
+     * Frames from a capture to its earliest publish. Default `1`, the
+     * minimum: the capture runs after this frame's {@link frameRender}.
+     */
     public get minReadbackLag() { return this._minReadbackLag; }
     public set minReadbackLag(value: number) {
-        this._minReadbackLag = Math.max(0, value | 0);
+        this._minReadbackLag = Math.max(1, value | 0);
+    }
+
+    /**
+     * Frames, counted from the capture, a published map stays valid; past
+     * that {@link cpuReady} turns false. Never shorter than
+     * {@link minReadbackLag} + {@link readbackPeriod}. Default `10`.
+     */
+    public get maxResultAge() { return this._maxResultAge; }
+    public set maxResultAge(value: number) {
+        this._maxResultAge = Math.max(1, value | 0);
     }
 
     /**
      * Submit a packed capture every N {@link acquire} attempts while a slot
-     * is free. Harvest still polls every {@link frameUpdate}. Default `1`.
+     * is free. {@link frameRender} still publishes every frame. Default `1`.
      */
     public get readbackPeriod() { return this._readbackPeriod; }
     public set readbackPeriod(value: number) {
@@ -123,62 +156,24 @@ export class CoverageGpuReadback {
 
     public frameUpdate(_dt: number) {
         this._frameId++;
-        this.harvest();
+        this._kickMaps();
     }
 
     /**
-     * Publish the newest ready capture and retire the older ones.
+     * Publish the newest mapped capture and retire the older ones.
      *
      * Every capture replaces the whole depth map, so an older one is only
      * staler. Draining FIFO would pin the latency at {@link slotCount} — once
      * the ring is full each tick frees exactly one slot and the next pack
      * refills it, so the oldest capture never gets any younger.
      */
-    public harvest() {
-        const slots = this._slots;
-        const frameId = this._frameId;
-        const minReadbackLag = this._minReadbackLag;
-
-        // Retry for slots whose `beginRead` timer fired before the frame was
-        // submitted. `kickMap` gates itself on the device submit counter, so
-        // this is a no-op for everything already mapping.
-        for (let i = 0; i < slots.length; i++) {
-            const slot = slots[i];
-            if (slot.pending) {
-                slot.kickMap();
-            }
-        }
-
-        let newest: CoverageGpuReadbackState | null = null;
-
-        for (let i = 0; i < slots.length; i++) {
-
-            const slot = slots[i];
-
-            if (!slot.pending || frameId - slot.submitFrame < minReadbackLag) {
-                continue;
-            }
-
-            const status = slot.poll();
-
-            if (status === "failed") {
-                slot.abortRead();
-                continue;
-            }
-
-            if (status !== "ready") {
-                continue;
-            }
-
-            if (!newest || slot.submitFrame > newest.submitFrame) {
-                newest = slot;
-            }
-        }
-
+    public frameRender(): void {
+        const newest = this._newestMapped();
         if (!newest) {
             return;
         }
 
+        const slots = this._slots;
         for (let i = 0; i < slots.length; i++) {
             const slot = slots[i];
             if (slot !== newest && slot.pending && slot.submitFrame < newest.submitFrame) {
@@ -186,29 +181,12 @@ export class CoverageGpuReadback {
             }
         }
 
-        // The only CPU copy runs inside `read`, so this interval is the whole cost.
+        this._publish(newest);
+    }
 
-        const copyStart = performance.now();
-        const count = newest.read(this._cpuDepth);
-        const now = performance.now();
-        const readMs = now - copyStart;
-        const n = newest.width * newest.height;
-        if (count <= 0 || n <= 0 || count !== n) {
-            newest.abortRead();
-            return;
-        }
-
-        this._cpuWidth = newest.width;
-        this._cpuHeight = newest.height;
-        this._cpuVP.set(newest.vp);
-        this._cpuParams.set(newest.cameraParams);
-        this._cpuReady = true;
-        this._cpuVersion++;
-
-        const stats = this._stats;
-        stats.readMs = readMs;
-        stats.latencyMs = newest.submitTime > 0 ? now - newest.submitTime : 0;
-        stats.latencyFrames = frameId - newest.submitFrame;
+    /** Start `mapAsync` for this frame's copy. The engine submitted it in `frameEnd`. */
+    public frameEnd(): void {
+        this._kickMaps();
     }
 
     /**
@@ -262,6 +240,65 @@ export class CoverageGpuReadback {
         this._submitFrame = this._frameId;
         this._captureTick++;
         return true;
+    }
+
+    /** `kickMap` gates itself on the device submit counter, so a slot not on the queue yet waits. */
+    private _kickMaps() {
+        const slots = this._slots;
+        for (let i = 0; i < slots.length; i++) {
+            if (slots[i].pending) {
+                slots[i].kickMap();
+            }
+        }
+    }
+
+    private _newestMapped(): CoverageGpuReadbackState | null {
+        const slots = this._slots;
+        let newest: CoverageGpuReadbackState | null = null;
+
+        for (let i = 0; i < slots.length; i++) {
+            const slot = slots[i];
+            if (!slot.pending || this._frameId - slot.submitFrame < this._minReadbackLag) {
+                continue;
+            }
+
+            const status = slot.poll();
+            if (status === "failed") {
+                slot.abortRead();
+                continue;
+            }
+
+            if (status === "ready" && (!newest || slot.submitFrame > newest.submitFrame)) {
+                newest = slot;
+            }
+        }
+
+        return newest;
+    }
+
+    private _publish(slot: CoverageGpuReadbackState) {
+        // The only CPU copy runs inside `read`, so this interval is the whole cost.
+        const copyStart = performance.now();
+        const count = slot.read(this._cpuDepth);
+        const now = performance.now();
+        const n = slot.width * slot.height;
+        if (count <= 0 || n <= 0 || count !== n) {
+            slot.abortRead();
+            return;
+        }
+
+        this._cpuWidth = slot.width;
+        this._cpuHeight = slot.height;
+        this._cpuVP.set(slot.vp);
+        this._cpuParams.set(slot.cameraParams);
+        this._cpuReady = true;
+        this._cpuFrame = slot.submitFrame;
+        this._cpuVersion++;
+
+        const stats = this._stats;
+        stats.readMs = now - copyStart;
+        stats.latencyMs = slot.submitTime > 0 ? now - slot.submitTime : 0;
+        stats.latencyFrames = this._frameId - slot.submitFrame;
     }
 
     private _resetCpu(pixelCount: number) {
