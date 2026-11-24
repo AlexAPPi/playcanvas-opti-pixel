@@ -1,9 +1,9 @@
 export default `
 
     #ifdef INSTANCER_USE_LAYERS
-        var uInstancerColorTexture: texture_2d_array<f32>;
+        var uInstancerColorTexture: texture_2d_array<uff>;
     #else
-        var uInstancerColorTexture: texture_2d<f32>;
+        var uInstancerColorTexture: texture_2d<uff>;
     #endif
 
     fn getInstanceColor() -> vec4f {

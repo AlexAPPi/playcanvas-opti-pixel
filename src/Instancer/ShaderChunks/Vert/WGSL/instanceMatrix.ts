@@ -1,9 +1,9 @@
 export default `
 
     #ifdef INSTANCER_USE_LAYERS
-        var uInstancerMatricesTexture: texture_2d_array<f32>;
+        var uInstancerMatricesTexture: texture_2d_array<uff>;
     #else
-        var uInstancerMatricesTexture: texture_2d<f32>;
+        var uInstancerMatricesTexture: texture_2d<uff>;
     #endif
 
     fn getInstanceMatrix() -> mat4x4f {
